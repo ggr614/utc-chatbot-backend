@@ -3,9 +3,12 @@ TDX API Wrapper that simplifies interactions with the TDX KB articles API
 """
 
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from core.config import get_settings
 import requests
+from requests import Session
+from requests.adapters import HTTPAdapter
+from urllib3.util import Retry
 from collections import deque
 from threading import Lock
 
@@ -38,6 +41,68 @@ class TDXClient:
         self.beid = beid
         self.bearer_token: Optional[str] = None
         self.rate_limiter = RateLimiter()
+        self.session = self._create_session()
+
+    def _create_session(self) -> Session:
+        """
+        Initialize a shared requests.Session with retry configuration so we reuse
+        connections and recover from transient socket closures.
+        """
+        session = requests.Session()
+        retry = Retry(
+            total=5,
+            connect=5,
+            read=5,
+            backoff_factor=0.5,
+            status_forcelist=(429, 500, 502, 503, 504),
+            allowed_methods=("GET", "POST"),
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry, pool_connections=20, pool_maxsize=20)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        session.headers.update({"Content-Type": "application/json"})
+        return session
+
+    def _reset_session(self) -> None:
+        """Dispose of the current session and build a fresh one, preserving auth."""
+        self.session.close()
+        self.session = self._create_session()
+        if self.bearer_token:
+            self.session.headers.update(
+                {"Authorization": f"Bearer {self.bearer_token}"}
+            )
+
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        """
+        Issue an HTTP request via the shared session with a simple retry that
+        recreates the session on connection failures.
+        """
+        timeout = kwargs.pop("timeout", 30.0)
+        for attempt in range(2):
+            try:
+                return self.session.request(
+                    method=method, url=url, timeout=timeout, **kwargs
+                )
+            except (
+                requests.exceptions.ConnectionError,
+                requests.exceptions.ChunkedEncodingError,
+            ):
+                if attempt == 0:
+                    self._reset_session()
+                    continue
+                raise
+        raise RuntimeError("Exceeded retry attempts for HTTP request")
+
+    def close(self) -> None:
+        """Explicitly close the underlying HTTP session."""
+        self.session.close()
+
+    def __enter__(self) -> "TDXClient":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
 
     def authenticate(self) -> str:
         """
@@ -59,10 +124,12 @@ class TDXClient:
         if not self.bearer_token:
             auth_url = f"{self.base_url}/TDWebApi/api/auth/loginadmin"
             payload = {"BEID": self.beid, "WebServicesKey": self.web_services_key}
-            headers = {"Content-Type": "application/json"}
-            response = requests.post(auth_url, json=payload, headers=headers)
+            response = self._request("POST", auth_url, json=payload)
             if response.status_code == 200:
                 self.bearer_token = response.text.strip()
+                self.session.headers.update(
+                    {"Authorization": f"Bearer {self.bearer_token}"}
+                )
                 return self.bearer_token
             else:
                 raise requests.exceptions.RequestException(
@@ -70,18 +137,18 @@ class TDXClient:
                 )
         return self.bearer_token
 
-    def list_article_ids(self) -> List[str]:
+    def list_article_ids(self) -> List[int]:
         if not self.bearer_token:
             self.authenticate()
 
         article_ids = []
         search_url = f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/search"
-        headers = {
-            "Authorization": f"Bearer {self.bearer_token}",
-            "Content-Type": "application/json",
-        }
         payload = {"ReturnCount": 10000}
-        response = requests.post(search_url, json=payload, headers=headers)
+        response = self._request("POST", search_url, json=payload)
+        if response.status_code == 401:
+            self.bearer_token = None
+            self.authenticate()
+            response = self._request("POST", search_url, json=payload)
         if response.status_code == 200:
             for article in response.json():
                 article_ids.append(article.get("ID"))
@@ -91,49 +158,65 @@ class TDXClient:
                 f"Request failed with status code: {response.status_code}"
             )
 
-    def retrieve_all_articles(self) -> List[Dict[str, Any]]:
+    def retrieve_all_articles(
+        self,
+    ) -> Tuple[List[Dict[str, Any]], List[Tuple[str, str]]]:
         if not self.bearer_token:
             self.authenticate()
 
         articles = []
         article_ids = self.list_article_ids()
 
+        # NOTE: You may want to log skipped articles for later review
+        skipped_articles = []
+
         for article_id in article_ids:
             article_url = (
                 f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/{article_id}"
             )
-            headers = {
-                "Authorization": f"Bearer {self.bearer_token}",
-                "Content-Type": "application/json",
-            }
             max_retries = 3
             retry_delay = 2.0
 
             for attempt in range(max_retries):
                 self.rate_limiter.acquire()
-                response = requests.get(article_url, headers=headers)
+                response = self._request("GET", article_url)
+
+                if response.status_code == 401 and attempt < max_retries - 1:
+                    self.bearer_token = None
+                    self.authenticate()
+                    continue
 
                 if response.status_code == 200:
                     articles.append(response.json())
-                    break
+                    break  # Success! Break the inner (retry) loop and move to next article_id
 
                 elif response.status_code == 429:
+                    # Rate limit error: Apply exponential backoff and retry
                     if attempt < max_retries - 1:
                         wait_time = retry_delay * (2**attempt)
                         time.sleep(wait_time)
-                        continue
+                        continue  # Go to the next attempt
                     else:
-                        raise ValueError(
-                            f"Failed to get article {article_id} after {max_retries} attempts due to rate limiting (429)."
-                        )
+                        # Failed all attempts due to 429. Log and skip.
+                        error_msg = f"Skipping article {article_id}. Failed all {max_retries} attempts due to rate limiting (429)."
+                        print(error_msg)  # Use a logging library in production
+                        skipped_articles.append((article_id, "Rate Limit Failure"))
+                        break  # Break the inner (retry) loop
 
                 else:
-                    raise ValueError(
-                        f"Failed to get article {article_id} on attempt {attempt + 1}. "
+                    # Non-recoverable error (e.g., 404 Not Found, 401 Unauthorized, 500 Server Error)
+                    # Log and skip immediately without retrying.
+                    error_msg = (
+                        f"Skipping article {article_id}. Non-recoverable error on attempt {attempt + 1}. "
                         f"Status code: {response.status_code}. Response: {response.text}"
                     )
+                    print(error_msg)  # Use a logging library in production
+                    skipped_articles.append(
+                        (article_id, f"HTTP Error {response.status_code}")
+                    )
+                    break  # Break the inner (retry) loop
 
-        return articles
+        return articles, skipped_articles
 
 
 """
