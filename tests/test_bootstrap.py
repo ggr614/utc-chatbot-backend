@@ -81,7 +81,7 @@ class TestDatabaseBootstrap:
         mock_cursor.fetchone.return_value = (True,)
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-        result = bootstrap.check_extension_exists(mock_conn, "pgvector")
+        result = bootstrap.check_extension_exists(mock_conn, "vector")
 
         assert result is True
 
@@ -92,7 +92,7 @@ class TestDatabaseBootstrap:
         mock_cursor.fetchone.return_value = (False,)
         mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
 
-        result = bootstrap.check_extension_exists(mock_conn, "pgvector")
+        result = bootstrap.check_extension_exists(mock_conn, "vector")
 
         assert result is False
 
@@ -122,7 +122,7 @@ class TestDatabaseBootstrap:
             bootstrap_dry_run.create_extensions(mock_conn)
 
         captured = capsys.readouterr()
-        assert "[->] Would create extension 'pgvector'" in captured.out
+        assert "[->] Would create extension 'vector'" in captured.out
 
     def test_create_extensions_already_exists(self, bootstrap_dry_run, capsys):
         """Test creating extensions when already exists."""
@@ -134,7 +134,7 @@ class TestDatabaseBootstrap:
             bootstrap_dry_run.create_extensions(mock_conn)
 
         captured = capsys.readouterr()
-        assert "[OK] Extension 'pgvector' already exists" in captured.out
+        assert "[OK] Extension 'vector' already exists" in captured.out
 
     def test_create_articles_table_dry_run(self, bootstrap_dry_run, capsys):
         """Test creating articles table in dry-run mode."""
@@ -186,8 +186,8 @@ class TestDatabaseBootstrap:
         captured = capsys.readouterr()
         assert "-> Would create table 'embeddings'" in captured.out
 
-    def test_create_embeddings_table_without_pgvector(self, bootstrap, capsys):
-        """Test creating embeddings table without pgvector extension."""
+    def test_create_embeddings_table_without_vector(self, bootstrap, capsys):
+        """Test creating embeddings table without vector extension."""
         mock_conn = MagicMock()
 
         with patch.object(bootstrap, "check_table_exists", return_value=False):
@@ -195,14 +195,54 @@ class TestDatabaseBootstrap:
                 bootstrap.create_embeddings_table(mock_conn)
 
         captured = capsys.readouterr()
-        assert "pgvector extension not installed" in captured.out
+        assert "vector extension not installed" in captured.out
+
+    def test_create_chunks_table_dry_run(self, bootstrap_dry_run, capsys):
+        """Test creating chunks table in dry-run mode."""
+        mock_conn = MagicMock()
+
+        with patch.object(bootstrap_dry_run, "check_table_exists", return_value=False):
+            bootstrap_dry_run.create_chunks_table(mock_conn)
+
+        captured = capsys.readouterr()
+        assert "-> Would create table 'article_chunks'" in captured.out
+
+    def test_create_chunks_table_already_exists_dry_run(
+        self, bootstrap_dry_run, capsys
+    ):
+        """Test chunks table when already exists in dry-run mode."""
+        mock_conn = MagicMock()
+
+        with patch.object(bootstrap_dry_run, "check_table_exists", return_value=True):
+            with patch.object(
+                bootstrap_dry_run,
+                "get_table_info",
+                return_value={"columns": [], "row_count": 5},
+            ):
+                bootstrap_dry_run.create_chunks_table(mock_conn)
+
+        captured = capsys.readouterr()
+        assert "[OK] Table 'article_chunks' already exists (5 rows)" in captured.out
+
+    def test_create_chunks_table(self, bootstrap, capsys):
+        """Test creating chunks table."""
+        mock_conn = MagicMock()
+        mock_cursor = MagicMock()
+        mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
+
+        with patch.object(bootstrap, "check_table_exists", return_value=False):
+            bootstrap.create_chunks_table(mock_conn)
+
+        captured = capsys.readouterr()
+        assert "[OK] Created table 'article_chunks' with indexes" in captured.out
+        assert mock_cursor.execute.call_count == 2  # CREATE TABLE + CREATE INDEX
 
     def test_drop_all_tables_dry_run(self, bootstrap_dry_run, capsys):
         """Test dropping tables in dry-run mode."""
         mock_conn = MagicMock()
 
         def check_exists(conn, table):
-            return table in ["articles", "embeddings"]
+            return table in ["articles", "embeddings", "article_chunks"]
 
         with patch.object(
             bootstrap_dry_run, "check_table_exists", side_effect=check_exists
@@ -227,7 +267,7 @@ class TestDatabaseBootstrap:
 
         captured = capsys.readouterr()
         assert "[OK] Dropped table" in captured.out
-        assert mock_cursor.execute.call_count == 2  # Drop articles and embeddings
+        assert mock_cursor.execute.call_count == 3  # Drop articles, embeddings, and article_chunks
 
     def test_setup_database_dry_run(self, bootstrap_dry_run, capsys):
         """Test full setup in dry-run mode."""
@@ -268,5 +308,5 @@ class TestDatabaseBootstrap:
 
         captured = capsys.readouterr()
         assert "=== Database Status:" in captured.out
-        assert "pgvector: [OK] Installed" in captured.out
+        assert "vector: [OK] Installed" in captured.out
         assert "[OK] Exists (5 rows" in captured.out
