@@ -44,6 +44,9 @@ class TextChunk(BaseModel):
     # Contextual fields
     token_count: int
     source_url: HttpUrl
+    last_modified_date: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
 
 
 # Embedding

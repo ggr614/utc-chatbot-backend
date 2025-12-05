@@ -65,6 +65,7 @@ class TestPostgresClient:
                     with client.get_connection() as conn:
                         # Simulate a database error
                         import psycopg
+
                         raise psycopg.Error("Test error")
 
                 mock_conn.rollback.assert_called_once()

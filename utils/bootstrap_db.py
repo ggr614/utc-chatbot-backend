@@ -144,8 +144,12 @@ class DatabaseBootstrap:
 
             # Get row count
             try:
-                cur.execute(sql.SQL("SELECT COUNT(*) FROM {}").format(sql.Identifier(table_name)))
-                row_count = cur.fetchone()[0] # type: ignore
+                cur.execute(
+                    sql.SQL("SELECT COUNT(*) FROM {}").format(
+                        sql.Identifier(table_name)
+                    )
+                )
+                row_count = cur.fetchone()[0]  # type: ignore
             except psycopg.Error:
                 row_count = 0
 
@@ -171,7 +175,11 @@ class DatabaseBootstrap:
             else:
                 if not exists:
                     with conn.cursor() as cur:
-                        cur.execute(sql.SQL("CREATE EXTENSION IF NOT EXISTS {}").format(sql.Identifier(ext)))
+                        cur.execute(
+                            sql.SQL("CREATE EXTENSION IF NOT EXISTS {}").format(
+                                sql.Identifier(ext)
+                            )
+                        )
                     print(f"  [OK] Created extension '{ext}'")
                 else:
                     print(f"  [OK] Extension '{ext}' already exists")
@@ -189,7 +197,9 @@ class DatabaseBootstrap:
         if self.dry_run:
             if exists:
                 info = self.get_table_info(conn, table_name)
-                print(f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)")
+                print(
+                    f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)"
+                )
                 print(f"    Columns: {len(info['columns'])}")
             else:
                 print(f"  -> Would create table '{table_name}'")
@@ -222,6 +232,54 @@ class DatabaseBootstrap:
 
         print(f"  [OK] Created table '{table_name}' with indexes")
 
+    def create_chunks_table(self, conn: Connection) -> None:
+        """
+        Create the chunks table for cleaned article storage.
+
+        Args:
+            conn: Database connection
+        """
+        table_name = "article_chunks"
+        exists = self.check_table_exists(conn, table_name)
+
+        if self.dry_run:
+            if exists:
+                info = self.get_table_info(conn, table_name)
+                print(
+                    f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)"
+                )
+                print(f"    Columns: {len(info['columns'])}")
+            else:
+                print(f"  -> Would create table '{table_name}'")
+            return
+
+        if exists:
+            print(f"  [OK] Table '{table_name}' already exists")
+            return
+
+        create_table_sql = """
+        CREATE TABLE article_chunks (
+            id INTEGER PRIMARY KEY,
+            parent_article_id INTEGER NOT NULL,
+            chunk_sequence INTEGER NOT NULL,
+            text_content TEXT NOT NULL,
+            token_count INTEGER NOT NULL,
+            url TEXT NOT NULL,
+            last_modified_date TIMESTAMP WITH TIME ZONE NOT NULL
+        );
+        """
+
+        create_index_sql = """
+        CREATE INDEX idx_chunks_parent_article ON article_chunks(parent_article_id);
+        CREATE INDEX idx_chunks_chunk_sequence ON article_chunks(parent_article_id, chunk_sequence);
+        """
+
+        with conn.cursor() as cur:
+            cur.execute(create_table_sql)
+            cur.execute(create_index_sql)
+
+        print(f"  [OK] Created table '{table_name}' with indexes")
+
     def create_embeddings_table(self, conn: Connection) -> None:
         """
         Create the embeddings table for vector storage.
@@ -235,7 +293,9 @@ class DatabaseBootstrap:
         if self.dry_run:
             if exists:
                 info = self.get_table_info(conn, table_name)
-                print(f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)")
+                print(
+                    f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)"
+                )
                 print(f"    Columns: {len(info['columns'])}")
             else:
                 print(f"  -> Would create table '{table_name}'")
@@ -245,9 +305,11 @@ class DatabaseBootstrap:
             print(f"  [OK] Table '{table_name}' already exists")
             return
 
-        # Check if pgvector extension exists before creating the table
+        # Check if vector extension exists before creating the table
         if not self.check_extension_exists(conn, "vector"):
-            print(f"  [!] Warning: pgvector extension not installed. Skipping '{table_name}' table creation.")
+            print(
+                f"  [!] Warning: vector extension not installed. Skipping '{table_name}' table creation."
+            )
             return
 
         create_table_sql = """
@@ -283,7 +345,7 @@ class DatabaseBootstrap:
         Args:
             conn: Database connection
         """
-        tables = ["embeddings", "articles"]
+        tables = ["embeddings", "articles", "article_chunks"]
 
         if self.dry_run:
             print("  -> Would drop the following tables:")
@@ -296,7 +358,11 @@ class DatabaseBootstrap:
         with conn.cursor() as cur:
             for table in tables:
                 if self.check_table_exists(conn, table):
-                    cur.execute(sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(sql.Identifier(table)))
+                    cur.execute(
+                        sql.SQL("DROP TABLE IF EXISTS {} CASCADE").format(
+                            sql.Identifier(table)
+                        )
+                    )
                     print(f"  [OK] Dropped table '{table}'")
 
     def setup_database(self, full_reset: bool = False) -> None:
@@ -326,6 +392,7 @@ class DatabaseBootstrap:
                 print("Setting up tables...")
                 self.create_articles_table(conn)
                 self.create_embeddings_table(conn)
+                self.create_chunks_table(conn)
                 print()
 
                 if self.dry_run:
@@ -350,7 +417,7 @@ class DatabaseBootstrap:
 
                 # Check extensions
                 print("Extensions:")
-                extensions = ["pgvector"]
+                extensions = ["vector"]
                 for ext in extensions:
                     exists = self.check_extension_exists(conn, ext)
                     status = "[OK] Installed" if exists else "[X] Not installed"
@@ -359,12 +426,14 @@ class DatabaseBootstrap:
 
                 # Check tables
                 print("Tables:")
-                tables = ["articles", "embeddings"]
+                tables = ["articles", "embeddings", "article_chunks"]
                 for table in tables:
                     exists = self.check_table_exists(conn, table)
                     if exists:
                         info = self.get_table_info(conn, table)
-                        print(f"  {table}: [OK] Exists ({info['row_count']} rows, {len(info['columns'])} columns)")
+                        print(
+                            f"  {table}: [OK] Exists ({info['row_count']} rows, {len(info['columns'])} columns)"
+                        )
                     else:
                         print(f"  {table}: [X] Does not exist")
                 print()

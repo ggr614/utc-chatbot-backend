@@ -116,7 +116,9 @@ class TestDatabaseBootstrap:
         """Test creating extensions in dry-run mode."""
         mock_conn = MagicMock()
 
-        with patch.object(bootstrap_dry_run, "check_extension_exists", return_value=False):
+        with patch.object(
+            bootstrap_dry_run, "check_extension_exists", return_value=False
+        ):
             bootstrap_dry_run.create_extensions(mock_conn)
 
         captured = capsys.readouterr()
@@ -126,7 +128,9 @@ class TestDatabaseBootstrap:
         """Test creating extensions when already exists."""
         mock_conn = MagicMock()
 
-        with patch.object(bootstrap_dry_run, "check_extension_exists", return_value=True):
+        with patch.object(
+            bootstrap_dry_run, "check_extension_exists", return_value=True
+        ):
             bootstrap_dry_run.create_extensions(mock_conn)
 
         captured = capsys.readouterr()
@@ -142,12 +146,18 @@ class TestDatabaseBootstrap:
         captured = capsys.readouterr()
         assert "-> Would create table 'articles'" in captured.out
 
-    def test_create_articles_table_already_exists_dry_run(self, bootstrap_dry_run, capsys):
+    def test_create_articles_table_already_exists_dry_run(
+        self, bootstrap_dry_run, capsys
+    ):
         """Test articles table when already exists in dry-run mode."""
         mock_conn = MagicMock()
 
         with patch.object(bootstrap_dry_run, "check_table_exists", return_value=True):
-            with patch.object(bootstrap_dry_run, "get_table_info", return_value={"columns": [], "row_count": 5}):
+            with patch.object(
+                bootstrap_dry_run,
+                "get_table_info",
+                return_value={"columns": [], "row_count": 5},
+            ):
                 bootstrap_dry_run.create_articles_table(mock_conn)
 
         captured = capsys.readouterr()
@@ -194,8 +204,12 @@ class TestDatabaseBootstrap:
         def check_exists(conn, table):
             return table in ["articles", "embeddings"]
 
-        with patch.object(bootstrap_dry_run, "check_table_exists", side_effect=check_exists):
-            with patch.object(bootstrap_dry_run, "get_table_info", return_value={"row_count": 10}):
+        with patch.object(
+            bootstrap_dry_run, "check_table_exists", side_effect=check_exists
+        ):
+            with patch.object(
+                bootstrap_dry_run, "get_table_info", return_value={"row_count": 10}
+            ):
                 bootstrap_dry_run.drop_all_tables(mock_conn)
 
         captured = capsys.readouterr()
@@ -223,8 +237,12 @@ class TestDatabaseBootstrap:
             mock_conn.__exit__.return_value = None
             mock_get_conn.return_value = mock_conn
 
-            with patch.object(bootstrap_dry_run, "check_extension_exists", return_value=False):
-                with patch.object(bootstrap_dry_run, "check_table_exists", return_value=False):
+            with patch.object(
+                bootstrap_dry_run, "check_extension_exists", return_value=False
+            ):
+                with patch.object(
+                    bootstrap_dry_run, "check_table_exists", return_value=False
+                ):
                     bootstrap_dry_run.setup_database()
 
         captured = capsys.readouterr()
@@ -241,7 +259,11 @@ class TestDatabaseBootstrap:
 
             with patch.object(bootstrap, "check_extension_exists", return_value=True):
                 with patch.object(bootstrap, "check_table_exists", return_value=True):
-                    with patch.object(bootstrap, "get_table_info", return_value={"columns": [], "row_count": 5}):
+                    with patch.object(
+                        bootstrap,
+                        "get_table_info",
+                        return_value={"columns": [], "row_count": 5},
+                    ):
                         bootstrap.check_status()
 
         captured = capsys.readouterr()

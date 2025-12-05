@@ -6,7 +6,6 @@ from core.storage_raw import PostgresClient
 from datetime import datetime
 
 
-
 class ArticleProcessor:
     """
     Orchestrates the ingestion of articles from TDX API into the database.
@@ -202,4 +201,3 @@ class ArticleProcessor:
         deleted_ids = db_article_ids - api_ids_set
 
         return list(deleted_ids)
-

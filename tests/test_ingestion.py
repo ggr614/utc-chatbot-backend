@@ -175,11 +175,31 @@ class TestArticleProcessor:
     def test_process_articles_skips_missing_required_fields(self, processor):
         """Test that articles with missing required fields are skipped."""
         articles = [
-            {"ID": None, "Subject": "Test", "Body": "Content", "ModifiedDate": "2024-01-01T00:00:00Z"},
-            {"ID": 123, "Subject": None, "Body": "Content", "ModifiedDate": "2024-01-01T00:00:00Z"},
-            {"ID": 456, "Subject": "Test", "Body": None, "ModifiedDate": "2024-01-01T00:00:00Z"},
+            {
+                "ID": None,
+                "Subject": "Test",
+                "Body": "Content",
+                "ModifiedDate": "2024-01-01T00:00:00Z",
+            },
+            {
+                "ID": 123,
+                "Subject": None,
+                "Body": "Content",
+                "ModifiedDate": "2024-01-01T00:00:00Z",
+            },
+            {
+                "ID": 456,
+                "Subject": "Test",
+                "Body": None,
+                "ModifiedDate": "2024-01-01T00:00:00Z",
+            },
             {"ID": 789, "Subject": "Test", "Body": "Content", "ModifiedDate": None},
-            {"ID": 999, "Subject": "Valid", "Body": "Valid Content", "ModifiedDate": "2024-01-01T00:00:00Z"},
+            {
+                "ID": 999,
+                "Subject": "Valid",
+                "Body": "Valid Content",
+                "ModifiedDate": "2024-01-01T00:00:00Z",
+            },
         ]
 
         processed = processor.process_articles(articles)
@@ -264,7 +284,9 @@ class TestArticleProcessor:
         assert stats["skipped_count"] == 0
         mock_db_client.insert_articles.assert_called_once()
 
-    def test_identify_deleted_articles(self, processor, mock_tdx_client, mock_db_client):
+    def test_identify_deleted_articles(
+        self, processor, mock_tdx_client, mock_db_client
+    ):
         """Test identification of deleted articles."""
         # Setup mocks
         mock_db_client.get_existing_article_ids.return_value = {123, 456, 789}

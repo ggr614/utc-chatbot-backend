@@ -27,7 +27,9 @@ def sample_article_model():
     return TdxArticle(
         id=123,
         title="Test Article",
-        url=HttpUrl("https://utc.teamdynamix.com/TDClient/2717/Portal/KB/ArticleDet?ID=123"),
+        url=HttpUrl(
+            "https://utc.teamdynamix.com/TDClient/2717/Portal/KB/ArticleDet?ID=123"
+        ),
         content_html="<p>Test content</p>",
         last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
     )
@@ -74,8 +76,23 @@ def multiple_articles_data():
 def articles_with_missing_fields():
     """Articles with missing required fields for testing validation."""
     return [
-        {"ID": None, "Subject": "Test", "Body": "Content", "ModifiedDate": "2024-01-01T00:00:00Z"},
-        {"ID": 123, "Subject": None, "Body": "Content", "ModifiedDate": "2024-01-01T00:00:00Z"},
-        {"ID": 456, "Subject": "Test", "Body": None, "ModifiedDate": "2024-01-01T00:00:00Z"},
+        {
+            "ID": None,
+            "Subject": "Test",
+            "Body": "Content",
+            "ModifiedDate": "2024-01-01T00:00:00Z",
+        },
+        {
+            "ID": 123,
+            "Subject": None,
+            "Body": "Content",
+            "ModifiedDate": "2024-01-01T00:00:00Z",
+        },
+        {
+            "ID": 456,
+            "Subject": "Test",
+            "Body": None,
+            "ModifiedDate": "2024-01-01T00:00:00Z",
+        },
         {"ID": 789, "Subject": "Test", "Body": "Content", "ModifiedDate": None},
     ]
