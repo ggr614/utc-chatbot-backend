@@ -74,9 +74,12 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
   - Dry-run mode to preview changes
   - Full-reset mode to rebuild database
   - Status checking
-  - Creates articles, article_chunks, and embeddings tables
+  - Creates articles, article_chunks, and two embedding tables (OpenAI & Cohere)
   - Installs pgvector extension
   - Creates indexes and foreign keys
+  - Supports multiple embedding providers:
+    - OpenAI text-embedding-3-large (3072 dimensions)
+    - AWS Cohere Embed v4 (1536 dimensions)
 - **Tests**: 21 passing tests
 
 #### 7. **Processing Layer** (`core/processing.py`)
@@ -144,7 +147,9 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 - last_modified_date (timestamp): Last modification date
 ```
 
-### Embeddings Table (Vector Storage) - WIP
+### Embeddings Tables (Vector Storage) - WIP
+
+#### Embeddings OpenAI Table
 ```sql
 - chunk_id (text): Unique chunk identifier (Primary Key)
 - parent_article_id (int): Foreign key to articles table
@@ -152,7 +157,19 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 - text_content (text): Clean text content
 - token_count (int): Number of tokens
 - source_url (text): Article URL
-- embedding (vector(1536)): pgvector embedding
+- embedding (vector(3072)): pgvector embedding for OpenAI text-embedding-3-large
+- created_at (timestamp): Embedding creation timestamp
+```
+
+#### Embeddings Cohere Table
+```sql
+- chunk_id (text): Unique chunk identifier (Primary Key)
+- parent_article_id (int): Foreign key to articles table
+- chunk_sequence (int): Order within article
+- text_content (text): Clean text content
+- token_count (int): Number of tokens
+- source_url (text): Article URL
+- embedding (vector(1536)): pgvector embedding for AWS Cohere Embed v4
 - created_at (timestamp): Embedding creation timestamp
 ```
 

@@ -11,6 +11,9 @@ from requests.adapters import HTTPAdapter
 from urllib3.util import Retry
 from collections import deque
 from threading import Lock
+from utils.logger import get_logger, PerformanceLogger
+
+logger = get_logger(__name__)
 
 
 class TDXClient:
@@ -35,6 +38,21 @@ class TDXClient:
             webserviceskey: Second Identifier required for bearer token generation
             app_id: The Client Portal application ID
         """
+        logger.info(f"Initializing TDXClient for {base_url}")
+
+        if not base_url:
+            logger.error("BASE_URL is not configured")
+            raise ValueError("BASE_URL is required")
+        if not app_id:
+            logger.error("APP_ID is not configured")
+            raise ValueError("APP_ID is required")
+        if not web_services_key:
+            logger.error("WEBSERVICES_KEY is not configured")
+            raise ValueError("WEBSERVICES_KEY is required")
+        if not beid:
+            logger.error("BEID is not configured")
+            raise ValueError("BEID is required")
+
         self.base_url = base_url
         self.app_id = app_id
         self.web_services_key = web_services_key
@@ -42,6 +60,7 @@ class TDXClient:
         self.bearer_token: Optional[str] = None
         self.rate_limiter = RateLimiter()
         self.session = self._create_session()
+        logger.debug(f"TDXClient initialized successfully for app_id={app_id}")
 
     def _create_session(self) -> Session:
         """
@@ -122,101 +141,194 @@ class TDXClient:
             detail page to administrators with "Add BE Administrators" permission.
         """
         if not self.bearer_token:
+            logger.info("Authenticating with TDX API")
             auth_url = f"{self.base_url}/TDWebApi/api/auth/loginadmin"
             payload = {"BEID": self.beid, "WebServicesKey": self.web_services_key}
-            response = self._request("POST", auth_url, json=payload)
-            if response.status_code == 200:
-                self.bearer_token = response.text.strip()
-                self.session.headers.update(
-                    {"Authorization": f"Bearer {self.bearer_token}"}
-                )
-                return self.bearer_token
-            else:
-                raise requests.exceptions.RequestException(
-                    f"Authentication failed with status code: {response.status_code}"
-                )
+
+            try:
+                with PerformanceLogger(logger, "TDX authentication", level=logger.level):
+                    response = self._request("POST", auth_url, json=payload)
+
+                if response.status_code == 200:
+                    self.bearer_token = response.text.strip()
+                    self.session.headers.update(
+                        {"Authorization": f"Bearer {self.bearer_token}"}
+                    )
+                    logger.info("Successfully authenticated with TDX API")
+                    logger.debug(f"Bearer token: {self.bearer_token[:20]}...")
+                    return self.bearer_token
+                else:
+                    logger.error(f"Authentication failed with status code: {response.status_code}")
+                    logger.debug(f"Response: {response.text}")
+                    raise requests.exceptions.RequestException(
+                        f"Authentication failed with status code: {response.status_code}"
+                    )
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Network error during authentication: {str(e)}")
+                raise
+            except Exception as e:
+                logger.error(f"Unexpected error during authentication: {str(e)}")
+                raise RuntimeError(f"Authentication failed: {str(e)}") from e
+        else:
+            logger.debug("Using existing bearer token")
+
         return self.bearer_token
 
     def list_article_ids(self) -> List[int]:
+        """
+        Retrieve list of all article IDs from TDX API.
+
+        Returns:
+            List of article IDs
+
+        Raises:
+            RuntimeError: If request fails after retries
+        """
+        logger.info("Fetching article IDs from TDX API")
+
         if not self.bearer_token:
             self.authenticate()
 
-        article_ids = []
-        search_url = f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/search"
-        payload = {"ReturnCount": 10000}
-        response = self._request("POST", search_url, json=payload)
-        if response.status_code == 401:
-            self.bearer_token = None
-            self.authenticate()
-            response = self._request("POST", search_url, json=payload)
-        if response.status_code == 200:
-            for article in response.json():
-                article_ids.append(article.get("ID"))
-            return article_ids
-        else:
-            raise requests.exceptions.RequestException(
-                f"Request failed with status code: {response.status_code}"
-            )
+        try:
+            article_ids = []
+            search_url = f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/search"
+            payload = {"ReturnCount": 10000}
+
+            logger.debug(f"Requesting article list from {search_url}")
+            with PerformanceLogger(logger, "Fetch article IDs list"):
+                response = self._request("POST", search_url, json=payload)
+
+            if response.status_code == 401:
+                logger.warning("Token expired, re-authenticating")
+                self.bearer_token = None
+                self.authenticate()
+                response = self._request("POST", search_url, json=payload)
+
+            if response.status_code == 200:
+                articles_data = response.json()
+                for article in articles_data:
+                    article_id = article.get("ID")
+                    if article_id:
+                        article_ids.append(article_id)
+                    else:
+                        logger.warning(f"Article missing ID: {article}")
+
+                logger.info(f"Successfully retrieved {len(article_ids)} article IDs")
+                return article_ids
+            else:
+                logger.error(f"Request failed with status code: {response.status_code}")
+                logger.debug(f"Response: {response.text}")
+                raise RuntimeError(
+                    f"Request failed with status code: {response.status_code}"
+                )
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Network error while fetching article IDs: {str(e)}")
+            raise RuntimeError(f"Failed to fetch article IDs: {str(e)}") from e
+        except Exception as e:
+            logger.error(f"Unexpected error while fetching article IDs: {str(e)}")
+            raise RuntimeError(f"Failed to fetch article IDs: {str(e)}") from e
 
     def retrieve_all_articles(
         self,
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[str, str]]]:
+        """
+        Retrieve all articles from TDX API with retry logic.
+
+        Returns:
+            Tuple of (successful_articles, skipped_articles_with_reasons)
+
+        Raises:
+            RuntimeError: If unable to fetch article list
+        """
+        logger.info("Starting retrieval of all articles from TDX API")
+
         if not self.bearer_token:
             self.authenticate()
 
         articles = []
-        article_ids = self.list_article_ids()
-
-        # NOTE: You may want to log skipped articles for later review
         skipped_articles = []
 
-        for article_id in article_ids:
-            article_url = (
-                f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/{article_id}"
+        try:
+            article_ids = self.list_article_ids()
+            logger.info(f"Retrieved {len(article_ids)} article IDs, fetching full content")
+
+            with PerformanceLogger(logger, f"Fetch {len(article_ids)} full articles"):
+                for idx, article_id in enumerate(article_ids, 1):
+                    if idx % 50 == 0:
+                        logger.info(f"Progress: {idx}/{len(article_ids)} articles fetched")
+
+                    article_url = (
+                        f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/{article_id}"
+                    )
+                    max_retries = 3
+                    retry_delay = 2.0
+
+                    for attempt in range(max_retries):
+                        try:
+                            self.rate_limiter.acquire()
+                            response = self._request("GET", article_url)
+
+                            if response.status_code == 401 and attempt < max_retries - 1:
+                                logger.warning(f"Token expired while fetching article {article_id}, re-authenticating")
+                                self.bearer_token = None
+                                self.authenticate()
+                                continue
+
+                            if response.status_code == 200:
+                                articles.append(response.json())
+                                logger.debug(f"Successfully fetched article {article_id}")
+                                break  # Success!
+
+                            elif response.status_code == 429:
+                                # Rate limit error: Apply exponential backoff and retry
+                                if attempt < max_retries - 1:
+                                    wait_time = retry_delay * (2**attempt)
+                                    logger.warning(
+                                        f"Rate limit hit for article {article_id}, "
+                                        f"waiting {wait_time}s (attempt {attempt + 1}/{max_retries})"
+                                    )
+                                    time.sleep(wait_time)
+                                    continue
+                                else:
+                                    # Failed all attempts due to 429
+                                    logger.error(
+                                        f"Skipping article {article_id}. Failed all {max_retries} "
+                                        f"attempts due to rate limiting (429)"
+                                    )
+                                    skipped_articles.append((article_id, "Rate Limit Failure"))
+                                    break
+
+                            else:
+                                # Non-recoverable error
+                                logger.error(
+                                    f"Skipping article {article_id}. Non-recoverable error on attempt {attempt + 1}. "
+                                    f"Status code: {response.status_code}. Response: {response.text[:200]}"
+                                )
+                                skipped_articles.append(
+                                    (article_id, f"HTTP Error {response.status_code}")
+                                )
+                                break
+
+                        except requests.exceptions.RequestException as e:
+                            logger.error(f"Network error fetching article {article_id}: {str(e)}")
+                            if attempt == max_retries - 1:
+                                skipped_articles.append((article_id, f"Network Error: {str(e)}"))
+                            continue
+
+            logger.info(
+                f"Article retrieval complete: {len(articles)} retrieved, "
+                f"{len(skipped_articles)} skipped"
             )
-            max_retries = 3
-            retry_delay = 2.0
 
-            for attempt in range(max_retries):
-                self.rate_limiter.acquire()
-                response = self._request("GET", article_url)
+            if skipped_articles:
+                logger.warning(f"Skipped articles: {skipped_articles}")
 
-                if response.status_code == 401 and attempt < max_retries - 1:
-                    self.bearer_token = None
-                    self.authenticate()
-                    continue
+            return articles, skipped_articles
 
-                if response.status_code == 200:
-                    articles.append(response.json())
-                    break  # Success! Break the inner (retry) loop and move to next article_id
-
-                elif response.status_code == 429:
-                    # Rate limit error: Apply exponential backoff and retry
-                    if attempt < max_retries - 1:
-                        wait_time = retry_delay * (2**attempt)
-                        time.sleep(wait_time)
-                        continue  # Go to the next attempt
-                    else:
-                        # Failed all attempts due to 429. Log and skip.
-                        error_msg = f"Skipping article {article_id}. Failed all {max_retries} attempts due to rate limiting (429)."
-                        print(error_msg)  # Use a logging library in production
-                        skipped_articles.append((article_id, "Rate Limit Failure"))
-                        break  # Break the inner (retry) loop
-
-                else:
-                    # Non-recoverable error (e.g., 404 Not Found, 401 Unauthorized, 500 Server Error)
-                    # Log and skip immediately without retrying.
-                    error_msg = (
-                        f"Skipping article {article_id}. Non-recoverable error on attempt {attempt + 1}. "
-                        f"Status code: {response.status_code}. Response: {response.text}"
-                    )
-                    print(error_msg)  # Use a logging library in production
-                    skipped_articles.append(
-                        (article_id, f"HTTP Error {response.status_code}")
-                    )
-                    break  # Break the inner (retry) loop
-
-        return articles, skipped_articles
+        except Exception as e:
+            logger.error(f"Fatal error during article retrieval: {str(e)}")
+            raise RuntimeError(f"Failed to retrieve articles: {str(e)}") from e
 
 
 """

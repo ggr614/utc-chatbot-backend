@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # AWS Bedrock
     AWS_REGION: str = "us-east-1"
     AWS_ACCESS_KEY_ID: SecretStr
+    AWS_SECRET_ACCESS_KEY: SecretStr
     AWS_EMBED_MODEL_ID: str
     AWS_EMBED_DIM: int
     AWS_MAX_TOKENS: int

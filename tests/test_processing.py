@@ -59,15 +59,29 @@ class TestTextProcessor:
         assert not result.startswith(" ")
         assert not result.endswith(" ")
 
-    def test_process_text_handles_empty_string(self, processor):
-        """Test that empty string is handled correctly."""
-        result = processor.process_text("")
-        assert result == ""
+    def test_process_text_raises_error_on_empty_string(self, processor):
+        """Test that empty string raises ValueError."""
+        with pytest.raises(ValueError, match="Text cannot be empty"):
+            processor.process_text("")
 
-    def test_process_text_handles_only_whitespace(self, processor):
-        """Test that string with only whitespace is handled correctly."""
-        result = processor.process_text("   \n\n   ")
-        assert result == ""
+    def test_process_text_raises_error_on_only_whitespace(self, processor):
+        """Test that string with only whitespace raises ValueError."""
+        with pytest.raises(ValueError, match="Text processing resulted in empty content"):
+            processor.process_text("   \n\n   ")
+
+    def test_process_text_raises_error_on_non_string(self, processor):
+        """Test that non-string input raises ValueError."""
+        with pytest.raises(ValueError, match="Text must be a string"):
+            processor.process_text(123)
+
+        # None is caught by empty check first
+        with pytest.raises(ValueError, match="Text cannot be empty"):
+            processor.process_text(None)
+
+    def test_process_text_raises_error_on_empty_result(self, processor):
+        """Test that processing resulting in empty content raises ValueError."""
+        with pytest.raises(ValueError, match="Text processing resulted in empty content"):
+            processor.process_text("<div></div>")
 
     def test_process_text_handles_complex_html(self, processor):
         """Test processing of complex HTML structure."""
@@ -120,45 +134,45 @@ class TestTextProcessor:
         # HTML entities should be decoded
         assert "&" in result or "Special chars:" in result
 
-    def test_get_token_count_returns_integer(self, processor):
-        """Test that token count returns an integer."""
-        text = "This is a test string with several words."
-        count = processor.get_token_count(text)
+    def test_text_to_chunks_basic_functionality(self, processor):
+        """Test basic text chunking functionality."""
+        text = "This is a test string. " * 100  # Create a longer text
+        chunks = processor.text_to_chunks(text, max_tokens=50, overlap=10)
 
-        assert isinstance(count, int)
-        assert count > 0
+        assert isinstance(chunks, list)
+        assert len(chunks) > 0
+        assert all(isinstance(chunk, str) for chunk in chunks)
 
-    def test_get_token_count_empty_string(self, processor):
-        """Test token count for empty string."""
-        count = processor.get_token_count("")
-        assert count == 0
+    def test_text_to_chunks_empty_text_raises_error(self, processor):
+        """Test that empty text raises ValueError."""
+        with pytest.raises(ValueError, match="Text cannot be empty"):
+            processor.text_to_chunks("", max_tokens=100)
 
-    def test_get_token_count_increases_with_text_length(self, processor):
-        """Test that longer text has more tokens."""
-        short_text = "Hello world"
-        long_text = "Hello world this is a much longer piece of text with many more words and tokens"
+    def test_text_to_chunks_non_string_raises_error(self, processor):
+        """Test that non-string input raises ValueError."""
+        with pytest.raises(ValueError, match="Text must be a string"):
+            processor.text_to_chunks(123, max_tokens=100)
 
-        short_count = processor.get_token_count(short_text)
-        long_count = processor.get_token_count(long_text)
+    def test_text_to_chunks_invalid_max_tokens_raises_error(self, processor):
+        """Test that invalid max_tokens raises ValueError."""
+        with pytest.raises(ValueError, match="max_tokens must be positive"):
+            processor.text_to_chunks("test text", max_tokens=0)
 
-        assert long_count > short_count
+        with pytest.raises(ValueError, match="max_tokens must be positive"):
+            processor.text_to_chunks("test text", max_tokens=-10)
 
-    def test_get_token_count_uses_tokenizer(self, processor):
-        """Test that get_token_count uses the Tokenizer class."""
-        with patch("core.processing.Tokenizer") as mock_tokenizer_class:
-            mock_tokenizer_instance = MagicMock()
-            mock_tokenizer_instance.num_tokens_from_string.return_value = 42
-            mock_tokenizer_class.return_value = mock_tokenizer_instance
+    def test_text_to_chunks_invalid_overlap_raises_error(self, processor):
+        """Test that invalid overlap raises ValueError."""
+        with pytest.raises(ValueError, match="overlap must be non-negative"):
+            processor.text_to_chunks("test text", max_tokens=100, overlap=-5)
 
-            # Create new processor to use mocked tokenizer
-            new_processor = TextProcessor()
-            count = new_processor.get_token_count("test text")
+    def test_text_to_chunks_overlap_greater_than_max_raises_error(self, processor):
+        """Test that overlap >= max_tokens raises ValueError."""
+        with pytest.raises(ValueError, match="overlap.*must be less than max_tokens"):
+            processor.text_to_chunks("test text", max_tokens=100, overlap=100)
 
-            mock_tokenizer_class.assert_called_once()
-            mock_tokenizer_instance.num_tokens_from_string.assert_called_once_with(
-                "test text"
-            )
-            assert count == 42
+        with pytest.raises(ValueError, match="overlap.*must be less than max_tokens"):
+            processor.text_to_chunks("test text", max_tokens=50, overlap=60)
 
     def test_process_text_consistent_output(self, processor):
         """Test that processing the same text multiple times gives same result."""
@@ -168,15 +182,6 @@ class TestTextProcessor:
         result2 = processor.process_text(html)
 
         assert result1 == result2
-
-    def test_get_token_count_consistent_output(self, processor):
-        """Test that counting tokens multiple times gives same result."""
-        text = "Test content"
-
-        count1 = processor.get_token_count(text)
-        count2 = processor.get_token_count(text)
-
-        assert count1 == count2
 
     def test_process_text_handles_nested_tags(self, processor):
         """Test processing of deeply nested HTML tags."""

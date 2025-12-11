@@ -176,23 +176,44 @@ class TestDatabaseBootstrap:
         assert "[OK] Created table 'articles' with indexes" in captured.out
         assert mock_cursor.execute.call_count == 2  # CREATE TABLE + CREATE INDEX
 
-    def test_create_embeddings_table_dry_run(self, bootstrap_dry_run, capsys):
-        """Test creating embeddings table in dry-run mode."""
+    def test_create_embeddings_table_openai_dry_run(self, bootstrap_dry_run, capsys):
+        """Test creating OpenAI embeddings table in dry-run mode."""
         mock_conn = MagicMock()
 
         with patch.object(bootstrap_dry_run, "check_table_exists", return_value=False):
-            bootstrap_dry_run.create_embeddings_table(mock_conn)
+            bootstrap_dry_run.create_embeddings_table_openai(mock_conn)
 
         captured = capsys.readouterr()
-        assert "-> Would create table 'embeddings'" in captured.out
+        assert "-> Would create table 'embeddings_openai'" in captured.out
 
-    def test_create_embeddings_table_without_vector(self, bootstrap, capsys):
-        """Test creating embeddings table without vector extension."""
+    def test_create_embeddings_table_cohere_dry_run(self, bootstrap_dry_run, capsys):
+        """Test creating Cohere embeddings table in dry-run mode."""
+        mock_conn = MagicMock()
+
+        with patch.object(bootstrap_dry_run, "check_table_exists", return_value=False):
+            bootstrap_dry_run.create_embeddings_table_cohere(mock_conn)
+
+        captured = capsys.readouterr()
+        assert "-> Would create table 'embeddings_cohere'" in captured.out
+
+    def test_create_embeddings_table_openai_without_vector(self, bootstrap, capsys):
+        """Test creating OpenAI embeddings table without vector extension."""
         mock_conn = MagicMock()
 
         with patch.object(bootstrap, "check_table_exists", return_value=False):
             with patch.object(bootstrap, "check_extension_exists", return_value=False):
-                bootstrap.create_embeddings_table(mock_conn)
+                bootstrap.create_embeddings_table_openai(mock_conn)
+
+        captured = capsys.readouterr()
+        assert "vector extension not installed" in captured.out
+
+    def test_create_embeddings_table_cohere_without_vector(self, bootstrap, capsys):
+        """Test creating Cohere embeddings table without vector extension."""
+        mock_conn = MagicMock()
+
+        with patch.object(bootstrap, "check_table_exists", return_value=False):
+            with patch.object(bootstrap, "check_extension_exists", return_value=False):
+                bootstrap.create_embeddings_table_cohere(mock_conn)
 
         captured = capsys.readouterr()
         assert "vector extension not installed" in captured.out
@@ -242,7 +263,7 @@ class TestDatabaseBootstrap:
         mock_conn = MagicMock()
 
         def check_exists(conn, table):
-            return table in ["articles", "embeddings", "article_chunks"]
+            return table in ["articles", "embeddings_openai", "embeddings_cohere", "article_chunks"]
 
         with patch.object(
             bootstrap_dry_run, "check_table_exists", side_effect=check_exists
@@ -267,7 +288,7 @@ class TestDatabaseBootstrap:
 
         captured = capsys.readouterr()
         assert "[OK] Dropped table" in captured.out
-        assert mock_cursor.execute.call_count == 3  # Drop articles, embeddings, and article_chunks
+        assert mock_cursor.execute.call_count == 4  # Drop embeddings_openai, embeddings_cohere, articles, and article_chunks
 
     def test_setup_database_dry_run(self, bootstrap_dry_run, capsys):
         """Test full setup in dry-run mode."""

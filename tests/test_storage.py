@@ -218,30 +218,38 @@ class TestPostgresClient:
 
     def test_insert_articles_empty_list(self, client):
         """Test inserting empty list of articles."""
-        mock_cursor = MagicMock()
-
-        with patch.object(client, "get_connection") as mock_get_conn:
-            mock_conn = MagicMock()
-            mock_conn.__enter__.return_value = mock_conn
-            mock_conn.__exit__.return_value = None
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            mock_get_conn.return_value = mock_conn
-
-            client.insert_articles([])
-
-            mock_cursor.execute.assert_not_called()
+        # Should return early without attempting connection
+        client.insert_articles([])
+        # No error should be raised
 
     def test_update_articles_empty_list(self, client):
         """Test updating empty list of articles."""
-        mock_cursor = MagicMock()
+        # Should return early without attempting connection
+        client.update_articles([])
+        # No error should be raised
 
-        with patch.object(client, "get_connection") as mock_get_conn:
-            mock_conn = MagicMock()
-            mock_conn.__enter__.return_value = mock_conn
-            mock_conn.__exit__.return_value = None
-            mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
-            mock_get_conn.return_value = mock_conn
+    def test_init_validates_configuration(self):
+        """Test that initialization validates configuration."""
+        with patch("core.storage_raw.get_settings") as mock_settings:
+            # Test missing DB_HOST
+            settings = Mock()
+            settings.DB_HOST = None
+            settings.DB_USER = "user"
+            settings.DB_NAME = "db"
+            settings.DB_PASSWORD.get_secret_value.return_value = "pass"
+            mock_settings.return_value = settings
 
-            client.update_articles([])
+            with pytest.raises(ValueError, match="DB_HOST is not configured"):
+                PostgresClient()
 
-            mock_cursor.execute.assert_not_called()
+            # Test missing DB_USER
+            settings.DB_HOST = "localhost"
+            settings.DB_USER = None
+            with pytest.raises(ValueError, match="DB_USER is not configured"):
+                PostgresClient()
+
+            # Test missing DB_NAME
+            settings.DB_USER = "user"
+            settings.DB_NAME = None
+            with pytest.raises(ValueError, match="DB_NAME is not configured"):
+                PostgresClient()
