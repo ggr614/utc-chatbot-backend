@@ -176,22 +176,55 @@ class RAGPipeline:
                 # Get articles to process
                 if article_ids:
                     logger.info(f"Processing {len(article_ids)} specified articles")
-                    # Would need to implement get_articles_by_ids in PostgresClient
-                    raise NotImplementedError("Processing specific article IDs not yet implemented")
+                    articles = self.raw_store.get_articles_by_ids(article_ids)
                 else:
                     logger.info("Processing all articles from database")
-                    # For now, we'll return a placeholder
-                    # In a real implementation, you'd:
-                    # 1. Fetch articles from raw_store
-                    # 2. Process each article's HTML to text
-                    # 3. Chunk the text
-                    # 4. Store chunks in article_chunks table
-                    logger.warning("Full article processing not yet implemented")
+                    articles = self.raw_store.get_all_articles()
+
+                if not articles:
+                    logger.warning("No articles found to process")
                     return {
                         'processed_count': 0,
                         'chunk_count': 0,
                         'chunk_ids': []
                     }
+
+                logger.info(f"Processing {len(articles)} articles")
+
+                # Process each article to chunks
+                all_chunks = []
+                processed_count = 0
+
+                for idx, article in enumerate(articles, 1):
+                    try:
+                        logger.debug(f"Processing article {idx}/{len(articles)}: {article.id}")
+                        chunks = self.process_article_to_chunks(article)
+                        all_chunks.extend(chunks)
+                        processed_count += 1
+
+                        if idx % 10 == 0:
+                            logger.info(f"Progress: {idx}/{len(articles)} articles processed")
+
+                    except Exception as e:
+                        logger.error(f"Failed to process article {article.id}: {str(e)}")
+                        # Continue processing other articles
+                        continue
+
+                # Store all chunks in database
+                if all_chunks:
+                    logger.info(f"Storing {len(all_chunks)} chunks in database")
+                    self.raw_store.store_chunks(all_chunks)
+
+                logger.info(
+                    f"Processing complete: {processed_count} articles processed, "
+                    f"{len(all_chunks)} chunks created"
+                )
+
+                return {
+                    'processed_count': processed_count,
+                    'chunk_count': len(all_chunks),
+                    'chunk_ids': [chunk.chunk_id for chunk in all_chunks]
+                }
 
         except Exception as e:
             logger.error(f"Processing phase failed: {str(e)}")
@@ -380,21 +413,65 @@ class RAGPipeline:
                 else:
                     logger.info("PHASE 1: INGESTION - SKIPPED")
 
-                # Phase 2: Processing (simplified for now)
-                # In full implementation, this would:
-                # - Fetch articles from database
-                # - Process each to chunks
-                # - Store chunks in article_chunks table
-                logger.info("\n" + "=" * 80)
-                logger.info("PHASE 2: PROCESSING")
-                logger.info("=" * 80)
-                logger.warning("Processing phase simplified - implement fetch and process loop for production")
+                # Phase 2: Processing
+                if not self.skip_processing:
+                    logger.info("\n" + "=" * 80)
+                    logger.info("PHASE 2: PROCESSING")
+                    logger.info("=" * 80)
+                    processing_result = self.run_processing(article_ids=article_ids)
+                    stats['processing'] = processing_result
+                    chunk_ids = processing_result.get('chunk_ids', [])
+                else:
+                    logger.info("PHASE 2: PROCESSING - SKIPPED")
+                    chunk_ids = []
 
-                # Phase 3 & 4: Embedding and Storage would follow
-                logger.info("\n" + "=" * 80)
-                logger.info("PHASE 3 & 4: EMBEDDING AND STORAGE")
-                logger.info("=" * 80)
-                logger.warning("Embedding and storage phases not executed in simplified version")
+                # Phase 3 & 4: Embedding and Storage
+                if not self.skip_embedding and chunk_ids:
+                    logger.info("\n" + "=" * 80)
+                    logger.info("PHASE 3: EMBEDDING GENERATION")
+                    logger.info("=" * 80)
+
+                    # Fetch chunks from database to get the full TextChunk objects
+                    logger.info(f"Preparing to generate embeddings for {len(chunk_ids)} chunks")
+
+                    # For now, we'll use the chunks from processing phase if available
+                    # In a production system, you might want to fetch from DB to support resume
+                    articles_to_embed = []
+                    if article_ids:
+                        articles_to_embed = self.raw_store.get_articles_by_ids(article_ids)
+                    elif not self.skip_processing:
+                        # If we just processed, we can use those articles
+                        # Otherwise we'd need to fetch all from DB
+                        logger.debug("Using articles from processing phase")
+                        articles_to_embed = self.raw_store.get_all_articles()
+
+                    # Process articles to chunks and generate embeddings
+                    all_embeddings = []
+                    for article in articles_to_embed:
+                        try:
+                            chunks = self.process_article_to_chunks(article)
+                            embeddings = self.run_embedding(chunks)
+                            all_embeddings.extend(embeddings)
+                        except Exception as e:
+                            logger.error(f"Failed to embed article {article.id}: {str(e)}")
+                            continue
+
+                    stats['embedding']['embedding_count'] = len(all_embeddings)
+
+                    # Phase 4: Storage
+                    if all_embeddings:
+                        logger.info("\n" + "=" * 80)
+                        logger.info("PHASE 4: VECTOR STORAGE")
+                        logger.info("=" * 80)
+                        stored_count = self.run_storage(all_embeddings)
+                        stats['storage']['stored_count'] = stored_count
+                    else:
+                        logger.warning("No embeddings generated to store")
+                else:
+                    if self.skip_embedding:
+                        logger.info("PHASE 3 & 4: EMBEDDING AND STORAGE - SKIPPED")
+                    else:
+                        logger.info("PHASE 3 & 4: EMBEDDING AND STORAGE - NO CHUNKS TO PROCESS")
 
                 stats['end_time'] = datetime.now()
                 stats['duration_seconds'] = (stats['end_time'] - stats['start_time']).total_seconds()
@@ -403,7 +480,17 @@ class RAGPipeline:
                 logger.info("PIPELINE EXECUTION COMPLETE")
                 logger.info("=" * 80)
                 logger.info(f"Duration: {stats['duration_seconds']:.2f} seconds")
-                logger.info(f"Ingestion: {stats['ingestion']}")
+
+                if stats.get('ingestion'):
+                    logger.info(f"Ingestion: {stats['ingestion'].get('new_count', 0)} new, "
+                              f"{stats['ingestion'].get('updated_count', 0)} updated")
+                if stats['processing']['processed_count'] > 0:
+                    logger.info(f"Processing: {stats['processing']['processed_count']} articles, "
+                              f"{stats['processing']['chunk_count']} chunks")
+                if stats['embedding']['embedding_count'] > 0:
+                    logger.info(f"Embedding: {stats['embedding']['embedding_count']} generated")
+                if stats['storage']['stored_count'] > 0:
+                    logger.info(f"Storage: {stats['storage']['stored_count']} stored")
 
                 return stats
 

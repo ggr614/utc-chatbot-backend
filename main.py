@@ -286,14 +286,62 @@ def command_embed(args: argparse.Namespace) -> int:
             skip_processing=True
         )
 
-        # TODO: Implement fetching chunks from database and generating embeddings
-        # For now, this is a placeholder showing the structure
-        logger.warning("Embedding command not fully implemented yet")
-        logger.info("This would:")
-        logger.info("  1. Fetch processed chunks from database")
-        logger.info(f"  2. Generate embeddings using {args.provider}")
-        logger.info(f"  3. Store embeddings in embeddings_{args.provider} table")
-        logger.info(f"  4. Process in batches of {args.batch_size}")
+        # Get chunk count first
+        chunk_count = pipeline.raw_store.get_chunk_count()
+
+        if chunk_count == 0:
+            logger.warning("No chunks found in database. Run 'process' command first.")
+            pipeline.cleanup()
+            return 1
+
+        logger.info(f"Found {chunk_count} chunks in database")
+        logger.info(f"Processing in batches of {args.batch_size}")
+
+        # Fetch and process chunks in batches
+        all_embeddings = []
+        processed_count = 0
+        offset = 0
+
+        while offset < chunk_count:
+            # Fetch batch of chunks
+            logger.info(f"Fetching chunks {offset + 1} to {min(offset + args.batch_size, chunk_count)}")
+            chunks = pipeline.raw_store.get_all_chunks(limit=args.batch_size, offset=offset)
+
+            if not chunks:
+                logger.warning(f"No chunks retrieved at offset {offset}, stopping")
+                break
+
+            # Generate embeddings for this batch
+            logger.info(f"Generating embeddings for {len(chunks)} chunks")
+            try:
+                embeddings = pipeline.run_embedding(chunks)
+                all_embeddings.extend(embeddings)
+                processed_count += len(chunks)
+
+                # Store embeddings immediately after generating each batch
+                if embeddings:
+                    logger.info(f"Storing {len(embeddings)} embeddings")
+                    stored = pipeline.run_storage(embeddings)
+                    logger.info(f"Stored {stored} embeddings successfully")
+
+            except Exception as e:
+                logger.error(f"Failed to process batch at offset {offset}: {str(e)}")
+                # Continue with next batch
+                pass
+
+            offset += args.batch_size
+
+            # Progress update
+            progress = min(offset, chunk_count)
+            percent = (progress / chunk_count) * 100
+            logger.info(f"Progress: {progress}/{chunk_count} chunks ({percent:.1f}%)")
+
+        logger.info("\n" + "=" * 80)
+        logger.info("EMBEDDING GENERATION COMPLETE")
+        logger.info("=" * 80)
+        logger.info(f"Total chunks processed: {processed_count}")
+        logger.info(f"Total embeddings generated: {len(all_embeddings)}")
+        logger.info("=" * 80)
 
         pipeline.cleanup()
         return 0

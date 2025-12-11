@@ -176,10 +176,10 @@ class TDXClient:
 
     def list_article_ids(self) -> List[int]:
         """
-        Retrieve list of all article IDs from TDX API.
+        Retrieve list of all article IDs from TDX API, excluding phishing category.
 
         Returns:
-            List of article IDs
+            List of article IDs (excluding "Recent Phishing Emails" category)
 
         Raises:
             RuntimeError: If request fails after retries
@@ -191,6 +191,7 @@ class TDXClient:
 
         try:
             article_ids = []
+            filtered_count = 0
             search_url = f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/search"
             payload = {"ReturnCount": 10000}
 
@@ -208,12 +209,23 @@ class TDXClient:
                 articles_data = response.json()
                 for article in articles_data:
                     article_id = article.get("ID")
+                    category_name = article.get("CategoryName")
+
+                    # Filter out phishing category early to reduce API calls
+                    if category_name == "Recent Phishing Emails":
+                        logger.debug(f"Filtering out phishing article {article_id}")
+                        filtered_count += 1
+                        continue
+
                     if article_id:
                         article_ids.append(article_id)
                     else:
                         logger.warning(f"Article missing ID: {article}")
 
-                logger.info(f"Successfully retrieved {len(article_ids)} article IDs")
+                logger.info(
+                    f"Successfully retrieved {len(article_ids)} article IDs "
+                    f"({filtered_count} phishing articles filtered)"
+                )
                 return article_ids
             else:
                 logger.error(f"Request failed with status code: {response.status_code}")

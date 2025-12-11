@@ -228,3 +228,216 @@ class PostgresClient:
         except Exception as e:
             logger.error(f"Failed to update articles: {str(e)}")
             raise
+
+    def get_all_articles(self) -> List[TdxArticle]:
+        """
+        Retrieve all articles from the database.
+
+        Returns:
+            List of TdxArticle objects
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        logger.debug("Fetching all articles from database")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, title, url, content_html, last_modified_date
+                        FROM articles
+                        ORDER BY id
+                        """
+                    )
+                    rows = cur.fetchall()
+                    articles = []
+                    for row in rows:
+                        articles.append(TdxArticle(
+                            id=row[0],
+                            title=row[1],
+                            url=row[2],
+                            content_html=row[3],
+                            last_modified_date=row[4]
+                        ))
+                    logger.info(f"Retrieved {len(articles)} articles from database")
+                    return articles
+        except Exception as e:
+            logger.error(f"Failed to fetch all articles: {str(e)}")
+            raise
+
+    def get_articles_by_ids(self, article_ids: List[int]) -> List[TdxArticle]:
+        """
+        Retrieve specific articles by their IDs.
+
+        Args:
+            article_ids: List of article IDs to retrieve
+
+        Returns:
+            List of TdxArticle objects
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        if not article_ids:
+            logger.warning("No article IDs provided")
+            return []
+
+        logger.debug(f"Fetching {len(article_ids)} articles by ID")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, title, url, content_html, last_modified_date
+                        FROM articles
+                        WHERE id = ANY(%s)
+                        ORDER BY id
+                        """,
+                        (article_ids,)
+                    )
+                    rows = cur.fetchall()
+                    articles = []
+                    for row in rows:
+                        articles.append(TdxArticle(
+                            id=row[0],
+                            title=row[1],
+                            url=row[2],
+                            content_html=row[3],
+                            last_modified_date=row[4]
+                        ))
+                    logger.info(f"Retrieved {len(articles)} articles from database")
+                    return articles
+        except Exception as e:
+            logger.error(f"Failed to fetch articles by IDs: {str(e)}")
+            raise
+
+    def store_chunks(self, chunks: List["TextChunk"]) -> int:
+        """
+        Store text chunks in the article_chunks table.
+
+        Args:
+            chunks: List of TextChunk objects to store
+
+        Returns:
+            Number of chunks stored
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        if not chunks:
+            logger.warning("No chunks provided for storage")
+            return 0
+
+        logger.info(f"Storing {len(chunks)} chunks in article_chunks table")
+        try:
+            with PerformanceLogger(logger, f"Store {len(chunks)} chunks"):
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        for chunk in chunks:
+                            cur.execute(
+                                """
+                                INSERT INTO article_chunks
+                                (id, parent_article_id, chunk_sequence, text_content,
+                                 token_count, url, last_modified_date)
+                                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                ON CONFLICT (id) DO UPDATE SET
+                                    text_content = EXCLUDED.text_content,
+                                    token_count = EXCLUDED.token_count,
+                                    last_modified_date = EXCLUDED.last_modified_date
+                                """,
+                                (
+                                    chunk.chunk_id,
+                                    chunk.parent_article_id,
+                                    chunk.chunk_sequence,
+                                    chunk.text_content,
+                                    chunk.token_count,
+                                    str(chunk.source_url),
+                                    chunk.last_modified_date
+                                )
+                            )
+                logger.info(f"Successfully stored {len(chunks)} chunks")
+                return len(chunks)
+        except Exception as e:
+            logger.error(f"Failed to store chunks: {str(e)}")
+            raise
+
+    def get_chunk_count(self) -> int:
+        """
+        Get the total number of chunks in the database.
+
+        Returns:
+            Count of chunks
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        logger.debug("Getting chunk count from database")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT COUNT(*) FROM article_chunks")
+                    count = cur.fetchone()[0]  # type: ignore
+                    logger.debug(f"Found {count} chunks in database")
+                    return count
+        except Exception as e:
+            logger.error(f"Failed to get chunk count: {str(e)}")
+            raise
+
+    def get_all_chunks(self, limit: Optional[int] = None, offset: int = 0) -> List["TextChunk"]:
+        """
+        Retrieve all chunks from the database.
+
+        Args:
+            limit: Maximum number of chunks to retrieve (None for all)
+            offset: Number of chunks to skip
+
+        Returns:
+            List of TextChunk objects
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        logger.debug(f"Fetching chunks from database (limit={limit}, offset={offset})")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    if limit:
+                        cur.execute(
+                            """
+                            SELECT id, parent_article_id, chunk_sequence, text_content,
+                                   token_count, url, last_modified_date
+                            FROM article_chunks
+                            ORDER BY parent_article_id, chunk_sequence
+                            LIMIT %s OFFSET %s
+                            """,
+                            (limit, offset)
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            SELECT id, parent_article_id, chunk_sequence, text_content,
+                                   token_count, url, last_modified_date
+                            FROM article_chunks
+                            ORDER BY parent_article_id, chunk_sequence
+                            """
+                        )
+
+                    rows = cur.fetchall()
+                    chunks = []
+                    for row in rows:
+                        from core.schemas import TextChunk
+                        chunks.append(TextChunk(
+                            chunk_id=row[0],
+                            parent_article_id=row[1],
+                            chunk_sequence=row[2],
+                            text_content=row[3],
+                            token_count=row[4],
+                            source_url=row[5],
+                            last_modified_date=row[6]
+                        ))
+                    logger.info(f"Retrieved {len(chunks)} chunks from database")
+                    return chunks
+        except Exception as e:
+            logger.error(f"Failed to fetch chunks: {str(e)}")
+            raise

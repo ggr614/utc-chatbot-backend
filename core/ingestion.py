@@ -128,7 +128,7 @@ class ArticleProcessor:
         Apply business rules to filter and transform raw articles.
 
         Business rules:
-        - Filter out "Recent Phishing Emails" category
+        - Safety check for "Recent Phishing Emails" category (already filtered at API level)
         - Construct public URL from article ID
         - Validate and structure data using Pydantic
 
@@ -145,10 +145,14 @@ class ArticleProcessor:
 
         for article in articles:
             try:
-                # Business rule: filter out phishing category
+                # Safety check: filter out phishing category (already filtered at API level)
+                # This is a redundant check in case the API filter is bypassed
                 if article.get("CategoryName") == "Recent Phishing Emails":
                     filtered_count += 1
-                    logger.debug(f"Filtered out phishing article: {article.get('ID')}")
+                    logger.warning(
+                        f"Unexpected phishing article {article.get('ID')} - "
+                        f"should have been filtered at API level"
+                    )
                     continue
 
                 # Transform raw data into structured format

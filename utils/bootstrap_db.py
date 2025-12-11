@@ -259,7 +259,7 @@ class DatabaseBootstrap:
 
         create_table_sql = """
         CREATE TABLE article_chunks (
-            id INTEGER PRIMARY KEY,
+            id TEXT PRIMARY KEY,
             parent_article_id INTEGER NOT NULL,
             chunk_sequence INTEGER NOT NULL,
             text_content TEXT NOT NULL,

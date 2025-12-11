@@ -156,7 +156,7 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 
 ### Article Chunks Table (Processed Storage)
 ```sql
-- id (int): Unique chunk ID (Primary Key)
+- id (text): Unique chunk ID hash (Primary Key)
 - parent_article_id (int): Reference to articles table
 - chunk_sequence (int): Order within article
 - text_content (text): Clean, processed text content
@@ -326,7 +326,13 @@ python main.py embed --provider openai --batch-size 50
 - `--provider {openai|cohere}` - Embedding provider (default: openai)
 - `--batch-size N` - Process N chunks per batch (default: 100)
 
-**Note:** This command is partially implemented. It requires fetching chunks from the database first.
+**Features:**
+- Fetches all chunks from the `article_chunks` table
+- Processes chunks in configurable batches
+- Generates embeddings using the specified provider
+- Stores embeddings immediately after each batch
+- Shows progress updates during processing
+- Handles errors gracefully, continuing with remaining batches
 
 #### 4. Full Pipeline
 
