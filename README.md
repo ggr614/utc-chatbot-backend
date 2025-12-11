@@ -99,29 +99,47 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
   - Supports cl100k_base encoding (GPT-3.5/GPT-4)
   - Accurate token estimation for embedding size limits
 
-### 🚧 Work In Progress (WIP)
-
 #### 9. **Embedding Layer** (`core/embedding.py`)
-- **Status**: 🚧 WIP
-- **Planned Features**:
-  - Integration with AWS/Azure AI endpoints
-  - Batch embedding generation
-  - Embedding caching
-  - Semantic text chunking
+- **Status**: ✅ Fully Implemented
+- **Features**:
+  - OpenAI Azure integration (text-embedding-3-large, 3072 dimensions)
+  - AWS Bedrock Cohere integration (cohere.embed-english-v3, 1536 dimensions)
+  - Input validation and token counting
+  - Automatic retry with exponential backoff
+  - Rate limit handling
+  - Comprehensive error handling
 
 #### 10. **Vector Storage Layer** (`core/storage_vector.py`)
-- **Status**: 🚧 WIP
-- **Planned Features**:
-  - pgvector integration
-  - Vector similarity search
-  - Chunk storage and retrieval
+- **Status**: ✅ Fully Implemented
+- **Features**:
+  - pgvector integration for vector similarity search
+  - Separate storage for OpenAI (3072-dim) and Cohere (1536-dim) embeddings
+  - Insert and update operations
+  - Cosine similarity search
+  - Chunk retrieval by article ID
+  - Deletion operations
+  - Connection management with context managers
 
-#### 11. **Pipeline** (`core/pipeline.py`)
-- **Status**: 🚧 WIP
-- **Planned Features**:
-  - End-to-end orchestration
-  - Error handling and retry logic
-  - Progress tracking
+#### 11. **Pipeline Orchestrator** (`core/pipeline.py`)
+- **Status**: ✅ Fully Implemented
+- **Features**:
+  - End-to-end orchestration (ingestion → processing → embedding → storage)
+  - Configurable phases (skip ingestion, processing, or embedding)
+  - Article-to-chunk processing
+  - Chunk-to-embedding generation
+  - Embedding storage management
+  - Performance logging and statistics tracking
+  - Context manager support for resource cleanup
+
+#### 12. **Main CLI** (`main.py`)
+- **Status**: ✅ Fully Implemented
+- **Features**:
+  - Command-line interface for all operations
+  - Five main commands: ingest, process, embed, pipeline, bootstrap
+  - Configurable logging levels
+  - Exit codes for scheduler integration
+  - Comprehensive help documentation
+  - Error handling and graceful shutdown
 
 ## Database Schema
 
@@ -186,16 +204,19 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 
 ## Setup & Installation
 
-1. Install dependencies:
+### 1. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-2. Configure environment variables:
+### 2. Configure Environment Variables
+
+Create a `.env` file in the backend directory with the following variables:
+
 ```bash
 # TDX API Configuration
 BASE_URL=https://your-instance.teamdynamix.com
-APP_ID=your_app_id
+APP_ID=2717
 WEBSERVICES_KEY=your_key
 BEID=your_beid
 
@@ -204,26 +225,209 @@ DB_HOST=localhost
 DB_USER=your_user
 DB_PASSWORD=your_password
 DB_NAME=your_database
+
+# AWS Bedrock Configuration (for Cohere embeddings)
+AWS_REGION=us-east-1
+AWS_ACCESS_KEY_ID=your_access_key
+AWS_SECRET_ACCESS_KEY=your_secret_key
+AWS_EMBED_MODEL_ID=cohere.embed-english-v3
+AWS_EMBED_DIM=1536
+AWS_MAX_TOKENS=512
+
+# Azure OpenAI Configuration (for OpenAI embeddings)
+AZURE_OPENAI_API_KEY=your_api_key
+AZURE_OPENAI_EMBED_ENDPOINT=https://your-resource.openai.azure.com/
+AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-large
+AZURE_OPENAI_API_VERSION=2024-02-01
+AZURE_EMBED_DIM=3072
+AZURE_MAX_TOKENS=8191
 ```
 
-3. Bootstrap the database:
+### 3. Bootstrap the Database
+
 ```bash
 # Check current database status
-python -m utils.bootstrap_db --status
+python main.py bootstrap --status
 
-# See what would be created (dry-run)
-python -m utils.bootstrap_db --dry-run
+# Preview changes without applying (dry-run)
+python main.py bootstrap --dry-run
 
 # Create tables and extensions
-python -m utils.bootstrap_db
+python main.py bootstrap
 
-# Reset database (WARNING: deletes all data)
-python -m utils.bootstrap_db --full-reset
+# Reset database - WARNING: deletes all data!
+python main.py bootstrap --full-reset
 ```
 
-## Usage
+## CLI Usage
+
+The `main.py` CLI provides commands for all pipeline operations, designed for scheduled task execution.
+
+### Command Overview
+
+```bash
+python main.py [--log-level LEVEL] <command> [options]
+```
+
+**Important:** Global options like `--log-level` must come **before** the subcommand.
+
+### Available Commands
+
+#### 1. Ingest Articles
+
+Fetch articles from TDX API and store them in the database.
+
+```bash
+# Basic ingestion
+python main.py ingest
+
+# With debug logging
+python main.py --log-level DEBUG ingest
+```
+
+**Output:**
+- New articles count
+- Updated articles count
+- Unchanged articles count
+- Skipped articles count
+
+#### 2. Process Articles
+
+Convert HTML articles to clean text chunks for embedding.
+
+```bash
+# Process all articles
+python main.py process
+
+# Process specific articles by ID
+python main.py process --article-ids 123 456 789
+```
+
+**Output:**
+- Articles processed count
+- Chunks created count
+
+#### 3. Generate Embeddings
+
+Generate vector embeddings for processed text chunks.
+
+```bash
+# Use OpenAI embeddings (default)
+python main.py embed --provider openai
+
+# Use Cohere embeddings
+python main.py embed --provider cohere
+
+# Custom batch size
+python main.py embed --provider openai --batch-size 50
+```
+
+**Options:**
+- `--provider {openai|cohere}` - Embedding provider (default: openai)
+- `--batch-size N` - Process N chunks per batch (default: 100)
+
+**Note:** This command is partially implemented. It requires fetching chunks from the database first.
+
+#### 4. Full Pipeline
+
+Run the complete RAG pipeline: ingestion → processing → embedding → storage.
+
+```bash
+# Run full pipeline with OpenAI
+python main.py pipeline --provider openai
+
+# Run full pipeline with Cohere
+python main.py pipeline --provider cohere
+
+# Skip ingestion (use existing articles)
+python main.py pipeline --skip-ingestion --provider openai
+
+# Skip processing (use existing chunks)
+python main.py pipeline --skip-processing --provider openai
+
+# Dry run (skip embedding generation)
+python main.py pipeline --skip-embedding --provider openai
+
+# Process specific articles only
+python main.py pipeline --article-ids 123 456 --provider cohere
+
+# Debug logging
+python main.py --log-level DEBUG pipeline --provider openai
+```
+
+**Options:**
+- `--provider {openai|cohere}` - Embedding provider (default: openai)
+- `--skip-ingestion` - Skip article ingestion phase
+- `--skip-processing` - Skip text processing phase
+- `--skip-embedding` - Skip embedding generation phase
+- `--article-ids ID [ID ...]` - Process specific article IDs only
+
+**Output:**
+- Execution duration
+- Ingestion statistics (new, updated, unchanged)
+- Processing statistics (articles, chunks)
+- Embedding statistics (embeddings generated)
+- Storage statistics (embeddings stored)
+
+#### 5. Database Bootstrap
+
+Set up or reset database schema, tables, and extensions.
+
+```bash
+# Check database status
+python main.py bootstrap --status
+
+# Preview changes (dry-run)
+python main.py bootstrap --dry-run
+
+# Create tables and extensions
+python main.py bootstrap
+
+# Full reset - WARNING: deletes all data!
+python main.py bootstrap --full-reset
+```
+
+**Options:**
+- `--status` - Check current database state
+- `--dry-run` - Preview changes without applying
+- `--full-reset` - Drop all tables and recreate (requires confirmation)
+
+### Global Options
+
+- `--log-level {DEBUG|INFO|WARNING|ERROR|CRITICAL}` - Set logging verbosity (default: INFO)
+- `--version` - Show version information
+- `--help` - Show help message
+
+### Examples for Task Scheduler
+
+```bash
+# Daily ingestion job (runs every day at 2 AM)
+python main.py --log-level INFO ingest
+
+# Weekly full pipeline with OpenAI (runs every Sunday at 3 AM)
+python main.py --log-level INFO pipeline --provider openai
+
+# Incremental update (skip ingestion, process new articles)
+python main.py --log-level INFO pipeline --skip-ingestion --provider cohere
+
+# Generate embeddings for already-processed chunks
+python main.py --log-level INFO embed --provider openai --batch-size 100
+```
+
+### Exit Codes
+
+- `0` - Success
+- `1` - General failure
+- `130` - User cancelled (Ctrl+C)
+
+All commands log to stdout/stderr with timestamps and can be redirected for monitoring.
+
+## Programmatic Usage
+
+You can also use the modules directly in Python code:
 
 ### Running Ingestion
+
 ```python
 from core.ingestion import ArticleProcessor
 
@@ -233,6 +437,7 @@ print(f"New: {stats['new_count']}, Updated: {stats['updated_count']}")
 ```
 
 ### Processing Articles
+
 ```python
 from core.processing import TextProcessor
 
@@ -245,6 +450,19 @@ clean_text = processor.process_text(html_content)
 # Count tokens
 token_count = processor.get_token_count(clean_text)
 print(f"Text has {token_count} tokens")
+```
+
+### Running Full Pipeline
+
+```python
+from core.pipeline import RAGPipeline
+
+# Initialize pipeline with OpenAI embeddings
+with RAGPipeline(embedding_provider="openai") as pipeline:
+    # Run full pipeline
+    stats = pipeline.run_full_pipeline()
+    print(f"Duration: {stats['duration_seconds']:.2f}s")
+    print(f"New articles: {stats['ingestion']['new_count']}")
 ```
 
 ## Testing
@@ -263,24 +481,29 @@ pytest tests/test_ingestion.py -v
 
 ```
 backend/
+├── main.py                 # ✅ CLI entry point for scheduled tasks
 ├── core/
 │   ├── config.py           # ✅ Configuration management
 │   ├── schemas.py          # ✅ Pydantic models
 │   ├── ingestion.py        # ✅ Article ingestion logic
 │   ├── storage_raw.py      # ✅ Raw article storage
 │   ├── processing.py       # ✅ Text processing & token counting
-│   ├── embedding.py        # 🚧 Embedding generation (WIP)
-│   ├── storage_vector.py   # 🚧 Vector storage (WIP)
-│   └── pipeline.py         # 🚧 Pipeline orchestration (WIP)
+│   ├── embedding.py        # ✅ Embedding generation (OpenAI & Cohere)
+│   ├── storage_vector.py   # ✅ Vector storage with pgvector
+│   └── pipeline.py         # ✅ Pipeline orchestration
 ├── utils/
 │   ├── api_client.py       # ✅ TDX API client
 │   ├── bootstrap_db.py     # ✅ Database setup script
 │   ├── tokenizer.py        # ✅ Token counting utility
-│   └── logger.py           # Logging utilities
+│   └── logger.py           # ✅ Logging utilities
 └── tests/
     ├── conftest.py         # ✅ Shared fixtures
-    ├── test_ingestion.py   # ✅ Ingestion tests (17 tests)
-    ├── test_storage.py     # ✅ Storage tests (13 tests)
-    ├── test_bootstrap.py   # ✅ Bootstrap tests (21 tests)
-    └── test_processing.py  # ✅ Processing tests (20 tests)
+    ├── test_ingestion.py   # ✅ Ingestion tests
+    ├── test_storage.py     # ✅ Storage tests
+    ├── test_bootstrap.py   # ✅ Bootstrap tests
+    ├── test_processing.py  # ✅ Processing tests
+    ├── test_embedding.py   # ✅ Embedding tests
+    ├── test_logger.py      # ✅ Logger tests
+    ├── test_pipeline.py    # ✅ Pipeline tests
+    └── test_storage_vector.py  # ✅ Vector storage tests
 ```
