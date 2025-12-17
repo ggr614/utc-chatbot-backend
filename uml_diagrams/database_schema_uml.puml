@@ -1,0 +1,165 @@
+@startuml database_schema
+!theme plain
+
+title Helpdesk Chatbot Backend - Database Schema (PostgreSQL + pgvector)
+
+' ===============================================
+' DATABASE ENTITIES (TABLES)
+' ===============================================
+
+entity "articles" as articles {
+  * **id** : INTEGER <<PK>>
+  --
+  * title : TEXT
+  * url : TEXT
+  * content_html : TEXT
+  * last_modified_date : TIMESTAMP WITH TIME ZONE
+  * raw_ingestion_date : TIMESTAMP WITH TIME ZONE
+  created_at : TIMESTAMP WITH TIME ZONE
+  ..Indexes..
+  idx_articles_last_modified (last_modified_date)
+  idx_articles_ingestion_date (raw_ingestion_date)
+}
+
+entity "article_chunks" as chunks {
+  * **id** : TEXT <<PK>>
+  --
+  * parent_article_id : INTEGER
+  * chunk_sequence : INTEGER
+  * text_content : TEXT
+  * token_count : INTEGER
+  * url : TEXT
+  * last_modified_date : TIMESTAMP WITH TIME ZONE
+  ..Indexes..
+  idx_chunks_parent_article (parent_article_id)
+  idx_chunks_chunk_sequence (parent_article_id, chunk_sequence)
+}
+
+entity "embeddings_openai" as openai {
+  * **chunk_id** : TEXT <<PK>>
+  --
+  * parent_article_id : INTEGER <<FK>>
+  * chunk_sequence : INTEGER
+  * text_content : TEXT
+  * token_count : INTEGER
+  * source_url : TEXT
+  * embedding : vector(3072)
+  created_at : TIMESTAMP WITH TIME ZONE
+  ..Indexes..
+  idx_embeddings_openai_parent_article (parent_article_id)
+  idx_embeddings_openai_chunk_sequence (parent_article_id, chunk_sequence)
+}
+
+entity "embeddings_cohere" as cohere {
+  * **chunk_id** : TEXT <<PK>>
+  --
+  * parent_article_id : INTEGER <<FK>>
+  * chunk_sequence : INTEGER
+  * text_content : TEXT
+  * token_count : INTEGER
+  * source_url : TEXT
+  * embedding : vector(1536)
+  created_at : TIMESTAMP WITH TIME ZONE
+  ..Indexes..
+  idx_embeddings_cohere_parent_article (parent_article_id)
+  idx_embeddings_cohere_chunk_sequence (parent_article_id, chunk_sequence)
+  idx_embeddings_cohere_vector (IVFFLAT vector_cosine_ops)
+}
+
+' ===============================================
+' RELATIONSHIPS
+' ===============================================
+
+articles ||--o{ openai : "parent_article_id (ON DELETE CASCADE)"
+articles ||--o{ cohere : "parent_article_id (ON DELETE CASCADE)"
+articles ||..o{ chunks : "related by parent_article_id"
+
+' ===============================================
+' NOTES
+' ===============================================
+
+note right of articles
+  **Raw Article Storage**
+
+  Stores original articles fetched
+  from TeamDynamix (TDX) API.
+
+  • Primary source of truth
+  • HTML content preserved
+  • Modification tracking
+  • Auto-tracked ingestion time
+end note
+
+note right of chunks
+  **Processed Text Chunks**
+
+  Intermediate storage for processed
+  text before embedding generation.
+
+  • Clean text (no HTML)
+  • Token-counted chunks
+  • Sequenced per article
+  • No foreign key constraint
+    (for flexibility)
+end note
+
+note bottom of openai
+  **OpenAI Embeddings**
+
+  Vector storage for Azure OpenAI
+  text-embedding-3-large model.
+
+  • 3072 dimensions
+  • Foreign key to articles
+  • Cascade delete
+  • Cosine similarity search
+end note
+
+note bottom of cohere
+  **AWS Cohere Embeddings**
+
+  Vector storage for AWS Bedrock
+  Cohere Embed English v3 model.
+
+  • 1536 dimensions
+  • Foreign key to articles
+  • Cascade delete
+  • IVFFLAT index for fast
+    vector similarity search
+  • Optimized for cosine distance
+end note
+
+note as extension
+  **Required PostgreSQL Extension**
+
+  • pgvector
+    - Enables vector data type
+    - Provides similarity operators:
+      <=> (cosine distance)
+      <-> (L2 distance)
+      <#> (inner product)
+end note
+
+' ===============================================
+' DATA FLOW LEGEND
+' ===============================================
+
+legend right
+  **Data Flow:**
+  1. Articles ingested from TDX API → articles table
+  2. HTML processed to text chunks → article_chunks table
+  3. Chunks embedded with OpenAI → embeddings_openai table
+  4. Chunks embedded with Cohere → embeddings_cohere table
+
+  **Key Points:**
+  • Each article can have multiple chunks
+  • Each chunk can have embeddings in both tables
+  • Embeddings cascade delete with parent article
+  • Vector indexes enable fast similarity search
+
+  **Dimensions:**
+  • OpenAI: 3072-dimensional vectors
+  • Cohere: 1536-dimensional vectors
+endlegend
+
+@enduml

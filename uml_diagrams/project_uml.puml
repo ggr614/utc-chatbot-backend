@@ -1,0 +1,355 @@
+@startuml helpdesk_chatbot_backend
+!theme plain
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam linetype ortho
+
+title Helpdesk Chatbot Backend - RAG Pipeline Architecture
+
+' ===============================================
+' DATA MODELS (SCHEMAS)
+' ===============================================
+package "Data Models (core.schemas)" {
+    class TdxArticle <<dataclass>> {
+        + id: int
+        + title: str
+        + content_html: str
+        + last_modified_date: datetime
+        + url: HttpUrl
+        + raw_ingestion_date: datetime
+    }
+
+    class TextChunk <<dataclass>> {
+        + chunk_id: str
+        + parent_article_id: int
+        + chunk_sequence: int
+        + text_content: str
+        + token_count: int
+        + source_url: HttpUrl
+        + last_modified_date: datetime
+    }
+
+    class VectorRecord <<dataclass>> {
+        + chunk_id: str
+        + parent_article_id: int
+        + chunk_sequence: int
+        + text_content: str
+        + token_count: int
+        + source_url: HttpUrl
+    }
+}
+
+' ===============================================
+' CORE PIPELINE
+' ===============================================
+package "Core Pipeline" {
+    class RAGPipeline {
+        - embedding_provider: str
+        - skip_ingestion: bool
+        - skip_processing: bool
+        - skip_embedding: bool
+        - article_processor: ArticleProcessor
+        - text_processor: TextProcessor
+        - embedder: GenerateEmbeddings
+        - raw_store: PostgresClient
+        - vector_store: VectorStorageClient
+        - tokenizer: Tokenizer
+        __
+        + __init__(embedding_provider, skip_*)
+        + run_ingestion(): Dict[str, int]
+        + run_processing(article_ids): Dict
+        + run_embedding(chunks): List[Tuple]
+        + run_storage(embeddings): int
+        + run_full_pipeline(article_ids): Dict
+        + process_article_to_chunks(article): List[TextChunk]
+        - _generate_chunk_id(): str
+        + cleanup()
+    }
+}
+
+' ===============================================
+' INGESTION MODULE
+' ===============================================
+package "Ingestion (core.ingestion)" {
+    class ArticleProcessor {
+        - tdx_client: TDXClient
+        - db_client: PostgresClient
+        __
+        + __init__()
+        + sync_articles(): Dict
+        + process_articles(articles): List[TdxArticle]
+        + ingest_and_store(): Dict[str, int]
+        + identify_deleted_articles(): List[int]
+        - _categorize_articles(): Tuple
+    }
+}
+
+' ===============================================
+' PROCESSING MODULE
+' ===============================================
+package "Processing (core.processing)" {
+    class TextProcessor {
+        - html_converter: HTML2Text
+        __
+        + __init__()
+        + process_text(text): str
+        + text_to_chunks(text, max_tokens, overlap): List[str]
+    }
+}
+
+' ===============================================
+' EMBEDDING MODULE
+' ===============================================
+package "Embedding (core.embedding)" {
+    class GenerateEmbeddingsOpenAI {
+        - client: AzureOpenAI
+        - deployment_name: str
+        - max_tokens: int
+        - expected_dim: int
+        - tokenizer: Tokenizer
+        __
+        + __init__()
+        + generate_embedding(chunk): List[float]
+    }
+
+    class GenerateEmbeddingsAWS {
+        - client: boto3.client
+        - model: str
+        - max_tokens: int
+        - expected_dim: int
+        - tokenizer: Tokenizer
+        __
+        + __init__()
+        + generate_embedding(chunk): List[float]
+    }
+}
+
+' ===============================================
+' STORAGE MODULE
+' ===============================================
+package "Storage (core.storage)" {
+    class PostgresClient {
+        - db_host: str
+        - db_user: str
+        - db_password: str
+        - db_name: str
+        - _conn: Connection
+        __
+        + __init__()
+        + get_connection()
+        + get_article_metadata(): Dict
+        + get_existing_article_ids(): Set[int]
+        + insert_articles(articles)
+        + update_articles(articles)
+        + get_all_articles(): List[TdxArticle]
+        + get_articles_by_ids(ids): List[TdxArticle]
+        + store_chunks(chunks): int
+        + get_chunk_count(): int
+        + get_all_chunks(limit, offset): List[TextChunk]
+        + close()
+    }
+
+    class VectorStorageClient {
+        # table_name: str
+        # embedding_dim: int
+        - db_host: str
+        - db_user: str
+        - _conn: Connection
+        __
+        + __init__(table_name, embedding_dim)
+        + get_connection()
+        + get_existing_chunk_ids(): Set[str]
+        + get_chunks_by_article_id(id): List[Dict]
+        + insert_embeddings(records)
+        + update_embeddings(records)
+        + delete_embeddings_by_article_id(id): int
+        + delete_embeddings_by_chunk_ids(ids): int
+        + search_similar_vectors(vector, limit): List[Dict]
+        + close()
+    }
+
+    class OpenAIVectorStorage {
+        __
+        + __init__()
+    }
+
+    class CohereVectorStorage {
+        __
+        + __init__()
+    }
+}
+
+' ===============================================
+' UTILITIES
+' ===============================================
+package "Utils (utils)" {
+    class TDXClient {
+        - base_url: str
+        - auth_token: str
+        __
+        + __init__()
+        + retrieve_all_articles(): Tuple
+        + list_article_ids(): List[int]
+    }
+
+    class Tokenizer {
+        - encoding: tiktoken.Encoding
+        __
+        + __init__()
+        + num_tokens_from_string(text): int
+    }
+
+    class DatabaseBootstrap {
+        - dry_run: bool
+        __
+        + __init__(dry_run)
+        + setup_database(full_reset)
+        + check_status()
+    }
+
+    class Logger <<utility>> {
+        + get_logger(name): Logger
+    }
+
+    class PerformanceLogger <<utility>> {
+        + __init__(logger, operation)
+        + __enter__()
+        + __exit__()
+    }
+}
+
+' ===============================================
+' RETRIEVAL MODULE
+' ===============================================
+package "Retrieval (retrieval)" {
+    class VectorSearch {
+        + search_vectors()
+    }
+
+    class BM25Search {
+        + search_bm25()
+    }
+}
+
+' ===============================================
+' CLI ENTRY POINT
+' ===============================================
+package "CLI (main.py)" {
+    class CLI <<main>> {
+        + setup_argparse(): ArgumentParser
+        + command_ingest(args): int
+        + command_process(args): int
+        + command_embed(args): int
+        + command_pipeline(args): int
+        + command_bootstrap(args): int
+        + main(): int
+    }
+}
+
+' ===============================================
+' RELATIONSHIPS
+' ===============================================
+
+' Pipeline relationships
+RAGPipeline o-- ArticleProcessor : uses
+RAGPipeline o-- TextProcessor : uses
+RAGPipeline o-- GenerateEmbeddingsOpenAI : uses (if OpenAI)
+RAGPipeline o-- GenerateEmbeddingsAWS : uses (if AWS)
+RAGPipeline o-- PostgresClient : uses
+RAGPipeline o-- VectorStorageClient : uses
+RAGPipeline o-- Tokenizer : uses
+
+' Ingestion relationships
+ArticleProcessor o-- TDXClient : uses
+ArticleProcessor o-- PostgresClient : uses
+ArticleProcessor ..> TdxArticle : creates
+
+' Processing relationships
+TextProcessor ..> TextChunk : creates
+
+' Embedding relationships
+GenerateEmbeddingsOpenAI o-- Tokenizer : uses
+GenerateEmbeddingsAWS o-- Tokenizer : uses
+
+' Storage relationships
+VectorStorageClient <|-- OpenAIVectorStorage : extends
+VectorStorageClient <|-- CohereVectorStorage : extends
+PostgresClient ..> TdxArticle : stores/retrieves
+PostgresClient ..> TextChunk : stores/retrieves
+VectorStorageClient ..> VectorRecord : stores/retrieves
+
+' CLI relationships
+CLI --> RAGPipeline : orchestrates
+CLI --> ArticleProcessor : uses
+CLI --> DatabaseBootstrap : uses
+
+' Data flow
+TdxArticle --> TextChunk : processed into
+TextChunk --> VectorRecord : embedded as
+
+' Retrieval relationships
+VectorSearch --> VectorStorageClient : queries
+BM25Search --> PostgresClient : queries
+
+' Notes
+note right of RAGPipeline
+  **Central Orchestrator**
+
+  Coordinates the entire RAG pipeline:
+  1. Ingestion: Fetch articles from TDX API
+  2. Processing: Convert HTML to text chunks
+  3. Embedding: Generate vector embeddings
+  4. Storage: Store in PostgreSQL + pgvector
+
+  Supports both OpenAI and AWS/Cohere
+  embedding providers.
+end note
+
+note right of ArticleProcessor
+  **Ingestion Layer**
+
+  - Fetches articles from TDX API
+  - Compares API vs DB state
+  - Identifies new/updated articles
+  - Filters and validates data
+end note
+
+note bottom of TextProcessor
+  **Processing Layer**
+
+  - Converts HTML to clean text
+  - Chunks text by token count
+  - Maintains chunk overlap
+  - Uses langchain splitters
+end note
+
+note bottom of GenerateEmbeddingsOpenAI
+  **Embedding Providers**
+
+  OpenAI: Azure OpenAI (3072 dims)
+  AWS: Bedrock Cohere (1536 dims)
+
+  Both implement retry logic
+  and error handling
+end note
+
+note bottom of VectorStorageClient
+  **Vector Storage**
+
+  - Uses PostgreSQL + pgvector
+  - Separate tables per provider
+  - Cosine similarity search
+  - CRUD operations for embeddings
+end note
+
+note left of CLI
+  **CLI Commands**
+
+  - ingest: Fetch articles
+  - process: Create chunks
+  - embed: Generate embeddings
+  - pipeline: Run full workflow
+  - bootstrap: Setup database
+end note
+
+@enduml
