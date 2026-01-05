@@ -13,133 +13,9 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 ### Data Flow
 1. **Ingestion**: Fetch articles from TDX API and store raw HTML in `articles` table
 2. **Processing**: Convert HTML to clean text, count tokens, store in `article_chunks` table
-3. **Embedding**: Generate vector embeddings for chunks (WIP)
-4. **Storage**: Store embeddings with metadata in `embeddings` table (WIP)
+3. **Embedding**: Generate vector embeddings for chunks 
+4. **Storage**: Store embeddings with metadata in `embeddings` table 
 5. **Retrieval**: Semantic search over embedded chunks (WIP)
-
-## Module Status
-
-### ✅ Working Modules
-
-#### 1. **API Client** (`utils/api_client.py`)
-- **Status**: ✅ Fully Implemented & Tested
-- **Features**:
-  - TDX API authentication with bearer token management
-  - Rate limiting (60 requests per 60 seconds)
-  - Automatic retry with exponential backoff
-  - Connection pooling and session management
-  - Article retrieval with error handling
-- **Tests**: 5 passing tests
-
-#### 2. **Ingestion Layer** (`core/ingestion.py`)
-- **Status**: ✅ Fully Implemented & Tested
-- **Features**:
-  - Sync articles from TDX API
-  - Compare API state vs database state
-  - Categorize articles (new, updated, unchanged, skipped)
-  - Filter phishing emails category
-  - Handle missing/null values gracefully
-  - Identify deleted articles
-- **Tests**: 12 passing tests
-
-#### 3. **Raw Storage Layer** (`core/storage_raw.py`)
-- **Status**: ✅ Fully Implemented & Tested
-- **Features**:
-  - PostgreSQL connection management with context managers
-  - Insert new articles
-  - Update existing articles
-  - Retrieve article metadata
-  - Get existing article IDs
-  - Automatic commit/rollback handling
-- **Tests**: 13 passing tests
-
-#### 4. **Configuration** (`core/config.py`)
-- **Status**: ✅ Implemented
-- **Features**:
-  - Environment-based configuration
-  - Secret management with Pydantic SecretStr
-  - Database and API credentials management
-
-#### 5. **Schemas** (`core/schemas.py`)
-- **Status**: ✅ Implemented
-- **Features**:
-  - TdxArticle model with validation
-  - TextChunk model for processing
-  - VectorRecord model for embeddings
-
-#### 6. **Database Bootstrap** (`utils/bootstrap_db.py`)
-- **Status**: ✅ Fully Implemented & Tested
-- **Features**:
-  - Automated database setup
-  - Dry-run mode to preview changes
-  - Full-reset mode to rebuild database
-  - Status checking
-  - Creates articles, article_chunks, and two embedding tables (OpenAI & Cohere)
-  - Installs pgvector extension
-  - Creates indexes and foreign keys
-  - Supports multiple embedding providers:
-    - OpenAI text-embedding-3-large (3072 dimensions)
-    - AWS Cohere Embed v4 (1536 dimensions)
-- **Tests**: 21 passing tests
-
-#### 7. **Processing Layer** (`core/processing.py`)
-- **Status**: ✅ Fully Implemented & Tested
-- **Features**:
-  - HTML to Markdown conversion using html2text
-  - Whitespace normalization and text cleanup
-  - Token counting using tiktoken (cl100k_base encoding)
-  - Configurable HTML converter (ignores links, images, tables)
-  - Consistent text processing for embeddings
-- **Tests**: 20 passing tests
-
-#### 8. **Tokenizer Utility** (`utils/tokenizer.py`)
-- **Status**: ✅ Implemented
-- **Features**:
-  - Token counting using OpenAI's tiktoken library
-  - Supports cl100k_base encoding (GPT-3.5/GPT-4)
-  - Accurate token estimation for embedding size limits
-
-#### 9. **Embedding Layer** (`core/embedding.py`)
-- **Status**: ✅ Fully Implemented
-- **Features**:
-  - OpenAI Azure integration (text-embedding-3-large, 3072 dimensions)
-  - AWS Bedrock Cohere integration (cohere.embed-english-v3, 1536 dimensions)
-  - Input validation and token counting
-  - Automatic retry with exponential backoff
-  - Rate limit handling
-  - Comprehensive error handling
-
-#### 10. **Vector Storage Layer** (`core/storage_vector.py`)
-- **Status**: ✅ Fully Implemented
-- **Features**:
-  - pgvector integration for vector similarity search
-  - Separate storage for OpenAI (3072-dim) and Cohere (1536-dim) embeddings
-  - Insert and update operations
-  - Cosine similarity search
-  - Chunk retrieval by article ID
-  - Deletion operations
-  - Connection management with context managers
-
-#### 11. **Pipeline Orchestrator** (`core/pipeline.py`)
-- **Status**: ✅ Fully Implemented
-- **Features**:
-  - End-to-end orchestration (ingestion → processing → embedding → storage)
-  - Configurable phases (skip ingestion, processing, or embedding)
-  - Article-to-chunk processing
-  - Chunk-to-embedding generation
-  - Embedding storage management
-  - Performance logging and statistics tracking
-  - Context manager support for resource cleanup
-
-#### 12. **Main CLI** (`main.py`)
-- **Status**: ✅ Fully Implemented
-- **Features**:
-  - Command-line interface for all operations
-  - Five main commands: ingest, process, embed, pipeline, bootstrap
-  - Configurable logging levels
-  - Exit codes for scheduler integration
-  - Comprehensive help documentation
-  - Error handling and graceful shutdown
 
 ## Database Schema
 
@@ -165,7 +41,7 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 - last_modified_date (timestamp): Last modification date
 ```
 
-### Embeddings Tables (Vector Storage) - WIP
+### Embeddings Tables (Vector Storage) 
 
 #### Embeddings OpenAI Table
 ```sql
@@ -483,33 +359,3 @@ Run specific test file:
 pytest tests/test_ingestion.py -v
 ```
 
-## Project Structure
-
-```
-backend/
-├── main.py                 # ✅ CLI entry point for scheduled tasks
-├── core/
-│   ├── config.py           # ✅ Configuration management
-│   ├── schemas.py          # ✅ Pydantic models
-│   ├── ingestion.py        # ✅ Article ingestion logic
-│   ├── storage_raw.py      # ✅ Raw article storage
-│   ├── processing.py       # ✅ Text processing & token counting
-│   ├── embedding.py        # ✅ Embedding generation (OpenAI & Cohere)
-│   ├── storage_vector.py   # ✅ Vector storage with pgvector
-│   └── pipeline.py         # ✅ Pipeline orchestration
-├── utils/
-│   ├── api_client.py       # ✅ TDX API client
-│   ├── bootstrap_db.py     # ✅ Database setup script
-│   ├── tokenizer.py        # ✅ Token counting utility
-│   └── logger.py           # ✅ Logging utilities
-└── tests/
-    ├── conftest.py         # ✅ Shared fixtures
-    ├── test_ingestion.py   # ✅ Ingestion tests
-    ├── test_storage.py     # ✅ Storage tests
-    ├── test_bootstrap.py   # ✅ Bootstrap tests
-    ├── test_processing.py  # ✅ Processing tests
-    ├── test_embedding.py   # ✅ Embedding tests
-    ├── test_logger.py      # ✅ Logger tests
-    ├── test_pipeline.py    # ✅ Pipeline tests
-    └── test_storage_vector.py  # ✅ Vector storage tests
-```
