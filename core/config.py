@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     AZURE_OPENAI_API_VERSION: str
     AZURE_EMBED_DIM: int
     AZURE_MAX_TOKENS: int
+    AZURE_OPENAI_CHAT_ENDPOINT: str
+    AZURE_OPENAI_CHAT_DEPLOYMENT_NAME: str
+    AZURE_OPENAI_CHAT_API_VERSION: str
+    AZURE_OPENAI_CHAT_MAX_TOKENS: int
+    AZURE_OPENAI_CHAT_TEMPERATURE: float
+    AZURE_OPENAI_CHAT_COMPLETION_TOKENS: int
+    AZURE_OPENAI_CHAT_API_KEY: SecretStr
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore"
