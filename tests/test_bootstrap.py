@@ -263,7 +263,15 @@ class TestDatabaseBootstrap:
         mock_conn = MagicMock()
 
         def check_exists(conn, table):
-            return table in ["articles", "embeddings_openai", "embeddings_cohere", "article_chunks"]
+            return table in [
+                "articles",
+                "embeddings_openai",
+                "embeddings_cohere",
+                "article_chunks",
+                "warm_cache_entries",
+                "cache_metrics",
+                "query_logs",
+            ]
 
         with patch.object(
             bootstrap_dry_run, "check_table_exists", side_effect=check_exists
@@ -288,7 +296,9 @@ class TestDatabaseBootstrap:
 
         captured = capsys.readouterr()
         assert "[OK] Dropped table" in captured.out
-        assert mock_cursor.execute.call_count == 4  # Drop embeddings_openai, embeddings_cohere, articles, and article_chunks
+        assert (
+            mock_cursor.execute.call_count == 7
+        )  # Drop embeddings_openai, embeddings_cohere, articles, article_chunks, warm_cache_entries, cache_metrics, query_log
 
     def test_setup_database_dry_run(self, bootstrap_dry_run, capsys):
         """Test full setup in dry-run mode."""

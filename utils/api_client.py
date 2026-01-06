@@ -146,7 +146,9 @@ class TDXClient:
             payload = {"BEID": self.beid, "WebServicesKey": self.web_services_key}
 
             try:
-                with PerformanceLogger(logger, "TDX authentication", level=logger.level):
+                with PerformanceLogger(
+                    logger, "TDX authentication", level=logger.level
+                ):
                     response = self._request("POST", auth_url, json=payload)
 
                 if response.status_code == 200:
@@ -158,7 +160,9 @@ class TDXClient:
                     logger.debug(f"Bearer token: {self.bearer_token[:20]}...")
                     return self.bearer_token
                 else:
-                    logger.error(f"Authentication failed with status code: {response.status_code}")
+                    logger.error(
+                        f"Authentication failed with status code: {response.status_code}"
+                    )
                     logger.debug(f"Response: {response.text}")
                     raise requests.exceptions.RequestException(
                         f"Authentication failed with status code: {response.status_code}"
@@ -192,7 +196,9 @@ class TDXClient:
         try:
             article_ids = []
             filtered_count = 0
-            search_url = f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/search"
+            search_url = (
+                f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/search"
+            )
             payload = {"ReturnCount": 10000}
 
             logger.debug(f"Requesting article list from {search_url}")
@@ -263,16 +269,18 @@ class TDXClient:
 
         try:
             article_ids = self.list_article_ids()
-            logger.info(f"Retrieved {len(article_ids)} article IDs, fetching full content")
+            logger.info(
+                f"Retrieved {len(article_ids)} article IDs, fetching full content"
+            )
 
             with PerformanceLogger(logger, f"Fetch {len(article_ids)} full articles"):
                 for idx, article_id in enumerate(article_ids, 1):
                     if idx % 50 == 0:
-                        logger.info(f"Progress: {idx}/{len(article_ids)} articles fetched")
+                        logger.info(
+                            f"Progress: {idx}/{len(article_ids)} articles fetched"
+                        )
 
-                    article_url = (
-                        f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/{article_id}"
-                    )
+                    article_url = f"{self.base_url}/TDWebApi/api/{self.app_id}/knowledgebase/{article_id}"
                     max_retries = 3
                     retry_delay = 2.0
 
@@ -281,15 +289,22 @@ class TDXClient:
                             self.rate_limiter.acquire()
                             response = self._request("GET", article_url)
 
-                            if response.status_code == 401 and attempt < max_retries - 1:
-                                logger.warning(f"Token expired while fetching article {article_id}, re-authenticating")
+                            if (
+                                response.status_code == 401
+                                and attempt < max_retries - 1
+                            ):
+                                logger.warning(
+                                    f"Token expired while fetching article {article_id}, re-authenticating"
+                                )
                                 self.bearer_token = None
                                 self.authenticate()
                                 continue
 
                             if response.status_code == 200:
                                 articles.append(response.json())
-                                logger.debug(f"Successfully fetched article {article_id}")
+                                logger.debug(
+                                    f"Successfully fetched article {article_id}"
+                                )
                                 break  # Success!
 
                             elif response.status_code == 429:
@@ -308,7 +323,9 @@ class TDXClient:
                                         f"Skipping article {article_id}. Failed all {max_retries} "
                                         f"attempts due to rate limiting (429)"
                                     )
-                                    skipped_articles.append((article_id, "Rate Limit Failure"))
+                                    skipped_articles.append(
+                                        (article_id, "Rate Limit Failure")
+                                    )
                                     break
 
                             else:
@@ -323,9 +340,13 @@ class TDXClient:
                                 break
 
                         except requests.exceptions.RequestException as e:
-                            logger.error(f"Network error fetching article {article_id}: {str(e)}")
+                            logger.error(
+                                f"Network error fetching article {article_id}: {str(e)}"
+                            )
                             if attempt == max_retries - 1:
-                                skipped_articles.append((article_id, f"Network Error: {str(e)}"))
+                                skipped_articles.append(
+                                    (article_id, f"Network Error: {str(e)}")
+                                )
                             continue
 
             logger.info(

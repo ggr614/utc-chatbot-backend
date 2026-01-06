@@ -37,7 +37,9 @@ class TestRAGPipeline:
             settings.AWS_MAX_TOKENS = 512
             settings.AWS_EMBED_DIM = 1536
             settings.AWS_ACCESS_KEY_ID.get_secret_value.return_value = "test-access-key"
-            settings.AWS_SECRET_ACCESS_KEY.get_secret_value.return_value = "test-secret-key"
+            settings.AWS_SECRET_ACCESS_KEY.get_secret_value.return_value = (
+                "test-secret-key"
+            )
             # TDX API settings
             settings.BASE_URL = "https://test.teamdynamix.com"
             settings.APP_ID = 123
@@ -74,11 +76,11 @@ class TestRAGPipeline:
         assert pipeline_openai.skip_ingestion is False
         assert pipeline_openai.skip_processing is False
         assert pipeline_openai.skip_embedding is False
-        assert hasattr(pipeline_openai, 'article_processor')
-        assert hasattr(pipeline_openai, 'text_processor')
-        assert hasattr(pipeline_openai, 'embedder')
-        assert hasattr(pipeline_openai, 'vector_store')
-        assert hasattr(pipeline_openai, 'raw_store')
+        assert hasattr(pipeline_openai, "article_processor")
+        assert hasattr(pipeline_openai, "text_processor")
+        assert hasattr(pipeline_openai, "embedder")
+        assert hasattr(pipeline_openai, "vector_store")
+        assert hasattr(pipeline_openai, "raw_store")
 
     def test_init_cohere(self, pipeline_cohere):
         """Test pipeline initialization with Cohere provider."""
@@ -98,10 +100,9 @@ class TestRAGPipeline:
                     with patch("core.pipeline.PostgresClient"):
                         with patch("core.pipeline.Tokenizer"):
                             pipeline = RAGPipeline(
-                                embedding_provider="openai",
-                                skip_ingestion=True
+                                embedding_provider="openai", skip_ingestion=True
                             )
-                            assert not hasattr(pipeline, 'article_processor')
+                            assert not hasattr(pipeline, "article_processor")
 
     def test_init_skip_processing(self, mock_settings):
         """Test pipeline with processing skipped."""
@@ -110,11 +111,10 @@ class TestRAGPipeline:
                 with patch("core.pipeline.OpenAIVectorStorage"):
                     with patch("core.pipeline.PostgresClient"):
                         pipeline = RAGPipeline(
-                            embedding_provider="openai",
-                            skip_processing=True
+                            embedding_provider="openai", skip_processing=True
                         )
-                        assert not hasattr(pipeline, 'text_processor')
-                        assert not hasattr(pipeline, 'tokenizer')
+                        assert not hasattr(pipeline, "text_processor")
+                        assert not hasattr(pipeline, "tokenizer")
 
     def test_init_skip_embedding(self, mock_settings):
         """Test pipeline with embedding skipped."""
@@ -123,11 +123,10 @@ class TestRAGPipeline:
                 with patch("core.pipeline.PostgresClient"):
                     with patch("core.pipeline.Tokenizer"):
                         pipeline = RAGPipeline(
-                            embedding_provider="openai",
-                            skip_embedding=True
+                            embedding_provider="openai", skip_embedding=True
                         )
-                        assert not hasattr(pipeline, 'embedder')
-                        assert not hasattr(pipeline, 'vector_store')
+                        assert not hasattr(pipeline, "embedder")
+                        assert not hasattr(pipeline, "vector_store")
 
     def test_generate_chunk_id(self, pipeline_openai):
         """Test chunk ID generation is deterministic."""
@@ -153,7 +152,7 @@ class TestRAGPipeline:
                 embedding_provider="openai",
                 skip_ingestion=True,
                 skip_processing=True,
-                skip_embedding=True
+                skip_embedding=True,
             )
             with pytest.raises(RuntimeError, match="Cannot run ingestion"):
                 pipeline.run_ingestion()
@@ -161,12 +160,14 @@ class TestRAGPipeline:
     def test_run_ingestion_success(self, pipeline_openai):
         """Test successful ingestion phase."""
         mock_stats = {
-            'new_count': 10,
-            'updated_count': 5,
-            'unchanged_count': 15,
-            'skipped_count': 2
+            "new_count": 10,
+            "updated_count": 5,
+            "unchanged_count": 15,
+            "skipped_count": 2,
         }
-        pipeline_openai.article_processor.ingest_and_store = Mock(return_value=mock_stats)
+        pipeline_openai.article_processor.ingest_and_store = Mock(
+            return_value=mock_stats
+        )
 
         stats = pipeline_openai.run_ingestion()
 
@@ -180,7 +181,7 @@ class TestRAGPipeline:
                 pipeline = RAGPipeline(
                     embedding_provider="openai",
                     skip_processing=True,
-                    skip_embedding=True
+                    skip_embedding=True,
                 )
                 with pytest.raises(RuntimeError, match="Cannot run processing"):
                     pipeline.run_processing()
@@ -192,12 +193,14 @@ class TestRAGPipeline:
             title="Test Article",
             url=HttpUrl("https://example.com/123"),
             content_html="<p>Test content</p>",
-            last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+            last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
         )
 
         # Mock text processor
         pipeline_openai.text_processor.process_text = Mock(return_value="Test content")
-        pipeline_openai.text_processor.text_to_chunks = Mock(return_value=["Chunk 1", "Chunk 2"])
+        pipeline_openai.text_processor.text_to_chunks = Mock(
+            return_value=["Chunk 1", "Chunk 2"]
+        )
 
         # Mock tokenizer
         pipeline_openai.tokenizer.num_tokens_from_string = Mock(return_value=50)
@@ -212,7 +215,9 @@ class TestRAGPipeline:
         assert chunks[0].text_content == "Chunk 1"
         assert chunks[1].text_content == "Chunk 2"
 
-        pipeline_openai.text_processor.process_text.assert_called_once_with(article.content_html)
+        pipeline_openai.text_processor.process_text.assert_called_once_with(
+            article.content_html
+        )
         pipeline_openai.text_processor.text_to_chunks.assert_called_once()
 
     def test_run_embedding_when_skipped(self, mock_settings):
@@ -222,8 +227,7 @@ class TestRAGPipeline:
                 with patch("core.pipeline.PostgresClient"):
                     with patch("core.pipeline.Tokenizer"):
                         pipeline = RAGPipeline(
-                            embedding_provider="openai",
-                            skip_embedding=True
+                            embedding_provider="openai", skip_embedding=True
                         )
                         chunks = []
                         with pytest.raises(RuntimeError, match="Cannot run embedding"):
@@ -244,7 +248,7 @@ class TestRAGPipeline:
                 text_content="Test content 1",
                 token_count=50,
                 source_url=HttpUrl("https://example.com"),
-                last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
             ),
             TextChunk(
                 chunk_id="chunk2",
@@ -253,8 +257,8 @@ class TestRAGPipeline:
                 text_content="Test content 2",
                 token_count=60,
                 source_url=HttpUrl("https://example.com"),
-                last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
-            )
+                last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            ),
         ]
 
         # Mock embedder
@@ -280,7 +284,7 @@ class TestRAGPipeline:
                 text_content="Test content 1",
                 token_count=50,
                 source_url=HttpUrl("https://example.com"),
-                last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
+                last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
             ),
             TextChunk(
                 chunk_id="chunk2",
@@ -289,8 +293,8 @@ class TestRAGPipeline:
                 text_content="Test content 2",
                 token_count=60,
                 source_url=HttpUrl("https://example.com"),
-                last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc)
-            )
+                last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            ),
         ]
 
         # Mock embedder - first succeeds, second fails
@@ -319,9 +323,9 @@ class TestRAGPipeline:
                     chunk_sequence=0,
                     text_content="Test content",
                     token_count=50,
-                    source_url=HttpUrl("https://example.com")
+                    source_url=HttpUrl("https://example.com"),
                 ),
-                [0.1] * 3072
+                [0.1] * 3072,
             )
         ]
 
@@ -330,7 +334,9 @@ class TestRAGPipeline:
         stored_count = pipeline_openai.run_storage(embeddings)
 
         assert stored_count == 1
-        pipeline_openai.vector_store.insert_embeddings.assert_called_once_with(embeddings)
+        pipeline_openai.vector_store.insert_embeddings.assert_called_once_with(
+            embeddings
+        )
 
     def test_cleanup(self, pipeline_openai):
         """Test pipeline cleanup."""
@@ -355,10 +361,10 @@ class TestRAGPipeline:
         """Test running the full pipeline."""
         # Mock ingestion
         mock_ingestion_stats = {
-            'new_count': 10,
-            'updated_count': 5,
-            'unchanged_count': 15,
-            'skipped_count': 2
+            "new_count": 10,
+            "updated_count": 5,
+            "unchanged_count": 15,
+            "skipped_count": 2,
         }
         pipeline_openai.article_processor.ingest_and_store = Mock(
             return_value=mock_ingestion_stats
@@ -366,13 +372,13 @@ class TestRAGPipeline:
 
         stats = pipeline_openai.run_full_pipeline()
 
-        assert 'ingestion' in stats
-        assert 'processing' in stats
-        assert 'embedding' in stats
-        assert 'storage' in stats
-        assert 'start_time' in stats
-        assert 'end_time' in stats
-        assert 'duration_seconds' in stats
-        assert stats['ingestion'] == mock_ingestion_stats
-        assert stats['end_time'] is not None
-        assert stats['duration_seconds'] > 0
+        assert "ingestion" in stats
+        assert "processing" in stats
+        assert "embedding" in stats
+        assert "storage" in stats
+        assert "start_time" in stats
+        assert "end_time" in stats
+        assert "duration_seconds" in stats
+        assert stats["ingestion"] == mock_ingestion_stats
+        assert stats["end_time"] is not None
+        assert stats["duration_seconds"] > 0

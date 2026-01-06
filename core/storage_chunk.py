@@ -147,3 +147,24 @@ class PostgresClient:
                             chunk.last_modified_date,
                         ),
                     )
+    def get_all_chunks(self) -> List[TextChunk]:
+        """
+        Retrieve all chunks from the database.
+
+        Returns:
+            List of TextChunk objects
+        """
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT id, parent_article_id, chunk_sequence, text_content, token_count, url, last_modified_date
+                    FROM article_chunks
+                    ORDER BY parent_article_id, chunk_sequence
+                    """
+                )
+                rows = cur.fetchall()
+                chunks = []
+                for row in rows:
+                    chunks.append(row)
+                return chunks

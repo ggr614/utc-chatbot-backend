@@ -57,7 +57,9 @@ class TextProcessor:
                 logger.warning("Text processing resulted in empty string")
                 raise ValueError("Text processing resulted in empty content")
 
-            logger.info(f"Successfully processed text: {len(text)} -> {len(cleaned_text)} characters")
+            logger.info(
+                f"Successfully processed text: {len(text)} -> {len(cleaned_text)} characters"
+            )
             return cleaned_text
 
         except ValueError:
@@ -66,7 +68,9 @@ class TextProcessor:
             logger.error(f"Failed to process text: {str(e)}")
             raise RuntimeError(f"Text processing failed: {str(e)}") from e
 
-    def text_to_chunks(self, text: str, max_tokens: int, overlap: int = 200) -> List[str]:
+    def text_to_chunks(
+        self, text: str, max_tokens: int, overlap: int = 200
+    ) -> List[str]:
         """
         Split text into chunks based on token count.
 
@@ -100,16 +104,22 @@ class TextProcessor:
             raise ValueError(f"overlap must be non-negative, got {overlap}")
 
         if overlap >= max_tokens:
-            logger.error(f"Overlap ({overlap}) must be less than max_tokens ({max_tokens})")
-            raise ValueError(f"overlap ({overlap}) must be less than max_tokens ({max_tokens})")
+            logger.error(
+                f"Overlap ({overlap}) must be less than max_tokens ({max_tokens})"
+            )
+            raise ValueError(
+                f"overlap ({overlap}) must be less than max_tokens ({max_tokens})"
+            )
 
         try:
-            logger.debug(f"Chunking text of length {len(text)} with max_tokens={max_tokens}, overlap={overlap}")
+            logger.debug(
+                f"Chunking text of length {len(text)} with max_tokens={max_tokens}, overlap={overlap}"
+            )
 
             text_splitter = TokenTextSplitter(
                 chunk_size=max_tokens,
                 chunk_overlap=overlap,
-                encoding_name='cl100k_base'
+                encoding_name="cl100k_base",
             )
             chunks = text_splitter.split_text(text)
 

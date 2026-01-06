@@ -43,17 +43,21 @@ class ArticleProcessor:
             # Step 1: Get current state from database
             logger.debug("Fetching article metadata from database")
             db_metadata = self.db_client.get_article_metadata()
-            logger.info(f"Retrieved metadata for {len(db_metadata)} articles from database")
+            logger.info(
+                f"Retrieved metadata for {len(db_metadata)} articles from database"
+            )
 
             # Step 2: Get current state from API
             logger.debug("Fetching articles from TDX API")
             api_articles, skipped_articles = self.tdx_client.retrieve_all_articles()
-            logger.info(f"Retrieved {len(api_articles)} articles from API, {len(skipped_articles)} skipped")
+            logger.info(
+                f"Retrieved {len(api_articles)} articles from API, {len(skipped_articles)} skipped"
+            )
 
             # Step 3: Identify changes (this is the ingestion layer's core logic)
             logger.debug("Categorizing articles by change status")
-            new_articles, updated_articles, unchanged_articles = self._categorize_articles(
-                api_articles, db_metadata
+            new_articles, updated_articles, unchanged_articles = (
+                self._categorize_articles(api_articles, db_metadata)
             )
             logger.info(
                 f"Categorization complete: {len(new_articles)} new, "
@@ -180,7 +184,9 @@ class ArticleProcessor:
                 last_modified_date = article.get("ModifiedDate")
                 if last_modified_date is None:
                     skipped_count += 1
-                    logger.warning(f"Skipping article {article_id} without modified date")
+                    logger.warning(
+                        f"Skipping article {article_id} without modified date"
+                    )
                     continue
 
                 # Validate with Pydantic schema
@@ -221,7 +227,9 @@ class ArticleProcessor:
 
             # Persist new articles
             if sync_results["new"]:
-                logger.info(f"Inserting {len(sync_results['new'])} new articles into database")
+                logger.info(
+                    f"Inserting {len(sync_results['new'])} new articles into database"
+                )
                 self.db_client.insert_articles(sync_results["new"])
                 logger.info("New articles inserted successfully")
             else:
@@ -229,7 +237,9 @@ class ArticleProcessor:
 
             # Update existing articles
             if sync_results["updated"]:
-                logger.info(f"Updating {len(sync_results['updated'])} existing articles in database")
+                logger.info(
+                    f"Updating {len(sync_results['updated'])} existing articles in database"
+                )
                 self.db_client.update_articles(sync_results["updated"])
                 logger.info("Existing articles updated successfully")
             else:

@@ -139,9 +139,11 @@ class VectorStorageClient:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(f"SELECT chunk_id FROM {self.table_name}") # type: ignore
+                    cur.execute(f"SELECT chunk_id FROM {self.table_name}")  # type: ignore
                     chunk_ids = {row[0] for row in cur.fetchall()}
-                    logger.info(f"Retrieved {len(chunk_ids)} existing chunk IDs from {self.table_name}")
+                    logger.info(
+                        f"Retrieved {len(chunk_ids)} existing chunk IDs from {self.table_name}"
+                    )
                     return chunk_ids
         except Exception as e:
             logger.error(f"Failed to fetch existing chunk IDs: {str(e)}")
@@ -171,28 +173,34 @@ class VectorStorageClient:
                         FROM {self.table_name}
                         WHERE parent_article_id = %s
                         ORDER BY chunk_sequence
-                        """, #type: ignore
-                        (article_id,)
+                        """,  # type: ignore
+                        (article_id,),
                     )
                     rows = cur.fetchall()
                     chunks = []
                     for row in rows:
-                        chunks.append({
-                            "chunk_id": row[0],
-                            "parent_article_id": row[1],
-                            "chunk_sequence": row[2],
-                            "text_content": row[3],
-                            "token_count": row[4],
-                            "source_url": row[5],
-                            "created_at": row[6]
-                        })
-                    logger.info(f"Retrieved {len(chunks)} chunks for article {article_id}")
+                        chunks.append(
+                            {
+                                "chunk_id": row[0],
+                                "parent_article_id": row[1],
+                                "chunk_sequence": row[2],
+                                "text_content": row[3],
+                                "token_count": row[4],
+                                "source_url": row[5],
+                                "created_at": row[6],
+                            }
+                        )
+                    logger.info(
+                        f"Retrieved {len(chunks)} chunks for article {article_id}"
+                    )
                     return chunks
         except Exception as e:
             logger.error(f"Failed to fetch chunks for article {article_id}: {str(e)}")
             raise
 
-    def insert_embeddings(self, records: List[Tuple[VectorRecord, List[float]]]) -> None:
+    def insert_embeddings(
+        self, records: List[Tuple[VectorRecord, List[float]]]
+    ) -> None:
         """
         Insert new embedding records into the database.
 
@@ -229,7 +237,7 @@ class VectorStorageClient:
                                     (chunk_id, parent_article_id, chunk_sequence, text_content,
                                      token_count, source_url, embedding)
                                     VALUES (%s, %s, %s, %s, %s, %s, %s)
-                                    """, #type: ignore
+                                    """,  # type: ignore
                                     (
                                         record.chunk_id,
                                         record.parent_article_id,
@@ -237,7 +245,7 @@ class VectorStorageClient:
                                         record.text_content,
                                         record.token_count,
                                         str(record.source_url),
-                                        embedding
+                                        embedding,
                                     ),
                                 )
                                 logger.debug(
@@ -263,7 +271,9 @@ class VectorStorageClient:
             logger.error(f"Failed to insert embeddings: {str(e)}")
             raise
 
-    def update_embeddings(self, records: List[Tuple[VectorRecord, List[float]]]) -> None:
+    def update_embeddings(
+        self, records: List[Tuple[VectorRecord, List[float]]]
+    ) -> None:
         """
         Update existing embedding records in the database.
 
@@ -304,7 +314,7 @@ class VectorStorageClient:
                                         source_url = %s,
                                         embedding = %s
                                     WHERE chunk_id = %s
-                                    """, #type: ignore
+                                    """,  # type: ignore
                                     (
                                         record.parent_article_id,
                                         record.chunk_sequence,
@@ -346,13 +356,15 @@ class VectorStorageClient:
         Raises:
             ConnectionError: If database operation fails
         """
-        logger.info(f"Deleting embeddings for article {article_id} from {self.table_name}")
+        logger.info(
+            f"Deleting embeddings for article {article_id} from {self.table_name}"
+        )
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        f"DELETE FROM {self.table_name} WHERE parent_article_id = %s", #type: ignore
-                        (article_id,)
+                        f"DELETE FROM {self.table_name} WHERE parent_article_id = %s",  # type: ignore
+                        (article_id,),
                     )
                     deleted_count = cur.rowcount
                     logger.info(
@@ -387,8 +399,8 @@ class VectorStorageClient:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        f"DELETE FROM {self.table_name} WHERE chunk_id = ANY(%s)", #type: ignore
-                        (chunk_ids,)
+                        f"DELETE FROM {self.table_name} WHERE chunk_id = ANY(%s)",  # type: ignore
+                        (chunk_ids,),
                     )
                     deleted_count = cur.rowcount
                     logger.info(f"Deleted {deleted_count} embeddings")
@@ -435,22 +447,30 @@ class VectorStorageClient:
                         WHERE 1 - (embedding <=> %s::vector) >= %s
                         ORDER BY embedding <=> %s::vector
                         LIMIT %s
-                        """, #type: ignore
-                        (query_vector, query_vector, min_similarity, query_vector, limit)
+                        """,  # type: ignore
+                        (
+                            query_vector,
+                            query_vector,
+                            min_similarity,
+                            query_vector,
+                            limit,
+                        ),
                     )
                     rows = cur.fetchall()
                     results = []
                     for row in rows:
-                        results.append({
-                            "chunk_id": row[0],
-                            "parent_article_id": row[1],
-                            "chunk_sequence": row[2],
-                            "text_content": row[3],
-                            "token_count": row[4],
-                            "source_url": row[5],
-                            "created_at": row[6],
-                            "similarity": float(row[7])
-                        })
+                        results.append(
+                            {
+                                "chunk_id": row[0],
+                                "parent_article_id": row[1],
+                                "chunk_sequence": row[2],
+                                "text_content": row[3],
+                                "token_count": row[4],
+                                "source_url": row[5],
+                                "created_at": row[6],
+                                "similarity": float(row[7]),
+                            }
+                        )
                     logger.info(f"Found {len(results)} similar vectors")
                     return results
         except Exception as e:

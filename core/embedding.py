@@ -1,4 +1,11 @@
-from openai import AzureOpenAI, OpenAIError, APIError, APITimeoutError, RateLimitError, AuthenticationError
+from openai import (
+    AzureOpenAI,
+    OpenAIError,
+    APIError,
+    APITimeoutError,
+    RateLimitError,
+    AuthenticationError,
+)
 import boto3
 from botocore.exceptions import ClientError, BotoCoreError, NoCredentialsError
 from typing import List
@@ -10,6 +17,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class GenerateEmbeddingsOpenAI:
     def __init__(self):
         try:
@@ -17,7 +25,9 @@ class GenerateEmbeddingsOpenAI:
 
             # Validate required configuration
             if not settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME:
-                raise ValueError("AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME is not configured")
+                raise ValueError(
+                    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME is not configured"
+                )
             if not settings.AZURE_OPENAI_EMBED_ENDPOINT:
                 raise ValueError("AZURE_OPENAI_EMBED_ENDPOINT is not configured")
             if not settings.AZURE_OPENAI_API_VERSION:
@@ -44,12 +54,14 @@ class GenerateEmbeddingsOpenAI:
                     api_version=settings.AZURE_OPENAI_API_VERSION,
                 )
             except Exception as e:
-                raise RuntimeError(f"Failed to initialize Azure OpenAI client: {str(e)}") from e
+                raise RuntimeError(
+                    f"Failed to initialize Azure OpenAI client: {str(e)}"
+                ) from e
 
         except Exception as e:
             logger.error(f"Failed to initialize GenerateEmbeddingsOpenAI: {str(e)}")
             raise
-    
+
     def generate_embedding(self, chunk: str) -> List[float]:
         # Input validation
         if not chunk or not chunk.strip():
@@ -74,18 +86,19 @@ class GenerateEmbeddingsOpenAI:
         for attempt in range(max_retries):
             try:
                 response = self.client.embeddings.create(
-                    input=chunk,
-                    model=self.deployment_name
+                    input=chunk, model=self.deployment_name
                 )
 
                 # Validate response structure
-                if not response or not hasattr(response, 'data'):
-                    raise ValueError("Invalid response structure: missing 'data' attribute")
+                if not response or not hasattr(response, "data"):
+                    raise ValueError(
+                        "Invalid response structure: missing 'data' attribute"
+                    )
 
                 if not response.data or len(response.data) == 0:
                     raise ValueError("Response data is empty")
 
-                if not hasattr(response.data[0], 'embedding'):
+                if not hasattr(response.data[0], "embedding"):
                     raise ValueError("Response data[0] missing 'embedding' attribute")
 
                 embeddings = response.data[0].embedding
@@ -95,7 +108,9 @@ class GenerateEmbeddingsOpenAI:
 
                 # Validate embedding type and dimension
                 if not isinstance(embeddings, list):
-                    raise ValueError(f"Expected embeddings to be a list, got {type(embeddings)}")
+                    raise ValueError(
+                        f"Expected embeddings to be a list, got {type(embeddings)}"
+                    )
 
                 if not all(isinstance(x, (int, float)) for x in embeddings):
                     raise ValueError("Embeddings contain non-numeric values")
@@ -110,12 +125,16 @@ class GenerateEmbeddingsOpenAI:
 
             except AuthenticationError as e:
                 logger.error(f"Authentication failed: {str(e)}")
-                raise RuntimeError(f"Azure OpenAI authentication failed: {str(e)}") from e
+                raise RuntimeError(
+                    f"Azure OpenAI authentication failed: {str(e)}"
+                ) from e
 
             except RateLimitError as e:
                 if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                    logger.warning(f"Rate limit hit, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    wait_time = retry_delay * (2**attempt)  # Exponential backoff
+                    logger.warning(
+                        f"Rate limit hit, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(wait_time)
                     continue
                 else:
@@ -124,8 +143,10 @@ class GenerateEmbeddingsOpenAI:
 
             except APITimeoutError as e:
                 if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)
-                    logger.warning(f"API timeout, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    wait_time = retry_delay * (2**attempt)
+                    logger.warning(
+                        f"API timeout, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(wait_time)
                     continue
                 else:
@@ -134,11 +155,13 @@ class GenerateEmbeddingsOpenAI:
 
             except APIError as e:
                 # For server errors (5xx), retry
-                status_code = getattr(e, 'status_code', None)
+                status_code = getattr(e, "status_code", None)
                 if status_code and 500 <= status_code < 600:
                     if attempt < max_retries - 1:
-                        wait_time = retry_delay * (2 ** attempt)
-                        logger.warning(f"Server error {status_code}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        wait_time = retry_delay * (2**attempt)
+                        logger.warning(
+                            f"Server error {status_code}, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                        )
                         time.sleep(wait_time)
                         continue
                 logger.error(f"API error: {str(e)}")
@@ -157,8 +180,11 @@ class GenerateEmbeddingsOpenAI:
                 logger.error(f"Unexpected error generating embeddings: {str(e)}")
                 raise RuntimeError(f"Unexpected error: {str(e)}") from e
 
-        raise RuntimeError(f"Failed to generate embeddings after {max_retries} attempts")
-    
+        raise RuntimeError(
+            f"Failed to generate embeddings after {max_retries} attempts"
+        )
+
+
 class GenerateEmbeddingsAWS:
     def __init__(self):
         try:
@@ -193,16 +219,19 @@ class GenerateEmbeddingsAWS:
                     "bedrock-runtime",
                     aws_access_key_id=aws_access_key,
                     region_name=settings.AWS_REGION,
-                    aws_secret_access_key=aws_secret_key
+                    aws_secret_access_key=aws_secret_key,
                 )
             except NoCredentialsError as e:
                 raise RuntimeError(f"AWS credentials not found: {str(e)}") from e
             except Exception as e:
-                raise RuntimeError(f"Failed to initialize AWS Bedrock client: {str(e)}") from e
+                raise RuntimeError(
+                    f"Failed to initialize AWS Bedrock client: {str(e)}"
+                ) from e
 
         except Exception as e:
             logger.error(f"Failed to initialize GenerateEmbeddingsAWS: {str(e)}")
             raise
+
     def generate_embedding(self, chunk: str) -> List[float]:
         # Input validation
         if not chunk or not chunk.strip():
@@ -227,18 +256,20 @@ class GenerateEmbeddingsAWS:
         for attempt in range(max_retries):
             try:
                 # Prepare request body
-                body = json.dumps({
-                    "texts": [chunk],
-                    "input_type": "search_document",
-                    "embedding_types": ["float"]
-                })
+                body = json.dumps(
+                    {
+                        "texts": [chunk],
+                        "input_type": "search_document",
+                        "embedding_types": ["float"],
+                    }
+                )
 
                 # Invoke AWS Bedrock model
                 response = self.client.invoke_model(
                     body=body,
                     modelId=self.model,
                     accept="application/json",
-                    contentType="application/json"
+                    contentType="application/json",
                 )
 
                 # Validate response structure
@@ -256,7 +287,9 @@ class GenerateEmbeddingsAWS:
 
                 # Extract embeddings
                 if "embeddings" not in response_body:
-                    raise ValueError(f"No 'embeddings' key in response: {response_body}")
+                    raise ValueError(
+                        f"No 'embeddings' key in response: {response_body}"
+                    )
 
                 embeddings_data = response_body["embeddings"]
                 if embeddings_data is None:
@@ -264,20 +297,26 @@ class GenerateEmbeddingsAWS:
 
                 # Handle nested structure
                 if not isinstance(embeddings_data, dict):
-                    raise ValueError(f"Expected embeddings to be a dict, got {type(embeddings_data)}")
+                    raise ValueError(
+                        f"Expected embeddings to be a dict, got {type(embeddings_data)}"
+                    )
 
                 if "float" not in embeddings_data:
                     raise ValueError(f"No 'float' key in embeddings: {embeddings_data}")
 
                 float_embeddings = embeddings_data["float"]
                 if not isinstance(float_embeddings, list) or len(float_embeddings) == 0:
-                    raise ValueError(f"Expected non-empty list of embeddings, got {float_embeddings}")
+                    raise ValueError(
+                        f"Expected non-empty list of embeddings, got {float_embeddings}"
+                    )
 
                 embeddings = float_embeddings[0]
 
                 # Validate embedding type and dimension
                 if not isinstance(embeddings, list):
-                    raise ValueError(f"Expected embeddings to be a list, got {type(embeddings)}")
+                    raise ValueError(
+                        f"Expected embeddings to be a list, got {type(embeddings)}"
+                    )
 
                 if not all(isinstance(x, (int, float)) for x in embeddings):
                     raise ValueError("Embeddings contain non-numeric values")
@@ -291,38 +330,61 @@ class GenerateEmbeddingsAWS:
                 return embeddings
 
             except ClientError as e:
-                error_code = e.response.get('Error', {}).get('Code', 'Unknown')
-                error_message = e.response.get('Error', {}).get('Message', str(e))
+                error_code = e.response.get("Error", {}).get("Code", "Unknown")
+                error_message = e.response.get("Error", {}).get("Message", str(e))
 
                 # Handle specific AWS error codes
-                if error_code == 'ThrottlingException' or error_code == 'TooManyRequestsException':
+                if (
+                    error_code == "ThrottlingException"
+                    or error_code == "TooManyRequestsException"
+                ):
                     if attempt < max_retries - 1:
-                        wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                        logger.warning(f"AWS throttling, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        wait_time = retry_delay * (2**attempt)  # Exponential backoff
+                        logger.warning(
+                            f"AWS throttling, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                        )
                         time.sleep(wait_time)
                         continue
                     else:
                         logger.error(f"AWS throttling after {max_retries} attempts")
-                        raise RuntimeError(f"AWS rate limit exceeded: {error_message}") from e
+                        raise RuntimeError(
+                            f"AWS rate limit exceeded: {error_message}"
+                        ) from e
 
-                elif error_code == 'AccessDeniedException' or error_code == 'UnauthorizedException':
-                    logger.error(f"AWS authentication/authorization failed: {error_message}")
-                    raise RuntimeError(f"AWS authentication failed: {error_message}") from e
+                elif (
+                    error_code == "AccessDeniedException"
+                    or error_code == "UnauthorizedException"
+                ):
+                    logger.error(
+                        f"AWS authentication/authorization failed: {error_message}"
+                    )
+                    raise RuntimeError(
+                        f"AWS authentication failed: {error_message}"
+                    ) from e
 
-                elif error_code == 'ServiceUnavailableException' or error_code == 'InternalServerException':
+                elif (
+                    error_code == "ServiceUnavailableException"
+                    or error_code == "InternalServerException"
+                ):
                     if attempt < max_retries - 1:
-                        wait_time = retry_delay * (2 ** attempt)
-                        logger.warning(f"AWS service error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        wait_time = retry_delay * (2**attempt)
+                        logger.warning(
+                            f"AWS service error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                        )
                         time.sleep(wait_time)
                         continue
                     else:
-                        logger.error(f"AWS service unavailable after {max_retries} attempts")
+                        logger.error(
+                            f"AWS service unavailable after {max_retries} attempts"
+                        )
                         raise RuntimeError(f"AWS service error: {error_message}") from e
 
-                elif error_code == 'ModelTimeoutException':
+                elif error_code == "ModelTimeoutException":
                     if attempt < max_retries - 1:
-                        wait_time = retry_delay * (2 ** attempt)
-                        logger.warning(f"Model timeout, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                        wait_time = retry_delay * (2**attempt)
+                        logger.warning(
+                            f"Model timeout, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                        )
                         time.sleep(wait_time)
                         continue
                     else:
@@ -331,16 +393,22 @@ class GenerateEmbeddingsAWS:
 
                 else:
                     logger.error(f"AWS client error ({error_code}): {error_message}")
-                    raise RuntimeError(f"AWS Bedrock error ({error_code}): {error_message}") from e
+                    raise RuntimeError(
+                        f"AWS Bedrock error ({error_code}): {error_message}"
+                    ) from e
 
             except BotoCoreError as e:
                 if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)
-                    logger.warning(f"Network error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})")
+                    wait_time = retry_delay * (2**attempt)
+                    logger.warning(
+                        f"Network error, retrying in {wait_time}s... (attempt {attempt + 1}/{max_retries})"
+                    )
                     time.sleep(wait_time)
                     continue
                 else:
-                    logger.error(f"Network error after {max_retries} attempts: {str(e)}")
+                    logger.error(
+                        f"Network error after {max_retries} attempts: {str(e)}"
+                    )
                     raise RuntimeError(f"AWS network error: {str(e)}") from e
 
             except ValueError as e:
@@ -352,4 +420,6 @@ class GenerateEmbeddingsAWS:
                 logger.error(f"Unexpected error generating embeddings: {str(e)}")
                 raise RuntimeError(f"Unexpected error: {str(e)}") from e
 
-        raise RuntimeError(f"Failed to generate embeddings after {max_retries} attempts")
+        raise RuntimeError(
+            f"Failed to generate embeddings after {max_retries} attempts"
+        )

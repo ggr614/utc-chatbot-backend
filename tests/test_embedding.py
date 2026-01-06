@@ -45,7 +45,9 @@ class TestGenerateEmbeddingsOpenAI:
             settings.AZURE_OPENAI_API_KEY.get_secret_value.return_value = "test-key"
             mock_settings.return_value = settings
 
-            with pytest.raises(ValueError, match="AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"):
+            with pytest.raises(
+                ValueError, match="AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"
+            ):
                 GenerateEmbeddingsOpenAI()
 
     def test_generate_embedding_validates_empty_chunk(self, embeddings_client):
@@ -58,7 +60,9 @@ class TestGenerateEmbeddingsOpenAI:
 
     def test_generate_embedding_validates_token_count(self, embeddings_client):
         """Test that chunks exceeding max_tokens raise RuntimeError."""
-        with patch.object(embeddings_client.tokenizer, 'num_tokens_from_string', return_value=10000):
+        with patch.object(
+            embeddings_client.tokenizer, "num_tokens_from_string", return_value=10000
+        ):
             with pytest.raises(RuntimeError, match="Failed to count tokens"):
                 embeddings_client.generate_embedding("This is a very long chunk")
 
@@ -106,7 +110,9 @@ class TestGenerateEmbeddingsOpenAI:
         # Create proper error with response and body
         mock_error_response = Mock()
         mock_error_response.status_code = 429
-        rate_limit_error = RateLimitError("Rate limit", response=mock_error_response, body=None)
+        rate_limit_error = RateLimitError(
+            "Rate limit", response=mock_error_response, body=None
+        )
 
         embeddings_client.client.embeddings.create = Mock(
             side_effect=[rate_limit_error, mock_response]
@@ -123,11 +129,11 @@ class TestGenerateEmbeddingsOpenAI:
 
         mock_error_response = Mock()
         mock_error_response.status_code = 429
-        rate_limit_error = RateLimitError("Rate limit", response=mock_error_response, body=None)
-
-        embeddings_client.client.embeddings.create = Mock(
-            side_effect=rate_limit_error
+        rate_limit_error = RateLimitError(
+            "Rate limit", response=mock_error_response, body=None
         )
+
+        embeddings_client.client.embeddings.create = Mock(side_effect=rate_limit_error)
 
         with patch("core.embedding.time.sleep"):
             with pytest.raises(RuntimeError, match="Rate limit exceeded"):
@@ -139,11 +145,11 @@ class TestGenerateEmbeddingsOpenAI:
 
         mock_error_response = Mock()
         mock_error_response.status_code = 401
-        auth_error = AuthenticationError("Auth failed", response=mock_error_response, body=None)
-
-        embeddings_client.client.embeddings.create = Mock(
-            side_effect=auth_error
+        auth_error = AuthenticationError(
+            "Auth failed", response=mock_error_response, body=None
         )
+
+        embeddings_client.client.embeddings.create = Mock(side_effect=auth_error)
 
         with pytest.raises(RuntimeError, match="Azure OpenAI authentication failed"):
             embeddings_client.generate_embedding("Test chunk")
@@ -162,7 +168,9 @@ class TestGenerateEmbeddingsAWS:
             settings.AWS_MAX_TOKENS = 512
             settings.AWS_EMBED_DIM = 1536
             settings.AWS_ACCESS_KEY_ID.get_secret_value.return_value = "test-access-key"
-            settings.AWS_SECRET_ACCESS_KEY.get_secret_value.return_value = "test-secret-key"
+            settings.AWS_SECRET_ACCESS_KEY.get_secret_value.return_value = (
+                "test-secret-key"
+            )
             mock.return_value = settings
             yield settings
 
@@ -197,13 +205,15 @@ class TestGenerateEmbeddingsAWS:
         aws_client.tokenizer.num_tokens_from_string = Mock(return_value=100)
 
         # Mock AWS response
-        mock_response = {
-            "body": Mock()
-        }
-        mock_response["body"].read = Mock(return_value=b'{"embeddings": {"float": [[0.1, 0.2]]}}')
+        mock_response = {"body": Mock()}
+        mock_response["body"].read = Mock(
+            return_value=b'{"embeddings": {"float": [[0.1, 0.2]]}}'
+        )
         # Create embeddings with correct dimension
         embedding_data = {"embeddings": {"float": [[0.1] * 1536]}}
-        mock_response["body"].read = Mock(return_value=str(embedding_data).replace("'", '"').encode())
+        mock_response["body"].read = Mock(
+            return_value=str(embedding_data).replace("'", '"').encode()
+        )
 
         aws_client.client.invoke_model = Mock(return_value=mock_response)
 
@@ -217,12 +227,16 @@ class TestGenerateEmbeddingsAWS:
         aws_client.tokenizer.num_tokens_from_string = Mock(return_value=100)
 
         # First call raises throttling error, second succeeds
-        error_response = {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}}
+        error_response = {
+            "Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}
+        }
         throttling_error = ClientError(error_response, "invoke_model")
 
         embedding_data = {"embeddings": {"float": [[0.1] * 1536]}}
         mock_success_response = {"body": Mock()}
-        mock_success_response["body"].read = Mock(return_value=str(embedding_data).replace("'", '"').encode())
+        mock_success_response["body"].read = Mock(
+            return_value=str(embedding_data).replace("'", '"').encode()
+        )
 
         aws_client.client.invoke_model = Mock(
             side_effect=[throttling_error, mock_success_response]
@@ -237,7 +251,9 @@ class TestGenerateEmbeddingsAWS:
         """Test that authentication errors are handled properly."""
         aws_client.tokenizer.num_tokens_from_string = Mock(return_value=100)
 
-        error_response = {"Error": {"Code": "AccessDeniedException", "Message": "Access denied"}}
+        error_response = {
+            "Error": {"Code": "AccessDeniedException", "Message": "Access denied"}
+        }
         auth_error = ClientError(error_response, "invoke_model")
 
         aws_client.client.invoke_model = Mock(side_effect=auth_error)
@@ -252,7 +268,9 @@ class TestGenerateEmbeddingsAWS:
         # Mock response with wrong dimension
         embedding_data = {"embeddings": {"float": [[0.1] * 768]}}  # Wrong dimension
         mock_response = {"body": Mock()}
-        mock_response["body"].read = Mock(return_value=str(embedding_data).replace("'", '"').encode())
+        mock_response["body"].read = Mock(
+            return_value=str(embedding_data).replace("'", '"').encode()
+        )
 
         aws_client.client.invoke_model = Mock(return_value=mock_response)
 

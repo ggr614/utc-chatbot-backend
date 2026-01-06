@@ -66,7 +66,9 @@ class TestTextProcessor:
 
     def test_process_text_raises_error_on_only_whitespace(self, processor):
         """Test that string with only whitespace raises ValueError."""
-        with pytest.raises(ValueError, match="Text processing resulted in empty content"):
+        with pytest.raises(
+            ValueError, match="Text processing resulted in empty content"
+        ):
             processor.process_text("   \n\n   ")
 
     def test_process_text_raises_error_on_non_string(self, processor):
@@ -80,7 +82,9 @@ class TestTextProcessor:
 
     def test_process_text_raises_error_on_empty_result(self, processor):
         """Test that processing resulting in empty content raises ValueError."""
-        with pytest.raises(ValueError, match="Text processing resulted in empty content"):
+        with pytest.raises(
+            ValueError, match="Text processing resulted in empty content"
+        ):
             processor.process_text("<div></div>")
 
     def test_process_text_handles_complex_html(self, processor):

@@ -21,19 +21,21 @@ class ColoredFormatter(logging.Formatter):
     """Custom formatter with color support for console output."""
 
     COLORS = {
-        'DEBUG': '\033[36m',      # Cyan
-        'INFO': '\033[32m',       # Green
-        'WARNING': '\033[33m',    # Yellow
-        'ERROR': '\033[31m',      # Red
-        'CRITICAL': '\033[35m',   # Magenta
-        'RESET': '\033[0m'        # Reset
+        "DEBUG": "\033[36m",  # Cyan
+        "INFO": "\033[32m",  # Green
+        "WARNING": "\033[33m",  # Yellow
+        "ERROR": "\033[31m",  # Red
+        "CRITICAL": "\033[35m",  # Magenta
+        "RESET": "\033[0m",  # Reset
     }
 
     def format(self, record):
         if sys.stdout.isatty():
             levelname = record.levelname
             if levelname in self.COLORS:
-                record.levelname = f"{self.COLORS[levelname]}{levelname}{self.COLORS['RESET']}"
+                record.levelname = (
+                    f"{self.COLORS[levelname]}{levelname}{self.COLORS['RESET']}"
+                )
         return super().format(record)
 
 
@@ -44,7 +46,7 @@ def setup_logger(
     console_output: bool = True,
     file_output: bool = True,
     max_bytes: int = 10 * 1024 * 1024,  # 10MB
-    backup_count: int = 5
+    backup_count: int = 5,
 ) -> logging.Logger:
     """
     Set up and configure a logger with console and file handlers.
@@ -77,13 +79,12 @@ def setup_logger(
 
     # Create formatters
     detailed_formatter = logging.Formatter(
-        fmt='%(asctime)s | %(name)s | %(levelname)s | %(funcName)s:%(lineno)d | %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+        fmt="%(asctime)s | %(name)s | %(levelname)s | %(funcName)s:%(lineno)d | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
     )
 
     console_formatter = ColoredFormatter(
-        fmt='%(asctime)s | %(levelname)s | %(name)s | %(message)s',
-        datefmt='%H:%M:%S'
+        fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s", datefmt="%H:%M:%S"
     )
 
     # Console handler
@@ -103,10 +104,7 @@ def setup_logger(
         # Main log file (all levels)
         log_file = log_dir / f"{name.replace('.', '_')}.log"
         file_handler = logging.handlers.RotatingFileHandler(
-            log_file,
-            maxBytes=max_bytes,
-            backupCount=backup_count,
-            encoding='utf-8'
+            log_file, maxBytes=max_bytes, backupCount=backup_count, encoding="utf-8"
         )
         file_handler.setLevel(logging.DEBUG)
         file_handler.setFormatter(detailed_formatter)
@@ -118,7 +116,7 @@ def setup_logger(
             error_log_file,
             maxBytes=max_bytes,
             backupCount=backup_count,
-            encoding='utf-8'
+            encoding="utf-8",
         )
         error_handler.setLevel(logging.ERROR)
         error_handler.setFormatter(detailed_formatter)
@@ -150,7 +148,9 @@ def get_logger(name: str, level: str = "INFO") -> logging.Logger:
 class PerformanceLogger:
     """Context manager for logging performance metrics."""
 
-    def __init__(self, logger: logging.Logger, operation: str, level: int = logging.DEBUG):
+    def __init__(
+        self, logger: logging.Logger, operation: str, level: int = logging.DEBUG
+    ):
         """
         Initialize performance logger.
 
@@ -176,9 +176,13 @@ class PerformanceLogger:
     def __exit__(self, exc_type, exc_val, exc_tb):
         elapsed = (datetime.now() - self.start_time).total_seconds()
         if exc_type is not None:
-            self.logger.error(f"Failed: {self.operation} (after {elapsed:.3f}s) - {exc_val}")
+            self.logger.error(
+                f"Failed: {self.operation} (after {elapsed:.3f}s) - {exc_val}"
+            )
         else:
-            self.logger.log(self.level, f"Completed: {self.operation} in {elapsed:.3f}s")
+            self.logger.log(
+                self.level, f"Completed: {self.operation} in {elapsed:.3f}s"
+            )
 
 
 # Pre-configured loggers for common use cases

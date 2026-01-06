@@ -6,7 +6,11 @@ import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pydantic import HttpUrl
 
-from core.storage_vector import VectorStorageClient, OpenAIVectorStorage, CohereVectorStorage
+from core.storage_vector import (
+    VectorStorageClient,
+    OpenAIVectorStorage,
+    CohereVectorStorage,
+)
 from core.schemas import VectorRecord
 
 
@@ -77,6 +81,7 @@ class TestVectorStorageClient:
             with pytest.raises(ConnectionError):
                 with client.get_connection() as conn:
                     import psycopg
+
                     raise psycopg.Error("Test error")
 
             mock_conn.rollback.assert_called_once()
@@ -149,7 +154,7 @@ class TestVectorStorageClient:
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
-            source_url=HttpUrl("https://example.com")
+            source_url=HttpUrl("https://example.com"),
         )
         wrong_embedding = [0.1] * 768  # Wrong dimension
 
@@ -164,7 +169,7 @@ class TestVectorStorageClient:
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
-            source_url=HttpUrl("https://example.com")
+            source_url=HttpUrl("https://example.com"),
         )
         embedding = [0.1] * 1536  # Correct dimension
 
@@ -196,7 +201,7 @@ class TestVectorStorageClient:
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
-            source_url=HttpUrl("https://example.com")
+            source_url=HttpUrl("https://example.com"),
         )
         wrong_embedding = [0.1] * 768  # Wrong dimension
 
@@ -211,7 +216,7 @@ class TestVectorStorageClient:
             chunk_sequence=0,
             text_content="Updated content",
             token_count=10,
-            source_url=HttpUrl("https://example.com")
+            source_url=HttpUrl("https://example.com"),
         )
         embedding = [0.2] * 1536  # Correct dimension
 
@@ -302,7 +307,9 @@ class TestVectorStorageClient:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_get_conn.return_value = mock_conn
 
-            results = client.search_similar_vectors(query_vector, limit=10, min_similarity=0.7)
+            results = client.search_similar_vectors(
+                query_vector, limit=10, min_similarity=0.7
+            )
 
             assert len(results) == 2
             assert results[0]["chunk_id"] == "chunk_1"
@@ -345,7 +352,7 @@ class TestOpenAIVectorStorage:
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
-            source_url=HttpUrl("https://example.com")
+            source_url=HttpUrl("https://example.com"),
         )
         embedding = [0.1] * 3072
 
@@ -389,7 +396,7 @@ class TestCohereVectorStorage:
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
-            source_url=HttpUrl("https://example.com")
+            source_url=HttpUrl("https://example.com"),
         )
         embedding = [0.1] * 1536
 

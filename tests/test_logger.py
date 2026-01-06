@@ -14,7 +14,7 @@ from utils.logger import (
     PerformanceLogger,
     get_api_logger,
     get_database_logger,
-    get_processing_logger
+    get_processing_logger,
 )
 
 
@@ -55,31 +55,30 @@ class TestSetupLogger:
     def test_setup_logger_without_console_output(self, tmp_path):
         """Test logger without console output."""
         logger = setup_logger(
-            "test_no_console",
-            level="INFO",
-            log_dir=tmp_path,
-            console_output=False
+            "test_no_console", level="INFO", log_dir=tmp_path, console_output=False
         )
 
         # Check that no StreamHandler is added
-        stream_handlers = [h for h in logger.handlers if isinstance(h, logging.StreamHandler)]
+        stream_handlers = [
+            h for h in logger.handlers if isinstance(h, logging.StreamHandler)
+        ]
         # Note: FileHandlers are also StreamHandlers, so we need to be more specific
         console_handlers = [
-            h for h in logger.handlers
-            if isinstance(h, logging.StreamHandler) and not isinstance(h, logging.FileHandler)
+            h
+            for h in logger.handlers
+            if isinstance(h, logging.StreamHandler)
+            and not isinstance(h, logging.FileHandler)
         ]
         assert len(console_handlers) == 0
 
     def test_setup_logger_without_file_output(self):
         """Test logger without file output."""
-        logger = setup_logger(
-            "test_no_file",
-            level="INFO",
-            file_output=False
-        )
+        logger = setup_logger("test_no_file", level="INFO", file_output=False)
 
         # Check that no FileHandler is added
-        file_handlers = [h for h in logger.handlers if isinstance(h, logging.FileHandler)]
+        file_handlers = [
+            h for h in logger.handlers if isinstance(h, logging.FileHandler)
+        ]
         assert len(file_handlers) == 0
 
     def test_setup_logger_avoids_duplicate_handlers(self):
@@ -124,7 +123,7 @@ class TestPerformanceLogger:
         """Test that PerformanceLogger measures execution time."""
         logger = get_logger("test_performance")
 
-        with patch.object(logger, 'log') as mock_log:
+        with patch.object(logger, "log") as mock_log:
             with PerformanceLogger(logger, "Test operation"):
                 time.sleep(0.01)  # Simulate work
 
@@ -139,8 +138,8 @@ class TestPerformanceLogger:
         """Test that PerformanceLogger logs when exception occurs."""
         logger = get_logger("test_performance_error")
 
-        with patch.object(logger, 'log') as mock_log:
-            with patch.object(logger, 'error') as mock_error:
+        with patch.object(logger, "log") as mock_log:
+            with patch.object(logger, "error") as mock_error:
                 try:
                     with PerformanceLogger(logger, "Failing operation"):
                         raise ValueError("Test error")
@@ -157,7 +156,7 @@ class TestPerformanceLogger:
         """Test that PerformanceLogger respects custom log level."""
         logger = get_logger("test_performance_level")
 
-        with patch.object(logger, 'log') as mock_log:
+        with patch.object(logger, "log") as mock_log:
             with PerformanceLogger(logger, "Test operation", level=logging.WARNING):
                 pass
 
@@ -202,10 +201,7 @@ class TestLoggerIntegration:
         # Log file name is based on logger name with underscores
         log_file = tmp_path / "test_file_logging.log"
         logger = setup_logger(
-            "test_file_logging",
-            level="INFO",
-            log_dir=tmp_path,
-            console_output=False
+            "test_file_logging", level="INFO", log_dir=tmp_path, console_output=False
         )
 
         test_message = "This is a test log message"
@@ -224,10 +220,7 @@ class TestLoggerIntegration:
         """Test that errors are logged to separate file."""
         error_log_file = tmp_path / "test_errors_errors.log"
         logger = setup_logger(
-            "test_errors",
-            level="DEBUG",
-            log_dir=tmp_path,
-            console_output=False
+            "test_errors", level="DEBUG", log_dir=tmp_path, console_output=False
         )
 
         logger.info("This is info")
@@ -245,13 +238,9 @@ class TestLoggerIntegration:
 
     def test_logger_handles_different_log_levels(self, tmp_path):
         """Test that logger handles different log levels correctly."""
-        logger = setup_logger(
-            "test_levels",
-            level="DEBUG",
-            log_dir=tmp_path
-        )
+        logger = setup_logger("test_levels", level="DEBUG", log_dir=tmp_path)
 
-        with patch.object(logger, '_log') as mock_log:
+        with patch.object(logger, "_log") as mock_log:
             logger.debug("Debug message")
             logger.info("Info message")
             logger.warning("Warning message")

@@ -37,7 +37,9 @@ class PostgresClient:
                 "dbname": self.db_name,
                 "port": self.db_port,
             }
-            logger.info(f"PostgresClient configured for {self.db_host}:{self.db_port}/{self.db_name}")
+            logger.info(
+                f"PostgresClient configured for {self.db_host}:{self.db_port}/{self.db_name}"
+            )
             logger.debug(f"Database user: {self.db_user}")
         except Exception as e:
             logger.error(f"Failed to initialize PostgresClient: {str(e)}")
@@ -163,12 +165,18 @@ class PostgresClient:
                                         article.raw_ingestion_date,
                                     ),
                                 )
-                                logger.debug(f"Inserted article {article.id}: {article.title}")
+                                logger.debug(
+                                    f"Inserted article {article.id}: {article.title}"
+                                )
                             except psycopg.IntegrityError as e:
-                                logger.error(f"Integrity error inserting article {article.id}: {str(e)}")
+                                logger.error(
+                                    f"Integrity error inserting article {article.id}: {str(e)}"
+                                )
                                 raise
                             except psycopg.Error as e:
-                                logger.error(f"Database error inserting article {article.id}: {str(e)}")
+                                logger.error(
+                                    f"Database error inserting article {article.id}: {str(e)}"
+                                )
                                 raise
 
                 logger.info(f"Successfully inserted {len(articles)} articles")
@@ -218,9 +226,13 @@ class PostgresClient:
                                         article.id,
                                     ),
                                 )
-                                logger.debug(f"Updated article {article.id}: {article.title}")
+                                logger.debug(
+                                    f"Updated article {article.id}: {article.title}"
+                                )
                             except psycopg.Error as e:
-                                logger.error(f"Database error updating article {article.id}: {str(e)}")
+                                logger.error(
+                                    f"Database error updating article {article.id}: {str(e)}"
+                                )
                                 raise
 
                 logger.info(f"Successfully updated {len(articles)} articles")
@@ -253,13 +265,15 @@ class PostgresClient:
                     rows = cur.fetchall()
                     articles = []
                     for row in rows:
-                        articles.append(TdxArticle(
-                            id=row[0],
-                            title=row[1],
-                            url=row[2],
-                            content_html=row[3],
-                            last_modified_date=row[4]
-                        ))
+                        articles.append(
+                            TdxArticle(
+                                id=row[0],
+                                title=row[1],
+                                url=row[2],
+                                content_html=row[3],
+                                last_modified_date=row[4],
+                            )
+                        )
                     logger.info(f"Retrieved {len(articles)} articles from database")
                     return articles
         except Exception as e:
@@ -294,18 +308,20 @@ class PostgresClient:
                         WHERE id = ANY(%s)
                         ORDER BY id
                         """,
-                        (article_ids,)
+                        (article_ids,),
                     )
                     rows = cur.fetchall()
                     articles = []
                     for row in rows:
-                        articles.append(TdxArticle(
-                            id=row[0],
-                            title=row[1],
-                            url=row[2],
-                            content_html=row[3],
-                            last_modified_date=row[4]
-                        ))
+                        articles.append(
+                            TdxArticle(
+                                id=row[0],
+                                title=row[1],
+                                url=row[2],
+                                content_html=row[3],
+                                last_modified_date=row[4],
+                            )
+                        )
                     logger.info(f"Retrieved {len(articles)} articles from database")
                     return articles
         except Exception as e:
@@ -353,8 +369,8 @@ class PostgresClient:
                                     chunk.text_content,
                                     chunk.token_count,
                                     str(chunk.source_url),
-                                    chunk.last_modified_date
-                                )
+                                    chunk.last_modified_date,
+                                ),
                             )
                 logger.info(f"Successfully stored {len(chunks)} chunks")
                 return len(chunks)
@@ -384,7 +400,9 @@ class PostgresClient:
             logger.error(f"Failed to get chunk count: {str(e)}")
             raise
 
-    def get_all_chunks(self, limit: Optional[int] = None, offset: int = 0) -> List["TextChunk"]:
+    def get_all_chunks(
+        self, limit: Optional[int] = None, offset: int = 0
+    ) -> List["TextChunk"]:
         """
         Retrieve all chunks from the database.
 
@@ -411,7 +429,7 @@ class PostgresClient:
                             ORDER BY parent_article_id, chunk_sequence
                             LIMIT %s OFFSET %s
                             """,
-                            (limit, offset)
+                            (limit, offset),
                         )
                     else:
                         cur.execute(
@@ -427,15 +445,18 @@ class PostgresClient:
                     chunks = []
                     for row in rows:
                         from core.schemas import TextChunk
-                        chunks.append(TextChunk(
-                            chunk_id=row[0],
-                            parent_article_id=row[1],
-                            chunk_sequence=row[2],
-                            text_content=row[3],
-                            token_count=row[4],
-                            source_url=row[5],
-                            last_modified_date=row[6]
-                        ))
+
+                        chunks.append(
+                            TextChunk(
+                                chunk_id=row[0],
+                                parent_article_id=row[1],
+                                chunk_sequence=row[2],
+                                text_content=row[3],
+                                token_count=row[4],
+                                source_url=row[5],
+                                last_modified_date=row[6],
+                            )
+                        )
                     logger.info(f"Retrieved {len(chunks)} chunks from database")
                     return chunks
         except Exception as e:

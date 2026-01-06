@@ -43,7 +43,7 @@ class RAGPipeline:
         embedding_provider: str = "openai",
         skip_ingestion: bool = False,
         skip_processing: bool = False,
-        skip_embedding: bool = False
+        skip_embedding: bool = False,
     ):
         """
         Initialize the RAG pipeline with all required components.
@@ -58,9 +58,11 @@ class RAGPipeline:
             ValueError: If invalid embedding provider specified
         """
         logger.info("Initializing RAG Pipeline")
-        logger.info(f"Configuration: provider={embedding_provider}, "
-                   f"skip_ingestion={skip_ingestion}, skip_processing={skip_processing}, "
-                   f"skip_embedding={skip_embedding}")
+        logger.info(
+            f"Configuration: provider={embedding_provider}, "
+            f"skip_ingestion={skip_ingestion}, skip_processing={skip_processing}, "
+            f"skip_embedding={skip_embedding}"
+        )
 
         try:
             # Validate embedding provider
@@ -94,7 +96,9 @@ class RAGPipeline:
                 else:  # cohere
                     self.embedder = GenerateEmbeddingsAWS()
                     self.vector_store = CohereVectorStorage()
-                logger.debug(f"{embedding_provider} embedder and vector store initialized")
+                logger.debug(
+                    f"{embedding_provider} embedder and vector store initialized"
+                )
 
             self.raw_store = PostgresClient()
             logger.debug("Raw storage client initialized")
@@ -105,7 +109,9 @@ class RAGPipeline:
             logger.error(f"Failed to initialize RAG Pipeline: {str(e)}")
             raise
 
-    def _generate_chunk_id(self, parent_article_id: int, text_content: str, sequence: int) -> str:
+    def _generate_chunk_id(
+        self, parent_article_id: int, text_content: str, sequence: int
+    ) -> str:
         """
         Generate a unique, deterministic chunk ID.
 
@@ -183,11 +189,7 @@ class RAGPipeline:
 
                 if not articles:
                     logger.warning("No articles found to process")
-                    return {
-                        'processed_count': 0,
-                        'chunk_count': 0,
-                        'chunk_ids': []
-                    }
+                    return {"processed_count": 0, "chunk_count": 0, "chunk_ids": []}
 
                 logger.info(f"Processing {len(articles)} articles")
 
@@ -197,16 +199,22 @@ class RAGPipeline:
 
                 for idx, article in enumerate(articles, 1):
                     try:
-                        logger.debug(f"Processing article {idx}/{len(articles)}: {article.id}")
+                        logger.debug(
+                            f"Processing article {idx}/{len(articles)}: {article.id}"
+                        )
                         chunks = self.process_article_to_chunks(article)
                         all_chunks.extend(chunks)
                         processed_count += 1
 
                         if idx % 10 == 0:
-                            logger.info(f"Progress: {idx}/{len(articles)} articles processed")
+                            logger.info(
+                                f"Progress: {idx}/{len(articles)} articles processed"
+                            )
 
                     except Exception as e:
-                        logger.error(f"Failed to process article {article.id}: {str(e)}")
+                        logger.error(
+                            f"Failed to process article {article.id}: {str(e)}"
+                        )
                         # Continue processing other articles
                         continue
 
@@ -221,9 +229,9 @@ class RAGPipeline:
                 )
 
                 return {
-                    'processed_count': processed_count,
-                    'chunk_count': len(all_chunks),
-                    'chunk_ids': [chunk.chunk_id for chunk in all_chunks]
+                    "processed_count": processed_count,
+                    "chunk_count": len(all_chunks),
+                    "chunk_ids": [chunk.chunk_id for chunk in all_chunks],
                 }
 
         except Exception as e:
@@ -252,15 +260,19 @@ class RAGPipeline:
 
             # Chunk the text
             settings = get_settings()
-            max_tokens = settings.AZURE_MAX_TOKENS if self.embedding_provider == "openai" else settings.AWS_MAX_TOKENS
+            max_tokens = (
+                settings.AZURE_MAX_TOKENS
+                if self.embedding_provider == "openai"
+                else settings.AWS_MAX_TOKENS
+            )
             overlap = 50  # Token overlap between chunks
 
             text_chunks_raw = self.text_processor.text_to_chunks(
-                clean_text,
-                max_tokens=max_tokens,
-                overlap=overlap
+                clean_text, max_tokens=max_tokens, overlap=overlap
             )
-            logger.debug(f"Created {len(text_chunks_raw)} chunks for article {article.id}")
+            logger.debug(
+                f"Created {len(text_chunks_raw)} chunks for article {article.id}"
+            )
 
             # Create TextChunk objects
             chunks = []
@@ -277,18 +289,22 @@ class RAGPipeline:
                     text_content=chunk_text,
                     token_count=token_count,
                     source_url=article.url,
-                    last_modified_date=article.last_modified_date
+                    last_modified_date=article.last_modified_date,
                 )
                 chunks.append(chunk)
 
-            logger.info(f"Successfully processed article {article.id} into {len(chunks)} chunks")
+            logger.info(
+                f"Successfully processed article {article.id} into {len(chunks)} chunks"
+            )
             return chunks
 
         except Exception as e:
             logger.error(f"Failed to process article {article.id}: {str(e)}")
             raise
 
-    def run_embedding(self, chunks: List[TextChunk]) -> List[Tuple[VectorRecord, List[float]]]:
+    def run_embedding(
+        self, chunks: List[TextChunk]
+    ) -> List[Tuple[VectorRecord, List[float]]]:
         """
         Generate embeddings for text chunks.
 
@@ -320,7 +336,9 @@ class RAGPipeline:
 
                     try:
                         # Generate embedding
-                        embedding_vector = self.embedder.generate_embedding(chunk.text_content)
+                        embedding_vector = self.embedder.generate_embedding(
+                            chunk.text_content
+                        )
 
                         # Create VectorRecord
                         vector_record = VectorRecord(
@@ -329,14 +347,16 @@ class RAGPipeline:
                             chunk_sequence=chunk.chunk_sequence,
                             text_content=chunk.text_content,
                             token_count=chunk.token_count,
-                            source_url=chunk.source_url
+                            source_url=chunk.source_url,
                         )
 
                         embeddings.append((vector_record, embedding_vector))
                         logger.debug(f"Generated embedding for chunk {chunk.chunk_id}")
 
                     except Exception as e:
-                        logger.error(f"Failed to embed chunk {chunk.chunk_id}: {str(e)}")
+                        logger.error(
+                            f"Failed to embed chunk {chunk.chunk_id}: {str(e)}"
+                        )
                         # Continue with other chunks
                         continue
 
@@ -375,7 +395,9 @@ class RAGPipeline:
             logger.error(f"Storage phase failed: {str(e)}")
             raise
 
-    def run_full_pipeline(self, article_ids: Optional[List[int]] = None) -> Dict[str, Any]:
+    def run_full_pipeline(
+        self, article_ids: Optional[List[int]] = None
+    ) -> Dict[str, Any]:
         """
         Run the complete RAG pipeline from ingestion to storage.
 
@@ -393,13 +415,13 @@ class RAGPipeline:
         logger.info("=" * 80)
 
         stats = {
-            'ingestion': {},
-            'processing': {'processed_count': 0, 'chunk_count': 0},
-            'embedding': {'embedding_count': 0},
-            'storage': {'stored_count': 0},
-            'start_time': datetime.now(),
-            'end_time': None,
-            'duration_seconds': 0
+            "ingestion": {},
+            "processing": {"processed_count": 0, "chunk_count": 0},
+            "embedding": {"embedding_count": 0},
+            "storage": {"stored_count": 0},
+            "start_time": datetime.now(),
+            "end_time": None,
+            "duration_seconds": 0,
         }
 
         try:
@@ -409,7 +431,7 @@ class RAGPipeline:
                     logger.info("\n" + "=" * 80)
                     logger.info("PHASE 1: INGESTION")
                     logger.info("=" * 80)
-                    stats['ingestion'] = self.run_ingestion()
+                    stats["ingestion"] = self.run_ingestion()
                 else:
                     logger.info("PHASE 1: INGESTION - SKIPPED")
 
@@ -419,8 +441,8 @@ class RAGPipeline:
                     logger.info("PHASE 2: PROCESSING")
                     logger.info("=" * 80)
                     processing_result = self.run_processing(article_ids=article_ids)
-                    stats['processing'] = processing_result
-                    chunk_ids = processing_result.get('chunk_ids', [])
+                    stats["processing"] = processing_result
+                    chunk_ids = processing_result.get("chunk_ids", [])
                 else:
                     logger.info("PHASE 2: PROCESSING - SKIPPED")
                     chunk_ids = []
@@ -432,13 +454,17 @@ class RAGPipeline:
                     logger.info("=" * 80)
 
                     # Fetch chunks from database to get the full TextChunk objects
-                    logger.info(f"Preparing to generate embeddings for {len(chunk_ids)} chunks")
+                    logger.info(
+                        f"Preparing to generate embeddings for {len(chunk_ids)} chunks"
+                    )
 
                     # For now, we'll use the chunks from processing phase if available
                     # In a production system, you might want to fetch from DB to support resume
                     articles_to_embed = []
                     if article_ids:
-                        articles_to_embed = self.raw_store.get_articles_by_ids(article_ids)
+                        articles_to_embed = self.raw_store.get_articles_by_ids(
+                            article_ids
+                        )
                     elif not self.skip_processing:
                         # If we just processed, we can use those articles
                         # Otherwise we'd need to fetch all from DB
@@ -453,10 +479,12 @@ class RAGPipeline:
                             embeddings = self.run_embedding(chunks)
                             all_embeddings.extend(embeddings)
                         except Exception as e:
-                            logger.error(f"Failed to embed article {article.id}: {str(e)}")
+                            logger.error(
+                                f"Failed to embed article {article.id}: {str(e)}"
+                            )
                             continue
 
-                    stats['embedding']['embedding_count'] = len(all_embeddings)
+                    stats["embedding"]["embedding_count"] = len(all_embeddings)
 
                     # Phase 4: Storage
                     if all_embeddings:
@@ -464,32 +492,42 @@ class RAGPipeline:
                         logger.info("PHASE 4: VECTOR STORAGE")
                         logger.info("=" * 80)
                         stored_count = self.run_storage(all_embeddings)
-                        stats['storage']['stored_count'] = stored_count
+                        stats["storage"]["stored_count"] = stored_count
                     else:
                         logger.warning("No embeddings generated to store")
                 else:
                     if self.skip_embedding:
                         logger.info("PHASE 3 & 4: EMBEDDING AND STORAGE - SKIPPED")
                     else:
-                        logger.info("PHASE 3 & 4: EMBEDDING AND STORAGE - NO CHUNKS TO PROCESS")
+                        logger.info(
+                            "PHASE 3 & 4: EMBEDDING AND STORAGE - NO CHUNKS TO PROCESS"
+                        )
 
-                stats['end_time'] = datetime.now()
-                stats['duration_seconds'] = (stats['end_time'] - stats['start_time']).total_seconds()
+                stats["end_time"] = datetime.now()
+                stats["duration_seconds"] = (
+                    stats["end_time"] - stats["start_time"]
+                ).total_seconds()
 
                 logger.info("\n" + "=" * 80)
                 logger.info("PIPELINE EXECUTION COMPLETE")
                 logger.info("=" * 80)
                 logger.info(f"Duration: {stats['duration_seconds']:.2f} seconds")
 
-                if stats.get('ingestion'):
-                    logger.info(f"Ingestion: {stats['ingestion'].get('new_count', 0)} new, "
-                              f"{stats['ingestion'].get('updated_count', 0)} updated")
-                if stats['processing']['processed_count'] > 0:
-                    logger.info(f"Processing: {stats['processing']['processed_count']} articles, "
-                              f"{stats['processing']['chunk_count']} chunks")
-                if stats['embedding']['embedding_count'] > 0:
-                    logger.info(f"Embedding: {stats['embedding']['embedding_count']} generated")
-                if stats['storage']['stored_count'] > 0:
+                if stats.get("ingestion"):
+                    logger.info(
+                        f"Ingestion: {stats['ingestion'].get('new_count', 0)} new, "
+                        f"{stats['ingestion'].get('updated_count', 0)} updated"
+                    )
+                if stats["processing"]["processed_count"] > 0:
+                    logger.info(
+                        f"Processing: {stats['processing']['processed_count']} articles, "
+                        f"{stats['processing']['chunk_count']} chunks"
+                    )
+                if stats["embedding"]["embedding_count"] > 0:
+                    logger.info(
+                        f"Embedding: {stats['embedding']['embedding_count']} generated"
+                    )
+                if stats["storage"]["stored_count"] > 0:
                     logger.info(f"Storage: {stats['storage']['stored_count']} stored")
 
                 return stats
@@ -497,18 +535,20 @@ class RAGPipeline:
         except Exception as e:
             logger.error(f"Pipeline execution failed: {str(e)}")
             logger.error("=" * 80)
-            stats['end_time'] = datetime.now()
-            stats['duration_seconds'] = (stats['end_time'] - stats['start_time']).total_seconds()
-            stats['error'] = str(e)
+            stats["end_time"] = datetime.now()
+            stats["duration_seconds"] = (
+                stats["end_time"] - stats["start_time"]
+            ).total_seconds()
+            stats["error"] = str(e)
             raise
 
     def cleanup(self):
         """Clean up resources and close connections."""
         logger.info("Cleaning up pipeline resources")
         try:
-            if hasattr(self, 'raw_store'):
+            if hasattr(self, "raw_store"):
                 self.raw_store.close()
-            if hasattr(self, 'vector_store'):
+            if hasattr(self, "vector_store"):
                 self.vector_store.close()
             logger.info("Pipeline cleanup complete")
         except Exception as e:

@@ -66,7 +66,7 @@ Examples:
   python main.py bootstrap --status
   python main.py bootstrap --dry-run
   python main.py bootstrap
-        """
+        """,
     )
 
     # Add global options to parent parser
@@ -74,13 +74,9 @@ Examples:
         "--log-level",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         default="INFO",
-        help="Set logging level (default: INFO)"
+        help="Set logging level (default: INFO)",
     )
-    parser.add_argument(
-        "--version",
-        action="version",
-        version="%(prog)s 1.0.0"
-    )
+    parser.add_argument("--version", action="version", version="%(prog)s 1.0.0")
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
 
@@ -88,104 +84,98 @@ Examples:
     ingest_parser = subparsers.add_parser(
         "ingest",
         help="Ingest articles from TDX API into raw storage",
-        description="Fetch articles from TeamDynamix API and store them in the database."
+        description="Fetch articles from TeamDynamix API and store them in the database.",
     )
     ingest_parser.add_argument(
-        "--stats",
-        action="store_true",
-        help="Print detailed statistics after ingestion"
+        "--stats", action="store_true", help="Print detailed statistics after ingestion"
     )
 
     # ========== PROCESS COMMAND ==========
     process_parser = subparsers.add_parser(
         "process",
         help="Process articles into text chunks",
-        description="Convert HTML articles to clean text and create chunks for embedding."
+        description="Convert HTML articles to clean text and create chunks for embedding.",
     )
     process_parser.add_argument(
         "--article-ids",
         type=int,
         nargs="+",
         metavar="ID",
-        help="Specific article IDs to process (default: process all)"
+        help="Specific article IDs to process (default: process all)",
     )
 
     # ========== EMBED COMMAND ==========
     embed_parser = subparsers.add_parser(
         "embed",
         help="Generate embeddings for text chunks",
-        description="Generate vector embeddings for processed text chunks."
+        description="Generate vector embeddings for processed text chunks.",
     )
     embed_parser.add_argument(
         "--provider",
         choices=["openai", "cohere"],
         default="openai",
-        help="Embedding provider to use (default: openai)"
+        help="Embedding provider to use (default: openai)",
     )
     embed_parser.add_argument(
         "--batch-size",
         type=int,
         default=100,
         metavar="N",
-        help="Number of chunks to process in each batch (default: 100)"
+        help="Number of chunks to process in each batch (default: 100)",
     )
 
     # ========== PIPELINE COMMAND ==========
     pipeline_parser = subparsers.add_parser(
         "pipeline",
         help="Run the complete RAG pipeline (ingest + process + embed)",
-        description="Execute the full pipeline: ingestion, processing, and embedding generation."
+        description="Execute the full pipeline: ingestion, processing, and embedding generation.",
     )
     pipeline_parser.add_argument(
         "--provider",
         choices=["openai", "cohere"],
         default="openai",
-        help="Embedding provider to use (default: openai)"
+        help="Embedding provider to use (default: openai)",
     )
     pipeline_parser.add_argument(
         "--skip-ingestion",
         action="store_true",
-        help="Skip article ingestion (use existing data)"
+        help="Skip article ingestion (use existing data)",
     )
     pipeline_parser.add_argument(
         "--skip-processing",
         action="store_true",
-        help="Skip text processing (use existing chunks)"
+        help="Skip text processing (use existing chunks)",
     )
     pipeline_parser.add_argument(
         "--skip-embedding",
         action="store_true",
-        help="Skip embedding generation (dry run)"
+        help="Skip embedding generation (dry run)",
     )
     pipeline_parser.add_argument(
         "--article-ids",
         type=int,
         nargs="+",
         metavar="ID",
-        help="Specific article IDs to process (default: process all)"
+        help="Specific article IDs to process (default: process all)",
     )
 
     # ========== BOOTSTRAP COMMAND ==========
     bootstrap_parser = subparsers.add_parser(
         "bootstrap",
         help="Bootstrap database tables and extensions",
-        description="Set up or reset the database schema, tables, and pgvector extension."
+        description="Set up or reset the database schema, tables, and pgvector extension.",
     )
     bootstrap_group = bootstrap_parser.add_mutually_exclusive_group()
     bootstrap_group.add_argument(
-        "--status",
-        action="store_true",
-        help="Check current database status"
+        "--status", action="store_true", help="Check current database status"
     )
     bootstrap_group.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Preview changes without applying them"
+        "--dry-run", action="store_true", help="Preview changes without applying them"
     )
     bootstrap_group.add_argument(
         "--full-reset",
         action="store_true",
-        help="Drop all tables and recreate (WARNING: deletes all data)"
+        help="Drop all tables and recreate (WARNING: deletes all data)",
     )
 
     return parser
@@ -241,10 +231,7 @@ def command_process(args: argparse.Namespace) -> int:
 
     try:
         # Initialize pipeline with processing enabled
-        pipeline = RAGPipeline(
-            skip_ingestion=True,
-            skip_embedding=True
-        )
+        pipeline = RAGPipeline(skip_ingestion=True, skip_embedding=True)
 
         # Run processing
         stats = pipeline.run_processing(article_ids=args.article_ids)
@@ -281,9 +268,7 @@ def command_embed(args: argparse.Namespace) -> int:
     try:
         # Initialize pipeline with embedding enabled
         pipeline = RAGPipeline(
-            embedding_provider=args.provider,
-            skip_ingestion=True,
-            skip_processing=True
+            embedding_provider=args.provider, skip_ingestion=True, skip_processing=True
         )
 
         # Get chunk count first
@@ -304,8 +289,12 @@ def command_embed(args: argparse.Namespace) -> int:
 
         while offset < chunk_count:
             # Fetch batch of chunks
-            logger.info(f"Fetching chunks {offset + 1} to {min(offset + args.batch_size, chunk_count)}")
-            chunks = pipeline.raw_store.get_all_chunks(limit=args.batch_size, offset=offset)
+            logger.info(
+                f"Fetching chunks {offset + 1} to {min(offset + args.batch_size, chunk_count)}"
+            )
+            chunks = pipeline.raw_store.get_all_chunks(
+                limit=args.batch_size, offset=offset
+            )
 
             if not chunks:
                 logger.warning(f"No chunks retrieved at offset {offset}, stopping")
@@ -375,7 +364,7 @@ def command_pipeline(args: argparse.Namespace) -> int:
             embedding_provider=args.provider,
             skip_ingestion=args.skip_ingestion,
             skip_processing=args.skip_processing,
-            skip_embedding=args.skip_embedding
+            skip_embedding=args.skip_embedding,
         ) as pipeline:
             # Run the full pipeline
             stats = pipeline.run_full_pipeline(article_ids=args.article_ids)
@@ -385,22 +374,30 @@ def command_pipeline(args: argparse.Namespace) -> int:
             logger.info("=" * 80)
             logger.info(f"Duration: {stats['duration_seconds']:.2f} seconds")
 
-            if stats.get('ingestion'):
+            if stats.get("ingestion"):
                 logger.info("\nIngestion:")
                 logger.info(f"  New:       {stats['ingestion'].get('new_count', 0)}")
-                logger.info(f"  Updated:   {stats['ingestion'].get('updated_count', 0)}")
-                logger.info(f"  Unchanged: {stats['ingestion'].get('unchanged_count', 0)}")
+                logger.info(
+                    f"  Updated:   {stats['ingestion'].get('updated_count', 0)}"
+                )
+                logger.info(
+                    f"  Unchanged: {stats['ingestion'].get('unchanged_count', 0)}"
+                )
 
-            if stats.get('processing'):
+            if stats.get("processing"):
                 logger.info("\nProcessing:")
-                logger.info(f"  Articles:  {stats['processing'].get('processed_count', 0)}")
+                logger.info(
+                    f"  Articles:  {stats['processing'].get('processed_count', 0)}"
+                )
                 logger.info(f"  Chunks:    {stats['processing'].get('chunk_count', 0)}")
 
-            if stats.get('embedding'):
+            if stats.get("embedding"):
                 logger.info("\nEmbedding:")
-                logger.info(f"  Generated: {stats['embedding'].get('embedding_count', 0)}")
+                logger.info(
+                    f"  Generated: {stats['embedding'].get('embedding_count', 0)}"
+                )
 
-            if stats.get('storage'):
+            if stats.get("storage"):
                 logger.info("\nStorage:")
                 logger.info(f"  Stored:    {stats['storage'].get('stored_count', 0)}")
 
@@ -478,6 +475,7 @@ def main() -> int:
 
     # Configure logging level
     import logging
+
     logging.getLogger().setLevel(getattr(logging, args.log_level))
 
     # Log startup information
@@ -496,7 +494,9 @@ def main() -> int:
         logger.debug("Configuration loaded successfully")
     except Exception as e:
         logger.error(f"Configuration error: {str(e)}")
-        logger.error("Please ensure all required environment variables are set in .env file")
+        logger.error(
+            "Please ensure all required environment variables are set in .env file"
+        )
         return 1
 
     # Route to appropriate command handler

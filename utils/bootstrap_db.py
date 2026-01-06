@@ -211,7 +211,7 @@ class DatabaseBootstrap:
 
         create_table_sql = """
         CREATE TABLE articles (
-            id INTEGER PRIMARY KEY,
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
             title TEXT NOT NULL,
             url TEXT NOT NULL,
             content_html TEXT NOT NULL,
@@ -259,8 +259,8 @@ class DatabaseBootstrap:
 
         create_table_sql = """
         CREATE TABLE article_chunks (
-            id TEXT PRIMARY KEY,
-            parent_article_id INTEGER NOT NULL,
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            parent_article_id UUID NOT NULL,
             chunk_sequence INTEGER NOT NULL,
             text_content TEXT NOT NULL,
             token_count INTEGER NOT NULL,
@@ -314,8 +314,8 @@ class DatabaseBootstrap:
 
         create_table_sql = """
         CREATE TABLE embeddings_openai (
-            chunk_id TEXT PRIMARY KEY,
-            parent_article_id INTEGER NOT NULL,
+            chunk_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            parent_article_id UUID NOT NULL,
             chunk_sequence INTEGER NOT NULL,
             text_content TEXT NOT NULL,
             token_count INTEGER NOT NULL,
@@ -335,7 +335,132 @@ class DatabaseBootstrap:
             cur.execute(create_table_sql)
             cur.execute(create_index_sql)
 
-        print(f"  [OK] Created table '{table_name}' with indexes and foreign key (3072 dimensions)")
+        print(
+            f"  [OK] Created table '{table_name}' with indexes and foreign key (3072 dimensions)"
+        )
+
+    def create_warm_cache_entries(self, conn: Connection) -> None:
+        """
+        Create the warm cache entries table.
+
+        Args:
+            conn: Database connection
+        """
+        table_name = "warm_cache_entries"
+        exists = self.check_table_exists(conn, table_name)
+        if self.dry_run:
+            if exists:
+                info = self.get_table_info(conn, table_name)
+                print(
+                    f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)"
+                )
+                print(f"    Columns: {len(info['columns'])}")
+            else:
+                print(f"  -> Would create table '{table_name}'")
+            return
+
+        if exists:
+            print(f"  [OK] Table '{table_name}' already exists")
+            return
+        if not self.check_extension_exists(conn, "vector"):
+            print(
+                f"  [!] Warning: vector extension not installed. Skipping '{table_name}' table creation."
+            )
+            return
+
+        create_table_sql = """
+        CREATE TABLE warm_cache_entries (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            canonical_question TEXT NOT NULL,
+            verified_answer TEXT NOT NULL,
+            query_embedding vector(3072),
+            article_id UUID NOT NULL,
+            is_active BOOL NOT NULL,
+            FOREIGN KEY (article_id) REFERENCES articles(id) ON DELETE CASCADE
+        );
+        """
+
+        with conn.cursor() as cur:
+            cur.execute(create_table_sql)
+            print(f"  [OK] Created table '{table_name}'")
+
+    def create_cache_metrics(self, conn: Connection) -> None:
+        """
+        Create the warm cache entries table.
+
+        Args:
+            conn: Database connection
+        """
+        table_name = "cache_metrics"
+        exists = self.check_table_exists(conn, table_name)
+        if self.dry_run:
+            if exists:
+                info = self.get_table_info(conn, table_name)
+                print(
+                    f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)"
+                )
+                print(f"    Columns: {len(info['columns'])}")
+            else:
+                print(f"  -> Would create table '{table_name}'")
+            return
+
+        if exists:
+            print(f"  [OK] Table '{table_name}' already exists")
+            return
+
+        create_table_sql = """
+        CREATE TABLE cache_metrics (
+            id BIGSERIAL PRIMARY KEY,
+            cache_entry_id UUID REFERENCES warm_cache_entries(id) ON DELETE SET NULL,
+            request_timestamp TIMESTAMPTZ DEFAULT NOW(),
+            cache_type TEXT NOT NULL,
+            latency_ms INT,
+            user_id TEXT
+        );
+        """
+
+        with conn.cursor() as cur:
+            cur.execute(create_table_sql)
+            print(f"  [OK] Created table '{table_name}'")
+
+    def create_cache_logs(self, conn: Connection) -> None:
+        """
+        Create the warm cache entries table.
+
+        Args:
+            conn: Database connection
+        """
+        table_name = "query_logs"
+        exists = self.check_table_exists(conn, table_name)
+        if self.dry_run:
+            if exists:
+                info = self.get_table_info(conn, table_name)
+                print(
+                    f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)"
+                )
+                print(f"    Columns: {len(info['columns'])}")
+            else:
+                print(f"  -> Would create table '{table_name}'")
+            return
+
+        if exists:
+            print(f"  [OK] Table '{table_name}' already exists")
+            return
+
+        create_table_sql = """
+        CREATE TABLE query_logs (
+            id BIGSERIAL PRIMARY KEY,
+            raw_query TEXT NOT NULL,
+            query_embedding vector(3072),
+            cache_result TEXT NOT NULL,
+            latency_ms INT,
+            user_id TEXT,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        """
+        with conn.cursor() as cur:
+            cur.execute(create_table_sql)
+            print(f"  [OK] Created table '{table_name}'")
 
     def create_embeddings_table_cohere(self, conn: Connection) -> None:
         """
@@ -371,8 +496,8 @@ class DatabaseBootstrap:
 
         create_table_sql = """
         CREATE TABLE embeddings_cohere (
-            chunk_id TEXT PRIMARY KEY,
-            parent_article_id INTEGER NOT NULL,
+            chunk_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            parent_article_id UUID NOT NULL,
             chunk_sequence INTEGER NOT NULL,
             text_content TEXT NOT NULL,
             token_count INTEGER NOT NULL,
@@ -393,7 +518,9 @@ class DatabaseBootstrap:
             cur.execute(create_table_sql)
             cur.execute(create_index_sql)
 
-        print(f"  [OK] Created table '{table_name}' with indexes and foreign key (1536 dimensions)")
+        print(
+            f"  [OK] Created table '{table_name}' with indexes and foreign key (1536 dimensions)"
+        )
 
     def drop_all_tables(self, conn: Connection) -> None:
         """
@@ -402,7 +529,15 @@ class DatabaseBootstrap:
         Args:
             conn: Database connection
         """
-        tables = ["embeddings_openai", "embeddings_cohere", "articles", "article_chunks"]
+        tables = [
+            "embeddings_openai",
+            "embeddings_cohere",
+            "warm_cache_entries",
+            "articles",
+            "article_chunks",
+            "cache_metrics",
+            "query_logs",
+        ]
 
         if self.dry_run:
             print("  -> Would drop the following tables:")
@@ -451,6 +586,9 @@ class DatabaseBootstrap:
                 self.create_embeddings_table_openai(conn)
                 self.create_embeddings_table_cohere(conn)
                 self.create_chunks_table(conn)
+                self.create_warm_cache_entries(conn)
+                self.create_cache_metrics(conn)
+                self.create_cache_logs(conn)
                 print()
 
                 if self.dry_run:
@@ -484,7 +622,15 @@ class DatabaseBootstrap:
 
                 # Check tables
                 print("Tables:")
-                tables = ["articles", "embeddings_openai", "embeddings_cohere", "article_chunks"]
+                tables = [
+                    "articles",
+                    "embeddings_openai",
+                    "embeddings_cohere",
+                    "article_chunks",
+                    "warm_cache_entries",
+                    "cache_metrics",
+                    "query_logs",
+                ]
                 for table in tables:
                     exists = self.check_table_exists(conn, table)
                     if exists:
