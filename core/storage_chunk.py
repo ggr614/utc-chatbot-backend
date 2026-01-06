@@ -147,6 +147,7 @@ class PostgresClient:
                             chunk.last_modified_date,
                         ),
                     )
+
     def get_all_chunks(self) -> List[TextChunk]:
         """
         Retrieve all chunks from the database.
