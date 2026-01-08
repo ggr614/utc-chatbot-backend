@@ -212,6 +212,7 @@ class DatabaseBootstrap:
         create_table_sql = """
         CREATE TABLE articles (
             id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tdx_article_id INTEGER UNIQUE NOT NULL,
             title TEXT NOT NULL,
             url TEXT NOT NULL,
             content_html TEXT NOT NULL,
@@ -222,6 +223,7 @@ class DatabaseBootstrap:
         """
 
         create_index_sql = """
+        CREATE INDEX idx_articles_tdx_id ON articles(tdx_article_id);
         CREATE INDEX idx_articles_last_modified ON articles(last_modified_date);
         CREATE INDEX idx_articles_ingestion_date ON articles(raw_ingestion_date);
         """

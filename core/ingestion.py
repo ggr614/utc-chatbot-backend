@@ -192,7 +192,7 @@ class ArticleProcessor:
                 # Validate with Pydantic schema
                 processed_articles.append(
                     TdxArticle(
-                        id=article_id,
+                        tdx_article_id=article_id,
                         title=title,
                         url=HttpUrl(url),
                         content_html=content_html,

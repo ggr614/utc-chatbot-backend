@@ -9,7 +9,10 @@ class TdxArticle(BaseModel):
     Schema for the data retrieved from the TDX API
     """
 
-    id: UUID = Field(..., description="Unique ID (UUID) in the database.")
+    id: UUID | None = Field(
+        default=None, description="Unique UUID in the database (auto-generated)."
+    )
+    tdx_article_id: int = Field(..., description="Original article ID from TDX API.")
     title: str
     content_html: str = Field(..., description="Raw HTML content of the article.")
     last_modified_date: datetime

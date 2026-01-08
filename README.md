@@ -24,6 +24,7 @@ All tables use UUIDs as primary keys for robust identification and foreign key r
 ### Articles Table (Raw Storage)
 ```sql
 - id (UUID): Article unique identifier (Primary Key, auto-generated)
+- tdx_article_id (integer): Original article ID from TDX API (UNIQUE, NOT NULL)
 - title (text): Article title
 - url (text): Public URL
 - content_html (text): Raw HTML content

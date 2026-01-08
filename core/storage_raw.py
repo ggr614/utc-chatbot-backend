@@ -106,28 +106,28 @@ class PostgresClient:
         """Context manager exit with cleanup."""
         self.close()
 
-    def get_article_metadata(self) -> Dict[UUID, datetime]:
+    def get_article_metadata(self) -> Dict[int, datetime]:
         """
-        Retrieve ID and last modified date for all articles in database.
+        Retrieve TDX article ID and last modified date for all articles in database.
 
         Returns:
-            Dictionary mapping article_id (UUID) -> last_modified_date
+            Dictionary mapping tdx_article_id (int) -> last_modified_date
         """
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id, last_modified_date FROM articles")
+                cur.execute("SELECT tdx_article_id, last_modified_date FROM articles")
                 return {row[0]: row[1] for row in cur.fetchall()}
 
-    def get_existing_article_ids(self) -> Set[UUID]:
+    def get_existing_article_ids(self) -> Set[int]:
         """
-        Get set of all article IDs currently in database.
+        Get set of all TDX article IDs currently in database.
 
         Returns:
-            Set of article IDs (UUIDs)
+            Set of TDX article IDs (integers)
         """
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("SELECT id FROM articles")
+                cur.execute("SELECT tdx_article_id FROM articles")
                 return {row[0] for row in cur.fetchall()}
 
     def insert_articles(self, articles: List[TdxArticle]) -> None:
@@ -154,11 +154,12 @@ class PostgresClient:
                             try:
                                 cur.execute(
                                     """
-                                    INSERT INTO articles (id, title, url, content_html, last_modified_date, raw_ingestion_date)
+                                    INSERT INTO articles (tdx_article_id, title, url, content_html, last_modified_date, raw_ingestion_date)
                                     VALUES (%s, %s, %s, %s, %s, %s)
+                                    RETURNING id
                                     """,
                                     (
-                                        article.id,
+                                        article.tdx_article_id,
                                         article.title,
                                         str(article.url),
                                         article.content_html,
@@ -166,8 +167,11 @@ class PostgresClient:
                                         article.raw_ingestion_date,
                                     ),
                                 )
+                                # Get the auto-generated UUID
+                                generated_id = cur.fetchone()[0]
+                                article.id = generated_id
                                 logger.debug(
-                                    f"Inserted article {article.id}: {article.title}"
+                                    f"Inserted article TDX ID {article.tdx_article_id} (UUID: {article.id}): {article.title}"
                                 )
                             except psycopg.IntegrityError as e:
                                 logger.error(
@@ -216,7 +220,8 @@ class PostgresClient:
                                         content_html = %s,
                                         last_modified_date = %s,
                                         raw_ingestion_date = %s
-                                    WHERE id = %s
+                                    WHERE tdx_article_id = %s
+                                    RETURNING id
                                     """,
                                     (
                                         article.title,
@@ -224,11 +229,15 @@ class PostgresClient:
                                         article.content_html,
                                         article.last_modified_date,
                                         article.raw_ingestion_date,
-                                        article.id,
+                                        article.tdx_article_id,
                                     ),
                                 )
+                                # Get the UUID for this article
+                                result = cur.fetchone()
+                                if result:
+                                    article.id = result[0]
                                 logger.debug(
-                                    f"Updated article {article.id}: {article.title}"
+                                    f"Updated article TDX ID {article.tdx_article_id} (UUID: {article.id}): {article.title}"
                                 )
                             except psycopg.Error as e:
                                 logger.error(
@@ -258,7 +267,7 @@ class PostgresClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, title, url, content_html, last_modified_date
+                        SELECT id, tdx_article_id, title, url, content_html, last_modified_date
                         FROM articles
                         ORDER BY id
                         """
@@ -269,10 +278,11 @@ class PostgresClient:
                         articles.append(
                             TdxArticle(
                                 id=row[0],
-                                title=row[1],
-                                url=row[2],
-                                content_html=row[3],
-                                last_modified_date=row[4],
+                                tdx_article_id=row[1],
+                                title=row[2],
+                                url=row[3],
+                                content_html=row[4],
+                                last_modified_date=row[5],
                             )
                         )
                     logger.info(f"Retrieved {len(articles)} articles from database")
@@ -304,7 +314,7 @@ class PostgresClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, title, url, content_html, last_modified_date
+                        SELECT id, tdx_article_id, title, url, content_html, last_modified_date
                         FROM articles
                         WHERE id = ANY(%s)
                         ORDER BY id
@@ -317,10 +327,11 @@ class PostgresClient:
                         articles.append(
                             TdxArticle(
                                 id=row[0],
-                                title=row[1],
-                                url=row[2],
-                                content_html=row[3],
-                                last_modified_date=row[4],
+                                tdx_article_id=row[1],
+                                title=row[2],
+                                url=row[3],
+                                content_html=row[4],
+                                last_modified_date=row[5],
                             )
                         )
                     logger.info(f"Retrieved {len(articles)} articles from database")
