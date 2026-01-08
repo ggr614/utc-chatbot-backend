@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Dict, List, Optional, Set
+from uuid import UUID
 from core.config import get_settings
 import psycopg
 from psycopg import Connection
@@ -105,24 +106,24 @@ class PostgresClient:
         """Context manager exit with cleanup."""
         self.close()
 
-    def get_article_metadata(self) -> Dict[int, datetime]:
+    def get_article_metadata(self) -> Dict[UUID, datetime]:
         """
         Retrieve ID and last modified date for all articles in database.
 
         Returns:
-            Dictionary mapping article_id -> last_modified_date
+            Dictionary mapping article_id (UUID) -> last_modified_date
         """
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute("SELECT id, last_modified_date FROM articles")
                 return {row[0]: row[1] for row in cur.fetchall()}
 
-    def get_existing_article_ids(self) -> Set[int]:
+    def get_existing_article_ids(self) -> Set[UUID]:
         """
         Get set of all article IDs currently in database.
 
         Returns:
-            Set of article IDs
+            Set of article IDs (UUIDs)
         """
         with self.get_connection() as conn:
             with conn.cursor() as cur:
@@ -280,12 +281,12 @@ class PostgresClient:
             logger.error(f"Failed to fetch all articles: {str(e)}")
             raise
 
-    def get_articles_by_ids(self, article_ids: List[int]) -> List[TdxArticle]:
+    def get_articles_by_ids(self, article_ids: List[UUID]) -> List[TdxArticle]:
         """
         Retrieve specific articles by their IDs.
 
         Args:
-            article_ids: List of article IDs to retrieve
+            article_ids: List of article IDs (UUIDs) to retrieve
 
         Returns:
             List of TdxArticle objects

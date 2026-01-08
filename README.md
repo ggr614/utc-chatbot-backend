@@ -19,52 +19,54 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 
 ## Database Schema
 
+All tables use UUIDs as primary keys for robust identification and foreign key relationships.
+
 ### Articles Table (Raw Storage)
 ```sql
-- id (int): Article ID from TDX (Primary Key)
+- id (UUID): Article unique identifier (Primary Key, auto-generated)
 - title (text): Article title
 - url (text): Public URL
 - content_html (text): Raw HTML content
 - last_modified_date (timestamp): Last modification date
 - raw_ingestion_date (timestamp): When article was ingested
-- created_at (timestamp): Record creation timestamp
+- created_at (timestamp): Record creation timestamp (auto-generated)
 ```
 
 ### Article Chunks Table (Processed Storage)
 ```sql
-- id (text): Unique chunk ID hash (Primary Key)
-- parent_article_id (int): Reference to articles table
-- chunk_sequence (int): Order within article
+- id (UUID): Unique chunk identifier (Primary Key, auto-generated)
+- parent_article_id (UUID): Foreign key to articles table
+- chunk_sequence (int): Order within article (0-indexed)
 - text_content (text): Clean, processed text content
 - token_count (int): Number of tokens in chunk
 - url (text): Source article URL
-- last_modified_date (timestamp): Last modification date
+- last_modified_date (timestamp): Last modification date from source article
 ```
 
-### Embeddings Tables (Vector Storage) 
+### Embeddings Tables (Vector Storage)
 
 #### Embeddings OpenAI Table
 ```sql
-- chunk_id (text): Unique chunk identifier (Primary Key)
-- parent_article_id (int): Foreign key to articles table
+- chunk_id (UUID): Unique chunk identifier (Primary Key, auto-generated)
+- parent_article_id (UUID): Foreign key to articles table (CASCADE DELETE)
 - chunk_sequence (int): Order within article
 - text_content (text): Clean text content
 - token_count (int): Number of tokens
 - source_url (text): Article URL
 - embedding (vector(3072)): pgvector embedding for OpenAI text-embedding-3-large
-- created_at (timestamp): Embedding creation timestamp
+- created_at (timestamp): Embedding creation timestamp (auto-generated)
 ```
 
 #### Embeddings Cohere Table
 ```sql
-- chunk_id (text): Unique chunk identifier (Primary Key)
-- parent_article_id (int): Foreign key to articles table
+- chunk_id (UUID): Unique chunk identifier (Primary Key, auto-generated)
+- parent_article_id (UUID): Foreign key to articles table (CASCADE DELETE)
 - chunk_sequence (int): Order within article
 - text_content (text): Clean text content
 - token_count (int): Number of tokens
 - source_url (text): Article URL
 - embedding (vector(1536)): pgvector embedding for AWS Cohere Embed v4
-- created_at (timestamp): Embedding creation timestamp
+- created_at (timestamp): Embedding creation timestamp (auto-generated)
 ```
 
 ## Test Coverage

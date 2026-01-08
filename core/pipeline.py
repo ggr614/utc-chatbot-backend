@@ -15,6 +15,7 @@ The pipeline can operate in different modes:
 
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime
+from uuid import UUID, uuid4
 
 from core.ingestion import ArticleProcessor
 from core.processing import TextProcessor
@@ -25,7 +26,6 @@ from core.schemas import TdxArticle, TextChunk, VectorRecord
 from core.config import get_settings
 from utils.logger import get_logger, PerformanceLogger
 from utils.tokenizer import Tokenizer
-import hashlib
 
 logger = get_logger(__name__)
 
@@ -109,24 +109,14 @@ class RAGPipeline:
             logger.error(f"Failed to initialize RAG Pipeline: {str(e)}")
             raise
 
-    def _generate_chunk_id(
-        self, parent_article_id: int, text_content: str, sequence: int
-    ) -> str:
+    def _generate_chunk_id(self) -> UUID:
         """
-        Generate a unique, deterministic chunk ID.
-
-        Args:
-            parent_article_id: ID of the parent article
-            text_content: The chunk text content
-            sequence: Sequence number of the chunk
+        Generate a unique chunk ID as UUID.
 
         Returns:
-            Unique chunk ID hash
+            Unique UUID for the chunk
         """
-        # Create deterministic hash from article ID, content, and sequence
-        content = f"{parent_article_id}:{sequence}:{text_content}"
-        chunk_id = hashlib.sha256(content.encode()).hexdigest()[:16]
-        return chunk_id
+        return uuid4()
 
     def run_ingestion(self) -> Dict[str, int]:
         """
@@ -155,7 +145,9 @@ class RAGPipeline:
             logger.error(f"Ingestion phase failed: {str(e)}")
             raise
 
-    def run_processing(self, article_ids: Optional[List[int]] = None) -> Dict[str, Any]:
+    def run_processing(
+        self, article_ids: Optional[List[UUID]] = None
+    ) -> Dict[str, Any]:
         """
         Run the text processing phase to convert HTML to chunks.
 
@@ -277,7 +269,7 @@ class RAGPipeline:
             # Create TextChunk objects
             chunks = []
             for seq, chunk_text in enumerate(text_chunks_raw):
-                chunk_id = self._generate_chunk_id(article.id, chunk_text, seq)
+                chunk_id = self._generate_chunk_id()
 
                 # Count tokens in chunk
                 token_count = self.tokenizer.num_tokens_from_string(chunk_text)
@@ -348,6 +340,7 @@ class RAGPipeline:
                             text_content=chunk.text_content,
                             token_count=chunk.token_count,
                             source_url=chunk.source_url,
+                            last_modified_date=chunk.last_modified_date,
                         )
 
                         embeddings.append((vector_record, embedding_vector))
@@ -396,7 +389,7 @@ class RAGPipeline:
             raise
 
     def run_full_pipeline(
-        self, article_ids: Optional[List[int]] = None
+        self, article_ids: Optional[List[UUID]] = None
     ) -> Dict[str, Any]:
         """
         Run the complete RAG pipeline from ingestion to storage.

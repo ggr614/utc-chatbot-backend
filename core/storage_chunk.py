@@ -93,10 +93,10 @@ class PostgresClient:
 
     def insert_chunks(self, chunks: List[TextChunk]) -> None:
         """
-        Insert new articles into database.
+        Insert new chunks into database.
 
         Args:
-            articles: List of validated TdxArticle objects
+            chunks: List of validated TextChunk objects
         """
         with self.get_connection() as conn:
             with conn.cursor() as cur:
@@ -104,7 +104,7 @@ class PostgresClient:
                     cur.execute(
                         """
                         INSERT INTO article_chunks (id, parent_article_id, chunk_sequence, text_content, token_count, url, last_modified_date)
-                        VALUES (%s, %s, %s, %s, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
                         """,
                         (
                             chunk.chunk_id,
@@ -117,12 +117,12 @@ class PostgresClient:
                         ),
                     )
 
-    def update_articles(self, chunks: List[TextChunk]) -> None:
+    def update_chunks(self, chunks: List[TextChunk]) -> None:
         """
         Update existing chunks in database.
 
         Args:
-            chunks: List of validated TdxArticle objects
+            chunks: List of validated TextChunk objects
         """
         with self.get_connection() as conn:
             with conn.cursor() as cur:
@@ -134,17 +134,18 @@ class PostgresClient:
                             chunk_sequence = %s,
                             text_content = %s,
                             token_count = %s,
-                            url = %s
+                            url = %s,
+                            last_modified_date = %s
                         WHERE id = %s
                         """,
                         (
-                            chunk.chunk_id,
                             chunk.parent_article_id,
                             chunk.chunk_sequence,
                             chunk.text_content,
                             chunk.token_count,
                             str(chunk.source_url),
                             chunk.last_modified_date,
+                            chunk.chunk_id,
                         ),
                     )
 
@@ -167,5 +168,14 @@ class PostgresClient:
                 rows = cur.fetchall()
                 chunks = []
                 for row in rows:
-                    chunks.append(row)
+                    chunk = TextChunk(
+                        chunk_id=row[0],
+                        parent_article_id=row[1],
+                        chunk_sequence=row[2],
+                        text_content=row[3],
+                        token_count=row[4],
+                        source_url=row[5],
+                        last_modified_date=row[6],
+                    )
+                    chunks.append(chunk)
                 return chunks
