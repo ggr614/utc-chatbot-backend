@@ -140,7 +140,7 @@ Return only the JSON object, no additional text."""
                         {"role": "user", "content": f"{prompt}"},
                     ],
                     temperature=self.temperature,
-                    max_tokens=self.completion_tokens,
+                    max_completion_tokens=self.completion_tokens,
                 )
             except AuthenticationError as e:
                 logger.error(f"Authentication failed: {str(e)}")
