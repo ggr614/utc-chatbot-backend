@@ -409,6 +409,66 @@ class VectorStorageClient:
             logger.error(f"Failed to delete embeddings: {str(e)}")
             raise
 
+    def get_count(self) -> int:
+        """
+        Get the total number of embeddings in the table.
+
+        Returns:
+            Count of embeddings
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        logger.debug(f"Getting count from {self.table_name}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(f"SELECT COUNT(*) FROM {self.table_name}")  # type: ignore
+                    count = cur.fetchone()[0]
+                    logger.debug(f"Count: {count} embeddings in {self.table_name}")
+                    return count
+        except Exception as e:
+            logger.error(f"Failed to get embedding count: {str(e)}")
+            raise
+
+    def get_embedding_by_chunk_id(self, chunk_id: str) -> Optional[List[float]]:
+        """
+        Retrieve embedding vector for a specific chunk.
+
+        Args:
+            chunk_id: The chunk ID to retrieve
+
+        Returns:
+            Embedding vector as list of floats, or None if not found
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        logger.debug(f"Retrieving embedding for chunk {chunk_id}")
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT embedding::text FROM {self.table_name} WHERE chunk_id = %s",  # type: ignore
+                        (chunk_id,),
+                    )
+                    row = cur.fetchone()
+                    if row:
+                        # Convert pgvector string representation to list of floats
+                        # Format is like "[0.1,0.2,0.3]"
+                        embedding_str = row[0]
+                        if embedding_str.startswith('[') and embedding_str.endswith(']'):
+                            # Remove brackets and split by comma
+                            values = embedding_str[1:-1].split(',')
+                            return [float(v) for v in values]
+                        # If already a list, return as is
+                        elif isinstance(embedding_str, list):
+                            return embedding_str
+                    return None
+        except Exception as e:
+            logger.error(f"Failed to get embedding for chunk {chunk_id}: {str(e)}")
+            raise
+
     def search_similar_vectors(
         self, query_vector: List[float], limit: int = 10, min_similarity: float = 0.0
     ) -> List[Dict]:

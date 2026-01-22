@@ -13,9 +13,9 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 ### Data Flow
 1. **Ingestion**: Fetch articles from TDX API and store raw HTML in `articles` table
 2. **Processing**: Convert HTML to clean text, count tokens, store in `article_chunks` table
-3. **Embedding**: Generate vector embeddings for chunks 
-4. **Storage**: Store embeddings with metadata in `embeddings` table 
-5. **Retrieval**: Semantic search over embedded chunks (WIP)
+3. **Embedding**: Generate vector embeddings for chunks
+4. **Storage**: Store embeddings with metadata in `embeddings` table
+5. **Retrieval**: Hybrid search using BM25 (sparse) and vector similarity (dense)
 
 ## Database Schema
 
@@ -361,4 +361,195 @@ Run specific test file:
 ```bash
 pytest tests/test_ingestion.py -v
 ```
+
+## Retrieval System
+
+The backend supports hybrid retrieval combining sparse (BM25) and dense (vector) search strategies.
+
+### BM25 Search (Keyword-Based)
+
+BM25 (Best Matching 25) provides fast keyword-based retrieval using term frequency and document statistics.
+
+#### Basic Usage
+
+```python
+from core.bm25_search import BM25Retriever
+
+# Initialize retriever
+retriever = BM25Retriever(
+    k1=1.5,        # Term frequency saturation (1.2-2.0 typical)
+    b=0.75,        # Length normalization (0.75 typical)
+    use_cache=True # Cache corpus statistics for faster queries
+)
+
+# Single query search
+results = retriever.search(
+    query="How do I reset my password?",
+    top_k=5,              # Return top 5 results
+    min_score=0.5         # Minimum relevance score (optional)
+)
+
+# Access results
+for result in results:
+    print(f"[{result.rank}] Score: {result.score:.4f}")
+    print(f"Content: {result.chunk.text_content[:100]}...")
+    print(f"Source: {result.chunk.source_url}\n")
+
+# Batch search for multiple queries
+queries = ["password reset", "VPN setup", "email config"]
+batch_results = retriever.batch_search(queries=queries, top_k=3)
+
+# Get retriever statistics
+stats = retriever.get_stats()
+print(f"Corpus: {stats['num_chunks']} chunks, {stats['num_unique_terms']} terms")
+```
+
+#### BM25 Parameters
+
+- **k1** (1.2-2.0): Controls term frequency saturation
+  - Higher values give more weight to term frequency
+  - Typical value: 1.5
+
+- **b** (0.0-1.0): Controls length normalization
+  - 0 = no normalization
+  - 1 = full normalization by document length
+  - Typical value: 0.75
+
+#### Export Results
+
+```python
+# Export to JSON
+result_dict = result.to_dict()
+# Contains: rank, score, chunk_id, parent_article_id, text_content, source_url, etc.
+
+# Save to file
+import json
+with open("search_results.json", "w") as f:
+    json.dump([r.to_dict() for r in results], f, indent=2)
+```
+
+#### Example Script
+
+Run the example script to see BM25 in action:
+
+```bash
+python -m examples.bm25_search_example
+```
+
+### Vector Search (Semantic)
+
+Vector search provides dense semantic retrieval using OpenAI embeddings and pgvector for cosine similarity.
+
+#### Basic Usage
+
+```python
+from core.vector_search import VectorRetriever
+
+# Initialize retriever
+retriever = VectorRetriever()
+
+# Single query search
+results = retriever.search(
+    query="How do I reset my password?",
+    top_k=5,                    # Return top 5 results
+    min_similarity=0.6          # Minimum cosine similarity (optional)
+)
+
+# Access results
+for result in results:
+    print(f"[{result.rank}] Similarity: {result.similarity:.4f}")
+    print(f"Content: {result.chunk.text_content[:100]}...")
+    print(f"Source: {result.chunk.source_url}\n")
+
+# Batch search for multiple queries
+queries = ["password reset", "VPN setup", "email config"]
+batch_results = retriever.batch_search(queries=queries, top_k=3)
+
+# Find similar chunks (recommendations)
+similar = retriever.find_similar_to_chunk(
+    chunk_id="some-chunk-uuid",
+    top_k=5,
+    min_similarity=0.6
+)
+
+# Get retriever statistics
+stats = retriever.get_stats()
+print(f"Embeddings: {stats['num_embeddings']}")
+print(f"Model: {stats['model']}")
+print(f"Dimension: {stats['embedding_dimension']}")
+
+# Clean up
+retriever.close()
+```
+
+#### How Vector Search Works
+
+1. **Query Embedding**: Converts your search query into a 3072-dimensional vector using OpenAI's `text-embedding-3-large` model
+2. **Similarity Search**: Uses pgvector's cosine distance operator (`<=>`) to find semantically similar chunks
+3. **Ranking**: Returns results ranked by cosine similarity (0-1, where 1 is identical)
+
+#### Similarity Scores
+
+- **Cosine Similarity**: Ranges from 0 (dissimilar) to 1 (identical)
+- **Calculation**: `similarity = 1 - cosine_distance`
+- **Typical Thresholds**:
+  - > 0.8: Highly relevant
+  - 0.6-0.8: Moderately relevant
+  - < 0.6: Possibly relevant
+
+#### Key Features
+
+- **Semantic Understanding**: Finds conceptually similar content even without exact keyword matches
+- **Synonym Handling**: Understands "login issues" matches "authentication problems"
+- **Contextual Search**: Captures meaning and context, not just keywords
+- **Efficient**: Leverages pgvector's optimized similarity search
+
+#### Export Results
+
+```python
+# Export to JSON
+result_dict = result.to_dict()
+# Contains: rank, similarity, chunk_id, parent_article_id, text_content, source_url, etc.
+
+# Save to file
+import json
+with open("search_results.json", "w") as f:
+    json.dump([r.to_dict() for r in results], f, indent=2)
+```
+
+#### Example Script
+
+Run the example script to see vector search in action:
+
+```bash
+python -m examples.vector_search_example
+```
+
+#### Context Manager Support
+
+```python
+# Automatic cleanup with context manager
+with VectorRetriever() as retriever:
+    results = retriever.search("password reset", top_k=5)
+    # Process results...
+# Connections automatically closed
+```
+
+#### Vector Search vs BM25
+
+**Use Vector Search when:**
+- You need semantic understanding
+- Queries use different wording than documents
+- Searching for concepts, not keywords
+- Users ask questions in natural language
+
+**Use BM25 when:**
+- You need exact keyword matches
+- Documents contain specific technical terms
+- Fast retrieval is critical
+- Query terms match document vocabulary
+
+### Hybrid Search
+
+Coming soon: Combine BM25 and vector search with configurable weighting for optimal retrieval.
 
