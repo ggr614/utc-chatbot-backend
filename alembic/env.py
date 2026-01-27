@@ -5,9 +5,24 @@ from sqlalchemy import pool
 
 from alembic import context
 
+# Import your settings
+from core.config import get_settings
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
+
+# Get database settings from your Pydantic configuration
+settings = get_settings()
+
+# Override sqlalchemy.url with settings from .env
+# Using psycopg (psycopg3) dialect
+database_url = (
+    f"postgresql+psycopg://{settings.DB_USER}:"
+    f"{settings.DB_PASSWORD.get_secret_value()}@"
+    f"{settings.DB_HOST}:5432/{settings.DB_NAME}"
+)
+config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -18,6 +33,11 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
+
+# NOTE: Since you're using raw SQL (not SQLAlchemy ORM),
+# target_metadata is set to None. You'll write migrations manually.
+# If you want to use autogenerate in the future, you'll need to
+# define SQLAlchemy models and set target_metadata = Base.metadata
 target_metadata = None
 
 # other values from the config, defined by the needs of env.py,

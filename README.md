@@ -21,6 +21,8 @@ TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chu
 
 All tables use UUIDs as primary keys for robust identification and foreign key relationships.
 
+**Schema Management**: Database schema is managed with Alembic migrations. See [alembic/versions/](alembic/versions/) for migration history.
+
 ### Articles Table (Raw Storage)
 ```sql
 - id (UUID): Article unique identifier (Primary Key, auto-generated)
@@ -48,14 +50,44 @@ All tables use UUIDs as primary keys for robust identification and foreign key r
 
 #### Embeddings OpenAI Table
 ```sql
-- chunk_id (UUID): Unique chunk identifier (Primary Key, auto-generated)
-- parent_article_id (UUID): Foreign key to articles table (CASCADE DELETE)
-- chunk_sequence (int): Order within article
-- text_content (text): Clean text content
-- token_count (int): Number of tokens
-- source_url (text): Article URL
+- chunk_id (UUID): Foreign key to article_chunks table (Primary Key, CASCADE DELETE)
 - embedding (vector(3072)): pgvector embedding for OpenAI text-embedding-3-large
 - created_at (timestamp): Embedding creation timestamp (auto-generated)
+```
+
+**Note**: This table is normalized - chunk metadata (parent_article_id, chunk_sequence, text_content, token_count, url) is stored in the `article_chunks` table and joined via `chunk_id` foreign key.
+
+### Cache Tables (Query Optimization)
+
+#### Warm Cache Entries Table
+```sql
+- id (UUID): Unique cache entry identifier (Primary Key, auto-generated)
+- canonical_question (text): Standardized question text
+- verified_answer (text): Pre-verified answer
+- query_embedding (vector(3072)): Embedding for semantic matching
+- article_id (UUID): Foreign key to articles table (CASCADE DELETE)
+- is_active (bool): Whether this cache entry is active
+```
+
+#### Cache Metrics Table
+```sql
+- id (bigserial): Unique metrics entry (Primary Key, auto-generated)
+- cache_entry_id (UUID): Foreign key to warm_cache_entries (SET NULL on delete)
+- request_timestamp (timestamp): When the cache was accessed
+- cache_type (text): Type of cache operation
+- latency_ms (int): Response latency in milliseconds
+- user_id (text): Optional user identifier
+```
+
+#### Query Logs Table
+```sql
+- id (bigserial): Unique log entry (Primary Key, auto-generated)
+- raw_query (text): Original user query
+- query_embedding (vector(3072)): Query embedding vector
+- cache_result (text): Cache hit/miss result
+- latency_ms (int): Query latency in milliseconds
+- user_id (text): Optional user identifier
+- created_at (timestamp): Log creation timestamp
 ```
 
 ## Test Coverage
@@ -102,14 +134,36 @@ AZURE_EMBED_DIM=3072
 AZURE_MAX_TOKENS=8191
 ```
 
-### 3. Bootstrap the Database
+### 3. Database Setup with Alembic Migrations
 
+The project uses Alembic for database migrations, providing version control for schema changes.
+
+```bash
+# Check current migration status
+alembic current
+
+# View migration history
+alembic history
+
+# Apply all migrations (creates tables and extensions)
+alembic upgrade head
+
+# Rollback to previous migration
+alembic downgrade -1
+
+# Rollback all migrations (WARNING: deletes all data!)
+alembic downgrade base
+```
+
+**For existing databases:** If you already have tables created with `bootstrap.py`, mark the database as up-to-date:
+```bash
+alembic stamp head
+```
+
+**Alternative: Bootstrap script** (legacy method, will be deprecated):
 ```bash
 # Check current database status
 python main.py bootstrap --status
-
-# Preview changes without applying (dry-run)
-python main.py bootstrap --dry-run
 
 # Create tables and extensions
 python main.py bootstrap
@@ -226,9 +280,32 @@ python main.py --log-level DEBUG pipeline
 - Embedding statistics (embeddings generated)
 - Storage statistics (embeddings stored)
 
-#### 5. Database Bootstrap
+#### 5. Database Management
 
-Set up or reset database schema, tables, and extensions.
+**Alembic Migrations (Recommended)**
+
+Manage database schema with version-controlled migrations:
+
+```bash
+# Check current migration version
+alembic current
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Rollback last migration
+alembic downgrade -1
+
+# Create new migration (after schema changes)
+alembic revision -m "description"
+
+# View migration history
+alembic history
+```
+
+**Bootstrap Script (Legacy)**
+
+Set up or reset database schema, tables, and extensions:
 
 ```bash
 # Check database status
