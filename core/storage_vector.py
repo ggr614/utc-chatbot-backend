@@ -2,7 +2,7 @@
 Vector storage module for managing embeddings in PostgreSQL with pgvector.
 
 This module provides clients for storing and retrieving vector embeddings
-from both OpenAI (3072 dimensions) and AWS Cohere (1536 dimensions) models.
+from OpenAI (3072 dimensions) models.
 """
 
 from typing import Dict, List, Optional, Set, Tuple
@@ -458,15 +458,3 @@ class OpenAIVectorStorage(VectorStorageClient):
         """Initialize OpenAI vector storage client."""
         super().__init__(table_name="embeddings_openai", embedding_dim=3072)
         logger.info("OpenAIVectorStorage client initialized")
-
-
-class CohereVectorStorage(VectorStorageClient):
-    """
-    Vector storage client for AWS Cohere embeddings (1536 dimensions).
-    Uses the cohere.embed-english-v3 model.
-    """
-
-    def __init__(self):
-        """Initialize Cohere vector storage client."""
-        super().__init__(table_name="embeddings_cohere", embedding_dim=1536)
-        logger.info("CohereVectorStorage client initialized")

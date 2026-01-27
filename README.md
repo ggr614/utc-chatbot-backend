@@ -44,7 +44,7 @@ All tables use UUIDs as primary keys for robust identification and foreign key r
 - last_modified_date (timestamp): Last modification date from source article
 ```
 
-### Embeddings Tables (Vector Storage)
+### Embeddings Table (Vector Storage)
 
 #### Embeddings OpenAI Table
 ```sql
@@ -55,18 +55,6 @@ All tables use UUIDs as primary keys for robust identification and foreign key r
 - token_count (int): Number of tokens
 - source_url (text): Article URL
 - embedding (vector(3072)): pgvector embedding for OpenAI text-embedding-3-large
-- created_at (timestamp): Embedding creation timestamp (auto-generated)
-```
-
-#### Embeddings Cohere Table
-```sql
-- chunk_id (UUID): Unique chunk identifier (Primary Key, auto-generated)
-- parent_article_id (UUID): Foreign key to articles table (CASCADE DELETE)
-- chunk_sequence (int): Order within article
-- text_content (text): Clean text content
-- token_count (int): Number of tokens
-- source_url (text): Article URL
-- embedding (vector(1536)): pgvector embedding for AWS Cohere Embed v4
 - created_at (timestamp): Embedding creation timestamp (auto-generated)
 ```
 
@@ -105,15 +93,7 @@ DB_USER=your_user
 DB_PASSWORD=your_password
 DB_NAME=your_database
 
-# AWS Bedrock Configuration (for Cohere embeddings)
-AWS_REGION=us-east-1
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_EMBED_MODEL_ID=cohere.embed-english-v3
-AWS_EMBED_DIM=1536
-AWS_MAX_TOKENS=512
-
-# Azure OpenAI Configuration (for OpenAI embeddings)
+# Azure OpenAI Configuration
 AZURE_OPENAI_API_KEY=your_api_key
 AZURE_OPENAI_EMBED_ENDPOINT=https://your-resource.openai.azure.com/
 AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-large
@@ -188,21 +168,17 @@ python main.py process --article-ids 123 456 789
 
 #### 3. Generate Embeddings
 
-Generate vector embeddings for processed text chunks.
+Generate vector embeddings for processed text chunks using OpenAI.
 
 ```bash
-# Use OpenAI embeddings (default)
-python main.py embed --provider openai
-
-# Use Cohere embeddings
-python main.py embed --provider cohere
+# Generate embeddings
+python main.py embed
 
 # Custom batch size
-python main.py embed --provider openai --batch-size 50
+python main.py embed --batch-size 50
 ```
 
 **Options:**
-- `--provider {openai|cohere}` - Embedding provider (default: openai)
 - `--batch-size N` - Process N chunks per batch (default: 100)
 
 **Features:**
@@ -218,30 +194,26 @@ python main.py embed --provider openai --batch-size 50
 Run the complete RAG pipeline: ingestion → processing → embedding → storage.
 
 ```bash
-# Run full pipeline with OpenAI
-python main.py pipeline --provider openai
-
-# Run full pipeline with Cohere
-python main.py pipeline --provider cohere
+# Run full pipeline
+python main.py pipeline
 
 # Skip ingestion (use existing articles)
-python main.py pipeline --skip-ingestion --provider openai
+python main.py pipeline --skip-ingestion
 
 # Skip processing (use existing chunks)
-python main.py pipeline --skip-processing --provider openai
+python main.py pipeline --skip-processing
 
 # Dry run (skip embedding generation)
-python main.py pipeline --skip-embedding --provider openai
+python main.py pipeline --skip-embedding
 
 # Process specific articles only
-python main.py pipeline --article-ids 123 456 --provider cohere
+python main.py pipeline --article-ids 123 456
 
 # Debug logging
-python main.py --log-level DEBUG pipeline --provider openai
+python main.py --log-level DEBUG pipeline
 ```
 
 **Options:**
-- `--provider {openai|cohere}` - Embedding provider (default: openai)
 - `--skip-ingestion` - Skip article ingestion phase
 - `--skip-processing` - Skip text processing phase
 - `--skip-embedding` - Skip embedding generation phase
@@ -289,14 +261,14 @@ python main.py bootstrap --full-reset
 # Daily ingestion job (runs every day at 2 AM)
 python main.py --log-level INFO ingest
 
-# Weekly full pipeline with OpenAI (runs every Sunday at 3 AM)
-python main.py --log-level INFO pipeline --provider openai
+# Weekly full pipeline (runs every Sunday at 3 AM)
+python main.py --log-level INFO pipeline
 
 # Incremental update (skip ingestion, process new articles)
-python main.py --log-level INFO pipeline --skip-ingestion --provider cohere
+python main.py --log-level INFO pipeline --skip-ingestion
 
 # Generate embeddings for already-processed chunks
-python main.py --log-level INFO embed --provider openai --batch-size 100
+python main.py --log-level INFO embed --batch-size 100
 ```
 
 ### Exit Codes
@@ -343,7 +315,7 @@ print(f"Text has {token_count} tokens")
 from core.pipeline import RAGPipeline
 
 # Initialize pipeline with OpenAI embeddings
-with RAGPipeline(embedding_provider="openai") as pipeline:
+with RAGPipeline() as pipeline:
     # Run full pipeline
     stats = pipeline.run_full_pipeline()
     print(f"Duration: {stats['duration_seconds']:.2f}s")

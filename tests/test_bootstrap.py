@@ -186,16 +186,6 @@ class TestDatabaseBootstrap:
         captured = capsys.readouterr()
         assert "-> Would create table 'embeddings_openai'" in captured.out
 
-    def test_create_embeddings_table_cohere_dry_run(self, bootstrap_dry_run, capsys):
-        """Test creating Cohere embeddings table in dry-run mode."""
-        mock_conn = MagicMock()
-
-        with patch.object(bootstrap_dry_run, "check_table_exists", return_value=False):
-            bootstrap_dry_run.create_embeddings_table_cohere(mock_conn)
-
-        captured = capsys.readouterr()
-        assert "-> Would create table 'embeddings_cohere'" in captured.out
-
     def test_create_embeddings_table_openai_without_vector(self, bootstrap, capsys):
         """Test creating OpenAI embeddings table without vector extension."""
         mock_conn = MagicMock()
@@ -203,17 +193,6 @@ class TestDatabaseBootstrap:
         with patch.object(bootstrap, "check_table_exists", return_value=False):
             with patch.object(bootstrap, "check_extension_exists", return_value=False):
                 bootstrap.create_embeddings_table_openai(mock_conn)
-
-        captured = capsys.readouterr()
-        assert "vector extension not installed" in captured.out
-
-    def test_create_embeddings_table_cohere_without_vector(self, bootstrap, capsys):
-        """Test creating Cohere embeddings table without vector extension."""
-        mock_conn = MagicMock()
-
-        with patch.object(bootstrap, "check_table_exists", return_value=False):
-            with patch.object(bootstrap, "check_extension_exists", return_value=False):
-                bootstrap.create_embeddings_table_cohere(mock_conn)
 
         captured = capsys.readouterr()
         assert "vector extension not installed" in captured.out
@@ -266,7 +245,6 @@ class TestDatabaseBootstrap:
             return table in [
                 "articles",
                 "embeddings_openai",
-                "embeddings_cohere",
                 "article_chunks",
                 "warm_cache_entries",
                 "cache_metrics",
@@ -297,8 +275,8 @@ class TestDatabaseBootstrap:
         captured = capsys.readouterr()
         assert "[OK] Dropped table" in captured.out
         assert (
-            mock_cursor.execute.call_count == 7
-        )  # Drop embeddings_openai, embeddings_cohere, articles, article_chunks, warm_cache_entries, cache_metrics, query_log
+            mock_cursor.execute.call_count == 6
+        )  # Drop embeddings_openai, articles, article_chunks, warm_cache_entries, cache_metrics, query_log
 
     def test_setup_database_dry_run(self, bootstrap_dry_run, capsys):
         """Test full setup in dry-run mode."""

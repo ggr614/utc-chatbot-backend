@@ -1,5 +1,5 @@
 """
-Tests for the storage_vector module (VectorStorageClient, OpenAIVectorStorage, CohereVectorStorage).
+Tests for the storage_vector module (VectorStorageClient, OpenAIVectorStorage).
 """
 
 import pytest
@@ -10,7 +10,6 @@ from uuid import UUID
 from core.storage_vector import (
     VectorStorageClient,
     OpenAIVectorStorage,
-    CohereVectorStorage,
 )
 from core.schemas import VectorRecord
 
@@ -371,49 +370,3 @@ class TestOpenAIVectorStorage:
         for idx, (rec, emb) in enumerate([(record, embedding)]):
             if len(emb) != client.embedding_dim:
                 pytest.fail(f"Dimension validation failed for OpenAI (expected 3072)")
-
-
-class TestCohereVectorStorage:
-    """Test suite for CohereVectorStorage class."""
-
-    @pytest.fixture
-    def mock_settings(self):
-        """Mock settings for database connection."""
-        with patch("core.storage_base.get_settings") as mock:
-            settings = Mock()
-            settings.DB_HOST = "localhost"
-            settings.DB_USER = "test_user"
-            settings.DB_PASSWORD.get_secret_value.return_value = "test_password"
-            settings.DB_NAME = "test_db"
-            mock.return_value = settings
-            yield settings
-
-    def test_init(self, mock_settings):
-        """Test Cohere client initialization."""
-        client = CohereVectorStorage()
-
-        assert client.table_name == "embeddings_cohere"
-        assert client.embedding_dim == 1536
-        assert client.db_host == "localhost"
-
-    def test_correct_dimension(self, mock_settings):
-        """Test that Cohere client uses correct embedding dimension."""
-        client = CohereVectorStorage()
-
-        # Should accept 1536-dimensional vectors
-        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
-        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
-        record = VectorRecord(
-            chunk_id=test_chunk_id,
-            parent_article_id=test_article_id,
-            chunk_sequence=0,
-            text_content="Test content",
-            token_count=10,
-            source_url=HttpUrl("https://example.com"),
-        )
-        embedding = [0.1] * 1536
-
-        # Validate dimensions (should not raise)
-        for idx, (rec, emb) in enumerate([(record, embedding)]):
-            if len(emb) != client.embedding_dim:
-                pytest.fail(f"Dimension validation failed for Cohere (expected 1536)")

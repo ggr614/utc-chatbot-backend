@@ -61,10 +61,7 @@ pytest tests/ -v --log-cli-level=DEBUG
 ### Pipeline Operations
 ```bash
 # Run full pipeline with OpenAI embeddings
-python main.py pipeline --provider openai
-
-# Run full pipeline with Cohere embeddings
-python main.py pipeline --provider cohere
+python main.py pipeline
 
 # Ingest only (fetch from TDX API)
 python main.py ingest
@@ -76,14 +73,14 @@ python main.py process
 python main.py process --article-ids 123 456
 
 # Embed only (generate vectors for chunks)
-python main.py embed --provider openai --batch-size 100
+python main.py embed --batch-size 100
 
 # Skip specific phases
-python main.py pipeline --skip-ingestion --provider openai
-python main.py pipeline --skip-processing --provider cohere
+python main.py pipeline --skip-ingestion
+python main.py pipeline --skip-processing
 
 # Debug logging
-python main.py --log-level DEBUG pipeline --provider openai
+python main.py --log-level DEBUG pipeline
 ```
 
 ### Code Quality
@@ -107,7 +104,7 @@ TDX API → Ingestion → articles (raw HTML)
            ↓
         Processing → article_chunks (clean text)
            ↓
-        Embedding → embeddings_openai / embeddings_cohere (vectors)
+        Embedding → embeddings_openai (vectors)
            ↓
         Retrieval → BM25 (sparse) + Vector (dense) hybrid search
 ```
@@ -127,12 +124,12 @@ TDX API → Ingestion → articles (raw HTML)
 - Stores chunks in `article_chunks` table via `core/storage_chunk.py`
 
 **core/embedding.py** (`EmbeddingGenerator`)
-- Generates embeddings using Azure OpenAI or AWS Bedrock (Cohere)
+- Generates embeddings using Azure OpenAI
 - Batch processing with configurable batch size
 - Error handling and retry logic for API failures
 
 **core/storage_vector.py** (`VectorStorage`)
-- Stores embeddings in `embeddings_openai` or `embeddings_cohere` tables
+- Stores embeddings in `embeddings_openai` table
 - Uses pgvector for efficient vector operations
 - CASCADE DELETE from parent articles ensures referential integrity
 
@@ -168,10 +165,10 @@ All tables use UUIDs as primary keys for robust identification.
 - `text_content` (text): Clean text content
 - `token_count` (int): Number of tokens
 
-**embeddings_openai** / **embeddings_cohere**: Vector storage
+**embeddings_openai**: Vector storage
 - `chunk_id` (UUID, PK): Auto-generated unique identifier
 - `parent_article_id` (UUID, FK → articles.id, CASCADE): Links to source article
-- `embedding` (vector): pgvector embedding (3072-dim for OpenAI, 1536-dim for Cohere)
+- `embedding` (vector(3072)): pgvector embedding for OpenAI text-embedding-3-large
 - Foreign key cascades: Deleting an article deletes all embeddings
 
 ### Configuration
@@ -180,8 +177,7 @@ All settings are managed via Pydantic in `core/config.py` and loaded from `.env`
 
 - **TDX**: WEBSERVICES_KEY, BEID, BASE_URL, APP_ID
 - **PostgreSQL**: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
-- **Azure OpenAI**: AZURE_OPENAI_API_KEY, AZURE_OPENAI_EMBED_ENDPOINT, AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME
-- **AWS Bedrock**: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_EMBED_MODEL_ID
+- **Azure OpenAI**: AZURE_OPENAI_API_KEY, AZURE_OPENAI_EMBED_ENDPOINT, AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME, AZURE_OPENAI_API_VERSION
 
 Settings are cached with `@lru_cache()` for performance.
 
@@ -213,7 +209,7 @@ All models use UUIDs for `id` and `parent_article_id` fields. Use `HttpUrl` from
 
 ### Resource Management
 - Always use context managers for database clients and pipelines
-- Example: `with RAGPipeline(embedding_provider="openai") as pipeline:`
+- Example: `with RAGPipeline() as pipeline:`
 - Ensures proper cleanup of connections and resources
 
 ### Error Handling

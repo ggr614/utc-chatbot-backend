@@ -205,8 +205,6 @@ def get_processing_logger() -> logging.Logger:
 def configure_third_party_loggers():
     """Reduce verbosity of third-party library loggers."""
     logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("boto3").setLevel(logging.WARNING)
-    logging.getLogger("botocore").setLevel(logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)

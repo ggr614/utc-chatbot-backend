@@ -17,7 +17,7 @@ Usage examples:
     python main.py embed --provider openai
 
     # Run full pipeline (ingest + process + embed)
-    python main.py pipeline --provider cohere
+    python main.py pipeline --provider openai
 
     # Database bootstrap operations
     python main.py bootstrap --status
@@ -60,7 +60,7 @@ Examples:
   python main.py process
 
   # Generate embeddings for processed chunks
-  python main.py --log-level INFO embed --provider cohere
+  python main.py --log-level INFO embed --provider openai
 
   # Bootstrap database (check status first)
   python main.py bootstrap --status
@@ -112,7 +112,7 @@ Examples:
     )
     embed_parser.add_argument(
         "--provider",
-        choices=["openai", "cohere"],
+        choices=["openai"],
         default="openai",
         help="Embedding provider to use (default: openai)",
     )
@@ -132,7 +132,7 @@ Examples:
     )
     pipeline_parser.add_argument(
         "--provider",
-        choices=["openai", "cohere"],
+        choices=["openai"],
         default="openai",
         help="Embedding provider to use (default: openai)",
     )

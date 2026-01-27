@@ -459,59 +459,6 @@ class DatabaseBootstrap:
             cur.execute(create_table_sql)
             print(f"  [OK] Created table '{table_name}'")
 
-    def create_embeddings_table_cohere(self, conn: Connection) -> None:
-        """
-        Create the embeddings table for AWS Cohere Embed v4 vectors (1536 dimensions).
-
-        Args:
-            conn: Database connection
-        """
-        table_name = "embeddings_cohere"
-        exists = self.check_table_exists(conn, table_name)
-
-        if self.dry_run:
-            if exists:
-                info = self.get_table_info(conn, table_name)
-                print(
-                    f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)"
-                )
-                print(f"    Columns: {len(info['columns'])}")
-            else:
-                print(f"  -> Would create table '{table_name}'")
-            return
-
-        if exists:
-            print(f"  [OK] Table '{table_name}' already exists")
-            return
-
-        # Check if vector extension exists before creating the table
-        if not self.check_extension_exists(conn, "vector"):
-            print(
-                f"  [!] Warning: vector extension not installed. Skipping '{table_name}' table creation."
-            )
-            return
-
-        create_table_sql = """
-        CREATE TABLE embeddings_cohere (
-            chunk_id UUID PRIMARY KEY,
-            embedding vector(1536),
-            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (chunk_id) REFERENCES article_chunks(id) ON DELETE CASCADE
-        );
-        """
-
-        create_index_sql = """
-        CREATE INDEX idx_embeddings_cohere_created_at ON embeddings_cohere(created_at);
-        CREATE INDEX idx_embeddings_cohere_vector ON embeddings_cohere USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
-        """
-
-        with conn.cursor() as cur:
-            cur.execute(create_table_sql)
-            cur.execute(create_index_sql)
-
-        print(
-            f"  [OK] Created normalized table '{table_name}' with foreign key to article_chunks (1536 dimensions)"
-        )
 
     def drop_all_tables(self, conn: Connection) -> None:
         """
@@ -522,7 +469,6 @@ class DatabaseBootstrap:
         """
         tables = [
             "embeddings_openai",
-            "embeddings_cohere",
             "warm_cache_entries",
             "articles",
             "article_chunks",
@@ -575,7 +521,6 @@ class DatabaseBootstrap:
                 print("Setting up tables...")
                 self.create_articles_table(conn)
                 self.create_embeddings_table_openai(conn)
-                self.create_embeddings_table_cohere(conn)
                 self.create_chunks_table(conn)
                 self.create_warm_cache_entries(conn)
                 self.create_cache_metrics(conn)
@@ -616,7 +561,6 @@ class DatabaseBootstrap:
                 tables = [
                     "articles",
                     "embeddings_openai",
-                    "embeddings_cohere",
                     "article_chunks",
                     "warm_cache_entries",
                     "cache_metrics",

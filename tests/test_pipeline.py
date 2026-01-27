@@ -31,15 +31,6 @@ class TestRAGPipeline:
             settings.AZURE_MAX_TOKENS = 8000
             settings.AZURE_EMBED_DIM = 3072
             settings.AZURE_OPENAI_API_KEY.get_secret_value.return_value = "test-key"
-            # AWS settings
-            settings.AWS_EMBED_MODEL_ID = "cohere.embed-english-v3"
-            settings.AWS_REGION = "us-east-1"
-            settings.AWS_MAX_TOKENS = 512
-            settings.AWS_EMBED_DIM = 1536
-            settings.AWS_ACCESS_KEY_ID.get_secret_value.return_value = "test-access-key"
-            settings.AWS_SECRET_ACCESS_KEY.get_secret_value.return_value = (
-                "test-secret-key"
-            )
             # TDX API settings
             settings.BASE_URL = "https://test.teamdynamix.com"
             settings.APP_ID = 123
@@ -59,17 +50,6 @@ class TestRAGPipeline:
                             with patch("core.pipeline.Tokenizer"):
                                 return RAGPipeline(embedding_provider="openai")
 
-    @pytest.fixture
-    def pipeline_cohere(self, mock_settings):
-        """Create RAGPipeline instance with Cohere provider."""
-        with patch("core.pipeline.ArticleProcessor"):
-            with patch("core.pipeline.TextProcessor"):
-                with patch("core.pipeline.GenerateEmbeddingsAWS"):
-                    with patch("core.pipeline.CohereVectorStorage"):
-                        with patch("core.pipeline.PostgresClient"):
-                            with patch("core.pipeline.Tokenizer"):
-                                return RAGPipeline(embedding_provider="cohere")
-
     def test_init_openai(self, pipeline_openai):
         """Test pipeline initialization with OpenAI provider."""
         assert pipeline_openai.embedding_provider == "openai"
@@ -81,10 +61,6 @@ class TestRAGPipeline:
         assert hasattr(pipeline_openai, "embedder")
         assert hasattr(pipeline_openai, "vector_store")
         assert hasattr(pipeline_openai, "raw_store")
-
-    def test_init_cohere(self, pipeline_cohere):
-        """Test pipeline initialization with Cohere provider."""
-        assert pipeline_cohere.embedding_provider == "cohere"
 
     def test_init_invalid_provider(self, mock_settings):
         """Test that invalid provider raises ValueError."""

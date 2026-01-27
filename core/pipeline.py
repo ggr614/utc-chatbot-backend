@@ -19,9 +19,9 @@ from uuid import UUID, uuid4
 
 from core.ingestion import ArticleProcessor
 from core.processing import TextProcessor
-from core.embedding import GenerateEmbeddingsOpenAI, GenerateEmbeddingsAWS
+from core.embedding import GenerateEmbeddingsOpenAI
 from core.storage_raw import PostgresClient
-from core.storage_vector import OpenAIVectorStorage, CohereVectorStorage
+from core.storage_vector import OpenAIVectorStorage
 from core.schemas import TdxArticle, TextChunk, VectorRecord
 from core.config import get_settings
 from utils.logger import get_logger, PerformanceLogger
@@ -49,7 +49,7 @@ class RAGPipeline:
         Initialize the RAG pipeline with all required components.
 
         Args:
-            embedding_provider: Either "openai" or "cohere" for embeddings
+            embedding_provider: Must be "openai" for embeddings
             skip_ingestion: Skip article ingestion (use existing DB data)
             skip_processing: Skip text processing (use existing chunks)
             skip_embedding: Skip embedding generation (dry run mode)
@@ -66,10 +66,10 @@ class RAGPipeline:
 
         try:
             # Validate embedding provider
-            if embedding_provider not in ["openai", "cohere"]:
+            if embedding_provider != "openai":
                 raise ValueError(
                     f"Invalid embedding provider: {embedding_provider}. "
-                    "Must be 'openai' or 'cohere'"
+                    "Must be 'openai'"
                 )
 
             self.embedding_provider = embedding_provider
@@ -90,12 +90,8 @@ class RAGPipeline:
                 logger.debug("Text processor and tokenizer initialized")
 
             if not skip_embedding:
-                if embedding_provider == "openai":
-                    self.embedder = GenerateEmbeddingsOpenAI()
-                    self.vector_store = OpenAIVectorStorage()
-                else:  # cohere
-                    self.embedder = GenerateEmbeddingsAWS()
-                    self.vector_store = CohereVectorStorage()
+                self.embedder = GenerateEmbeddingsOpenAI()
+                self.vector_store = OpenAIVectorStorage()
                 logger.debug(
                     f"{embedding_provider} embedder and vector store initialized"
                 )
@@ -252,11 +248,7 @@ class RAGPipeline:
 
             # Chunk the text
             settings = get_settings()
-            max_tokens = (
-                settings.AZURE_MAX_TOKENS
-                if self.embedding_provider == "openai"
-                else settings.AWS_MAX_TOKENS
-            )
+            max_tokens = settings.AZURE_MAX_TOKENS
             overlap = 50  # Token overlap between chunks
 
             text_chunks_raw = self.text_processor.text_to_chunks(

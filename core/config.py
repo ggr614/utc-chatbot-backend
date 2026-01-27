@@ -16,14 +16,6 @@ class Settings(BaseSettings):
     DB_PASSWORD: SecretStr
     DB_NAME: str
 
-    # AWS Bedrock
-    AWS_REGION: str = "us-east-1"
-    AWS_ACCESS_KEY_ID: SecretStr
-    AWS_SECRET_ACCESS_KEY: SecretStr
-    AWS_EMBED_MODEL_ID: str
-    AWS_EMBED_DIM: int
-    AWS_MAX_TOKENS: int
-
     # Azure AI Foundry
     AZURE_OPENAI_API_KEY: SecretStr
     AZURE_OPENAI_EMBED_ENDPOINT: str
