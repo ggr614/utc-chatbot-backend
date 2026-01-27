@@ -215,6 +215,9 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+# Alembic
+alembic.ini
+
 .claude
 
 data
