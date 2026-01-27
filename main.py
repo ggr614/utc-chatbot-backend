@@ -19,10 +19,9 @@ Usage examples:
     # Run full pipeline (ingest + process + embed)
     python main.py pipeline --provider openai
 
-    # Database bootstrap operations
-    python main.py bootstrap --status
-    python main.py bootstrap --dry-run
-    python main.py bootstrap --full-reset
+    # Database migrations (use Alembic)
+    alembic upgrade head
+    alembic downgrade -1
 """
 
 import argparse
@@ -31,7 +30,6 @@ from datetime import datetime
 
 from core.pipeline import RAGPipeline
 from core.ingestion import ArticleProcessor
-from utils.bootstrap_db import DatabaseBootstrap
 from utils.logger import get_logger
 from core.config import get_settings
 
@@ -62,10 +60,9 @@ Examples:
   # Generate embeddings for processed chunks
   python main.py --log-level INFO embed --provider openai
 
-  # Bootstrap database (check status first)
-  python main.py bootstrap --status
-  python main.py bootstrap --dry-run
-  python main.py bootstrap
+  # Database migrations (use Alembic instead)
+  alembic upgrade head
+  alembic downgrade -1
         """,
     )
 
@@ -157,25 +154,6 @@ Examples:
         nargs="+",
         metavar="ID",
         help="Specific article IDs to process (default: process all)",
-    )
-
-    # ========== BOOTSTRAP COMMAND ==========
-    bootstrap_parser = subparsers.add_parser(
-        "bootstrap",
-        help="Bootstrap database tables and extensions",
-        description="Set up or reset the database schema, tables, and pgvector extension.",
-    )
-    bootstrap_group = bootstrap_parser.add_mutually_exclusive_group()
-    bootstrap_group.add_argument(
-        "--status", action="store_true", help="Check current database status"
-    )
-    bootstrap_group.add_argument(
-        "--dry-run", action="store_true", help="Preview changes without applying them"
-    )
-    bootstrap_group.add_argument(
-        "--full-reset",
-        action="store_true",
-        help="Drop all tables and recreate (WARNING: deletes all data)",
     )
 
     return parser
@@ -410,58 +388,6 @@ def command_pipeline(args: argparse.Namespace) -> int:
         return 1
 
 
-def command_bootstrap(args: argparse.Namespace) -> int:
-    """
-    Execute the bootstrap command.
-
-    Args:
-        args: Parsed command-line arguments
-
-    Returns:
-        Exit code (0 for success, 1 for failure)
-    """
-    logger.info("=" * 80)
-    logger.info("COMMAND: DATABASE BOOTSTRAP")
-    logger.info("=" * 80)
-
-    try:
-        if args.status:
-            logger.info("Checking database status...")
-            bootstrap = DatabaseBootstrap(dry_run=False)
-            bootstrap.check_status()
-
-        elif args.dry_run:
-            logger.info("Running in DRY-RUN mode (no changes will be made)")
-            bootstrap = DatabaseBootstrap(dry_run=True)
-            bootstrap.setup_database()
-
-        elif args.full_reset:
-            logger.warning("=" * 80)
-            logger.warning("WARNING: FULL RESET MODE")
-            logger.warning("This will DELETE ALL DATA in the database!")
-            logger.warning("=" * 80)
-            response = input("Type 'yes' to confirm full reset: ")
-            if response.lower() == "yes":
-                bootstrap = DatabaseBootstrap(dry_run=False)
-                bootstrap.setup_database(full_reset=True)
-                logger.info("Database has been reset and recreated")
-            else:
-                logger.info("Reset cancelled")
-                return 0
-
-        else:
-            logger.info("Bootstrapping database...")
-            bootstrap = DatabaseBootstrap(dry_run=False)
-            bootstrap.setup_database()
-            logger.info("Database bootstrap complete")
-
-        return 0
-
-    except Exception as e:
-        logger.error(f"Bootstrap failed: {str(e)}", exc_info=True)
-        return 1
-
-
 def main() -> int:
     """
     Main entry point for the CLI application.
@@ -510,8 +436,6 @@ def main() -> int:
             exit_code = command_embed(args)
         elif args.command == "pipeline":
             exit_code = command_pipeline(args)
-        elif args.command == "bootstrap":
-            exit_code = command_bootstrap(args)
         else:
             logger.error(f"Unknown command: {args.command}")
             parser.print_help()

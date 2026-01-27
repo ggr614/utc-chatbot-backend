@@ -8,7 +8,7 @@ from openai import (
 )
 from typing import List
 from core.config import get_settings
-from utils.tokenizer import Tokenizer
+from core.tokenizer import Tokenizer
 import time
 import logging
 

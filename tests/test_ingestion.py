@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch, MagicMock
 from typing import Dict, Any, List
 
 from core.ingestion import ArticleProcessor
-from utils.api_client import TDXClient
+from core.api_client import TDXClient
 from core.schemas import TdxArticle
 
 
@@ -304,7 +304,7 @@ class TestTDXClient:
     @pytest.fixture
     def client(self):
         """Create TDXClient instance with test credentials."""
-        with patch("utils.api_client.get_settings") as mock_settings:
+        with patch("core.api_client.get_settings") as mock_settings:
             mock_settings.return_value.BASE_URL = "https://test.teamdynamix.com"
             mock_settings.return_value.APP_ID = 1234
             mock_settings.return_value.WEBSERVICES_KEY.get_secret_value.return_value = (

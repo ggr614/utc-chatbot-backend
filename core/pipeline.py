@@ -25,7 +25,7 @@ from core.storage_vector import OpenAIVectorStorage
 from core.schemas import TdxArticle, TextChunk, VectorRecord
 from core.config import get_settings
 from utils.logger import get_logger, PerformanceLogger
-from utils.tokenizer import Tokenizer
+from core.tokenizer import Tokenizer
 
 logger = get_logger(__name__)
 

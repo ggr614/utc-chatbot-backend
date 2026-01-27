@@ -1,4 +1,4 @@
-from utils.api_client import TDXClient
+from core.api_client import TDXClient
 from core.schemas import TdxArticle
 from typing import List, Dict, Any, Tuple
 from pydantic import HttpUrl

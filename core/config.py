@@ -2,40 +2,48 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import SecretStr
 from functools import lru_cache
 
+class TDXSettings(BaseSettings):
+        WEBSERVICES_KEY: SecretStr
+        BEID: SecretStr
+        BASE_URL: str
+        APP_ID: int = 2717
+        
+        model_config = SettingsConfigDict(
+            env_file='.env', env_file_encoding='utf-8', case_sensitive=True, extra='ignore'
+            ,env_prefix='TDX_'
+        )
 
-class Settings(BaseSettings):
-    # TDX
-    WEBSERVICES_KEY: SecretStr
-    BEID: SecretStr
-    BASE_URL: str
-    APP_ID: int = 2717
-
-    # Postgres
-    DB_HOST: str
-    DB_USER: str
-    DB_PASSWORD: SecretStr
-    DB_NAME: str
-
-    # Azure AI Foundry
-    AZURE_OPENAI_API_KEY: SecretStr
-    AZURE_OPENAI_EMBED_ENDPOINT: str
-    AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME: str
-    AZURE_OPENAI_API_VERSION: str
-    AZURE_EMBED_DIM: int
-    AZURE_MAX_TOKENS: int
-    AZURE_OPENAI_CHAT_ENDPOINT: str
-    AZURE_OPENAI_CHAT_DEPLOYMENT_NAME: str
-    AZURE_OPENAI_CHAT_API_VERSION: str
-    AZURE_OPENAI_CHAT_MAX_TOKENS: int
-    AZURE_OPENAI_CHAT_TEMPERATURE: float
-    AZURE_OPENAI_CHAT_COMPLETION_TOKENS: int
-    AZURE_OPENAI_CHAT_API_KEY: SecretStr
-
+class DatabaseSettings(BaseSettings):
+    HOST: str
+    USER: str
+    PASSWORD: SecretStr
+    NAME: str
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore"
+        env_file='.env', env_file_encoding='utf-8', case_sensitive=True, extra='ignore'
+        ,env_prefix='DB_'
     )
 
+class EmbeddingSettings(BaseSettings):
+    API_KEY: SecretStr
+    ENDPOINT: str
+    DEPLOYMENT_NAME: str
+    API_VERSION: str
+    EMBED_DIM: int
+    MAX_TOKENS: int
+    
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', case_sensitive=True, extra='ignore'
+        ,env_prefix='EMBED_'
+    )
 
-@lru_cache()
-def get_settings() -> Settings:
-    return Settings()  # type: ignore
+class ChatSettings(BaseSettings):
+    API_KEY: SecretStr
+    ENDPOINT: str
+    DEPLOYMENT_NAME: str
+    API_VERSION: str
+    MAX_TOKENS: int
+    TEMPERATURE: float
+    COMPLETION_TOKENS: int
+    
+    model_config = SettingsConfigDict(env_file='.env', env_file_encoding='utf-8', case_sensitive=True, extra='ignore'
+        ,env_prefix='CHAT_'
+    )

@@ -92,13 +92,12 @@ All tables use UUIDs as primary keys for robust identification and foreign key r
 
 ## Test Coverage
 
-- **Total Tests**: 71
+- **Total Tests**: 50+
 - **Status**: ✅ All Passing
 - **Coverage**:
   - TDXClient: 5 tests
   - ArticleProcessor: 12 tests
   - PostgresClient: 13 tests
-  - DatabaseBootstrap: 21 tests
   - TextProcessor: 20 tests
 
 ## Setup & Installation
@@ -155,21 +154,9 @@ alembic downgrade -1
 alembic downgrade base
 ```
 
-**For existing databases:** If you already have tables created with `bootstrap.py`, mark the database as up-to-date:
+**For existing databases:** If you already have tables created with a previous setup method, mark the database as up-to-date:
 ```bash
 alembic stamp head
-```
-
-**Alternative: Bootstrap script** (legacy method, will be deprecated):
-```bash
-# Check current database status
-python main.py bootstrap --status
-
-# Create tables and extensions
-python main.py bootstrap
-
-# Reset database - WARNING: deletes all data!
-python main.py bootstrap --full-reset
 ```
 
 ## CLI Usage
@@ -282,9 +269,7 @@ python main.py --log-level DEBUG pipeline
 
 #### 5. Database Management
 
-**Alembic Migrations (Recommended)**
-
-Manage database schema with version-controlled migrations:
+Manage database schema with version-controlled Alembic migrations:
 
 ```bash
 # Check current migration version
@@ -302,29 +287,6 @@ alembic revision -m "description"
 # View migration history
 alembic history
 ```
-
-**Bootstrap Script (Legacy)**
-
-Set up or reset database schema, tables, and extensions:
-
-```bash
-# Check database status
-python main.py bootstrap --status
-
-# Preview changes (dry-run)
-python main.py bootstrap --dry-run
-
-# Create tables and extensions
-python main.py bootstrap
-
-# Full reset - WARNING: deletes all data!
-python main.py bootstrap --full-reset
-```
-
-**Options:**
-- `--status` - Check current database state
-- `--dry-run` - Preview changes without applying
-- `--full-reset` - Drop all tables and recreate (requires confirmation)
 
 ### Global Options
 

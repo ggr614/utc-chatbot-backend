@@ -29,6 +29,32 @@ cp example.env .env
 ```
 
 ### Database Operations
+
+**Alembic Migrations (Primary Method)**
+```bash
+# Check current migration version
+alembic current
+
+# View migration history
+alembic history
+
+# Apply all pending migrations
+alembic upgrade head
+
+# Rollback last migration
+alembic downgrade -1
+
+# Rollback all migrations (deletes all data)
+alembic downgrade base
+
+# Create new migration after schema changes
+alembic revision -m "description"
+
+# Mark existing database as up-to-date (for legacy databases)
+alembic stamp head
+```
+
+**Bootstrap Script (Legacy - being phased out)**
 ```bash
 # Check database status
 python main.py bootstrap --status
@@ -128,10 +154,12 @@ TDX API → Ingestion → articles (raw HTML)
 - Batch processing with configurable batch size
 - Error handling and retry logic for API failures
 
-**core/storage_vector.py** (`VectorStorage`)
-- Stores embeddings in `embeddings_openai` table
-- Uses pgvector for efficient vector operations
-- CASCADE DELETE from parent articles ensures referential integrity
+**core/storage_vector.py** (`VectorStorageClient`, `OpenAIVectorStorage`)
+- Stores embeddings in `embeddings_openai` table (normalized structure)
+- Uses pgvector for efficient vector operations with cosine similarity
+- Joins with `article_chunks` table to retrieve chunk metadata
+- CASCADE DELETE via `chunk_id` → `article_chunks.id` → `articles.id`
+- Base class `VectorStorageClient` for extensibility
 
 **core/bm25_search.py** (`BM25Retriever`)
 - Keyword-based sparse retrieval using BM25 algorithm
@@ -150,26 +178,44 @@ TDX API → Ingestion → articles (raw HTML)
 
 ### Database Schema
 
-All tables use UUIDs as primary keys for robust identification.
+All tables use UUIDs as primary keys. Schema is managed with **Alembic migrations** (see `alembic/versions/`).
 
 **articles**: Raw HTML storage
 - `id` (UUID, PK): Auto-generated unique identifier
 - `tdx_article_id` (int, UNIQUE): TDX API article ID
-- `content_html` (text): Raw HTML from TDX
-- `last_modified_date` (timestamp): From TDX API
+- `title`, `url`, `content_html` (text): Article metadata and content
+- `last_modified_date`, `raw_ingestion_date`, `created_at` (timestamps)
 
 **article_chunks**: Processed text chunks
 - `id` (UUID, PK): Auto-generated unique identifier
-- `parent_article_id` (UUID, FK → articles.id): Links to source article
+- `parent_article_id` (UUID, FK → articles.id, CASCADE): Links to source article
 - `chunk_sequence` (int): Order within article (0-indexed)
 - `text_content` (text): Clean text content
 - `token_count` (int): Number of tokens
+- `url`, `last_modified_date` (text, timestamp): Source metadata
 
-**embeddings_openai**: Vector storage
-- `chunk_id` (UUID, PK): Auto-generated unique identifier
-- `parent_article_id` (UUID, FK → articles.id, CASCADE): Links to source article
-- `embedding` (vector(3072)): pgvector embedding for OpenAI text-embedding-3-large
-- Foreign key cascades: Deleting an article deletes all embeddings
+**embeddings_openai**: Normalized vector storage
+- `chunk_id` (UUID, PK, FK → article_chunks.id, CASCADE): Links to chunk
+- `embedding` (vector(3072)): OpenAI text-embedding-3-large vector
+- `created_at` (timestamp): Embedding creation time
+- **Important**: This table is normalized - chunk metadata lives in `article_chunks`, joined via `chunk_id`
+
+**warm_cache_entries**: Pre-computed query cache
+- `id` (UUID, PK): Cache entry identifier
+- `canonical_question`, `verified_answer` (text): Q&A pairs
+- `query_embedding` (vector(3072)): For semantic matching
+- `article_id` (UUID, FK → articles.id, CASCADE)
+- `is_active` (bool): Whether cache entry is active
+
+**cache_metrics**: Cache performance tracking
+- `id` (bigserial, PK): Metrics entry
+- `cache_entry_id` (UUID, FK → warm_cache_entries, SET NULL)
+- `request_timestamp`, `cache_type`, `latency_ms`, `user_id`
+
+**query_logs**: Query analytics
+- `id` (bigserial, PK): Log entry
+- `raw_query` (text), `query_embedding` (vector(3072))
+- `cache_result`, `latency_ms`, `user_id`, `created_at`
 
 ### Configuration
 
@@ -225,16 +271,28 @@ All models use UUIDs for `id` and `parent_article_id` fields. Use `HttpUrl` from
 ### Database Operations
 - Use transactions for multi-step operations
 - Implement idempotent operations (safe to retry)
-- Bootstrap checks current state before applying changes
+- Schema changes are managed via Alembic migrations for version control
+
+### Alembic Migrations
+- Configuration: `alembic/env.py` uses Pydantic settings from `core/config.py`
+- Migrations stored in: `alembic/versions/`
+- Connection string: `postgresql+psycopg://user:pass@host:5432/dbname` (psycopg3 dialect)
+- `target_metadata = None`: Manual migrations (not autogenerate from ORM models)
+- Always test migrations with `upgrade` and `downgrade` before committing
 
 ## Working with This Codebase
 
 ### Adding a New Embedding Provider
 1. Add configuration to `core/config.py`
 2. Implement embedding logic in `core/embedding.py`
-3. Add storage table schema in `utils/bootstrap_db.py`
-4. Update `core/storage_vector.py` with new table operations
-5. Add tests in `tests/test_embedding.py` and `tests/test_storage_vector.py`
+3. Create Alembic migration for new embeddings table:
+   ```bash
+   alembic revision -m "add_embeddings_newprovider"
+   ```
+4. Implement migration with table schema (follow `embeddings_openai` pattern)
+5. Create new storage client class in `core/storage_vector.py` inheriting from `VectorStorageClient`
+6. Add tests in `tests/test_embedding.py` and `tests/test_storage_vector.py`
+7. Update `core/pipeline.py` to support new provider
 
 ### Adding a New Retrieval Method
 1. Create new retriever class in `core/` (follow pattern from `bm25_search.py`)
@@ -244,12 +302,26 @@ All models use UUIDs for `id` and `parent_article_id` fields. Use `HttpUrl` from
 5. Create example script in `examples/`
 
 ### Modifying the Database Schema
+
+**Using Alembic Migrations (Recommended)**
+1. Update Pydantic models in `core/schemas.py`
+2. Create new migration: `alembic revision -m "descriptive_name"`
+3. Edit the generated migration file in `alembic/versions/`:
+   - Implement `upgrade()` with schema changes (using `op.execute()`, `op.create_table()`, etc.)
+   - Implement `downgrade()` to reverse changes
+4. Test migration: `alembic upgrade head` (apply), `alembic downgrade -1` (rollback)
+5. Update storage clients in `core/storage_*.py`
+6. Update all affected tests
+7. Commit migration file to version control
+
+**Using Bootstrap Script (Legacy)**
 1. Update SQL in `utils/bootstrap_db.py`
 2. Update Pydantic models in `core/schemas.py`
 3. Update storage clients in `core/storage_*.py`
 4. Run `python main.py bootstrap --dry-run` to preview changes
 5. Update all affected tests
-6. Document migration steps if schema changes are breaking
+
+**Important**: For production databases, always use Alembic migrations for version control and rollback capabilities.
 
 ### Testing Database Operations
 - Tests use mocked database connections (no real DB needed)
@@ -264,3 +336,6 @@ All models use UUIDs for `id` and `parent_article_id` fields. Use `HttpUrl` from
 - Log files are stored in `logs/` (also gitignored)
 - The codebase uses Python 3.11+ features (pattern matching, new type hints)
 - All embeddings use the same model for both indexing and querying (critical for vector search)
+- **Database migrations**: Use Alembic for all schema changes. `alembic.ini` is gitignored (contains local DB config)
+- **Schema normalization**: `embeddings_openai` table stores only `chunk_id` and `embedding`; metadata is in `article_chunks`
+- **Storage pattern**: All storage clients inherit from `BaseStorageClient` for connection management

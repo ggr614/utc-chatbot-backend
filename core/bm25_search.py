@@ -12,11 +12,11 @@ Key Features:
 - Returns results with relevance scores and metadata
 """
 
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
-import math
 import re
-from collections import Counter, defaultdict
+
+from rank_bm25 import BM25Okapi
 
 from core.storage_raw import PostgresClient
 from core.schemas import TextChunk
@@ -62,6 +62,8 @@ class BM25Retriever:
     BM25 (Best Matching 25) is a probabilistic ranking function that ranks
     documents based on query term frequency, document length, and term rarity.
 
+    This implementation uses the rank-bm25 library for efficient BM25 scoring.
+
     Algorithm:
         score(D, Q) = Σ IDF(qi) * (f(qi, D) * (k1 + 1)) / (f(qi, D) + k1 * (1 - b + b * |D| / avgdl))
 
@@ -92,7 +94,7 @@ class BM25Retriever:
                 Higher values give more weight to term frequency
             b: Length normalization parameter (default: 0.75)
                0 = no length normalization, 1 = full normalization
-            use_cache: Whether to cache corpus statistics (default: True)
+            use_cache: Whether to cache corpus and BM25 model (default: True)
 
         Raises:
             ValueError: If k1 or b are out of valid ranges
@@ -113,9 +115,10 @@ class BM25Retriever:
         self.db_client = postgres_client or PostgresClient()
         logger.debug("Database client initialized")
 
-        # Cache for corpus statistics
-        self._corpus_cache: Optional[Dict[str, Any]] = None
+        # Cache for corpus and BM25 model
         self._chunks_cache: Optional[List[TextChunk]] = None
+        self._bm25_model: Optional[BM25Okapi] = None
+        self._tokenized_corpus: Optional[List[List[str]]] = None
 
         logger.info(
             f"BM25Retriever initialized with k1={k1}, b={b}, use_cache={use_cache}"
@@ -165,125 +168,48 @@ class BM25Retriever:
         logger.info(f"Retrieved {len(chunks)} chunks from database")
         return chunks
 
-    def _compute_corpus_statistics(
+    def _build_bm25_model(
         self, chunks: List[TextChunk], refresh: bool = False
-    ) -> Dict[str, Any]:
+    ) -> BM25Okapi:
         """
-        Compute and cache corpus-level statistics for BM25.
-
-        Statistics include:
-        - Document frequencies for each term
-        - Average document length
-        - Total number of documents
+        Build or retrieve cached BM25 model.
 
         Args:
-            chunks: List of text chunks to analyze
-            refresh: Force recomputation even if cached
+            chunks: List of text chunks to index
+            refresh: Force rebuild even if cached
 
         Returns:
-            Dictionary containing corpus statistics
+            BM25Okapi model
         """
-        if self.use_cache and not refresh and self._corpus_cache is not None:
-            logger.debug("Using cached corpus statistics")
-            return self._corpus_cache
+        if (
+            self.use_cache
+            and not refresh
+            and self._bm25_model is not None
+            and self._tokenized_corpus is not None
+        ):
+            logger.debug("Using cached BM25 model")
+            return self._bm25_model
 
-        logger.info(f"Computing corpus statistics for {len(chunks)} chunks")
+        logger.info(f"Building BM25 model for {len(chunks)} chunks")
 
-        with PerformanceLogger(logger, "Compute corpus statistics"):
-            # Document frequency: number of documents containing each term
-            doc_freq: Dict[str, int] = defaultdict(int)
+        with PerformanceLogger(logger, "Build BM25 model"):
+            # Tokenize all chunks
+            self._tokenized_corpus = [
+                self.tokenize(chunk.text_content) for chunk in chunks
+            ]
 
-            # Document lengths
-            doc_lengths: List[int] = []
-
-            # Tokenized documents for later use
-            tokenized_docs: List[List[str]] = []
-
-            for chunk in chunks:
-                tokens = self.tokenize(chunk.text_content)
-                tokenized_docs.append(tokens)
-                doc_lengths.append(len(tokens))
-
-                # Count unique terms in this document
-                unique_terms = set(tokens)
-                for term in unique_terms:
-                    doc_freq[term] += 1
-
-            # Compute statistics
-            num_docs = len(chunks)
-            avg_doc_length = sum(doc_lengths) / num_docs if num_docs > 0 else 0
-
-            # Compute IDF for each term
-            # IDF(qi) = log((N - n(qi) + 0.5) / (n(qi) + 0.5))
-            # where N = total docs, n(qi) = docs containing qi
-            idf: Dict[str, float] = {}
-            for term, freq in doc_freq.items():
-                idf[term] = math.log((num_docs - freq + 0.5) / (freq + 0.5) + 1.0)
-
-            stats = {
-                "num_docs": num_docs,
-                "avg_doc_length": avg_doc_length,
-                "doc_freq": doc_freq,
-                "idf": idf,
-                "doc_lengths": doc_lengths,
-                "tokenized_docs": tokenized_docs,
-            }
-
-        if self.use_cache:
-            self._corpus_cache = stats
-            logger.debug("Cached corpus statistics")
+            # Build BM25 model with custom parameters
+            # Note: rank-bm25 uses BM25Okapi which doesn't expose k1 and b in constructor
+            # We'll use the default BM25Okapi and note that for custom params,
+            # you'd need to subclass or use a different approach
+            self._bm25_model = BM25Okapi(self._tokenized_corpus, k1=self.k1, b=self.b)
 
         logger.info(
-            f"Corpus statistics: {num_docs} docs, "
-            f"avg_length={avg_doc_length:.1f}, "
-            f"{len(idf)} unique terms"
+            f"BM25 model built with {len(chunks)} documents, "
+            f"avg_doc_length={self._bm25_model.avgdl:.1f}"
         )
 
-        return stats
-
-    def _compute_bm25_score(
-        self,
-        query_terms: List[str],
-        doc_tokens: List[str],
-        doc_length: int,
-        avg_doc_length: float,
-        idf: Dict[str, float],
-    ) -> float:
-        """
-        Compute BM25 score for a single document given a query.
-
-        Args:
-            query_terms: Tokenized query terms
-            doc_tokens: Tokenized document terms
-            doc_length: Length of the document (number of tokens)
-            avg_doc_length: Average document length in corpus
-            idf: IDF scores for all terms
-
-        Returns:
-            BM25 relevance score
-        """
-        # Count term frequencies in document
-        term_freq = Counter(doc_tokens)
-
-        score = 0.0
-        for term in query_terms:
-            if term not in idf:
-                # Term not in corpus, skip
-                continue
-
-            # Get term frequency in document
-            tf = term_freq.get(term, 0)
-
-            # Compute BM25 component for this term
-            # score = IDF(qi) * (f(qi, D) * (k1 + 1)) / (f(qi, D) + k1 * (1 - b + b * |D| / avgdl))
-            numerator = tf * (self.k1 + 1)
-            denominator = tf + self.k1 * (
-                1 - self.b + self.b * (doc_length / avg_doc_length)
-            )
-
-            score += idf[term] * (numerator / denominator)
-
-        return score
+        return self._bm25_model
 
     def search(
         self,
@@ -323,37 +249,30 @@ class BM25Retriever:
                 logger.warning("No chunks found in database")
                 return []
 
-            # Compute corpus statistics
-            stats = self._compute_corpus_statistics(chunks, refresh=refresh_corpus)
+            # Build/retrieve BM25 model
+            bm25 = self._build_bm25_model(chunks, refresh=refresh_corpus)
 
             # Tokenize query
-            query_terms = self.tokenize(query)
-            logger.debug(f"Query tokens: {query_terms}")
+            query_tokens = self.tokenize(query)
+            logger.debug(f"Query tokens: {query_tokens}")
 
-            if not query_terms:
+            if not query_tokens:
                 logger.warning("Query produced no tokens after tokenization")
                 return []
 
-            # Score all documents
-            scores: List[Tuple[float, int]] = []
-            for idx, (chunk, doc_tokens, doc_length) in enumerate(
-                zip(chunks, stats["tokenized_docs"], stats["doc_lengths"])
-            ):
-                score = self._compute_bm25_score(
-                    query_terms=query_terms,
-                    doc_tokens=doc_tokens,
-                    doc_length=doc_length,
-                    avg_doc_length=stats["avg_doc_length"],
-                    idf=stats["idf"],
-                )
+            # Get BM25 scores for all documents
+            scores = bm25.get_scores(query_tokens)
+            logger.debug(f"Computed scores for {len(scores)} documents")
 
-                # Apply minimum score filter
+            # Create (score, index) pairs and filter by min_score
+            score_idx_pairs = []
+            for idx, score in enumerate(scores):
                 if min_score is None or score >= min_score:
-                    scores.append((score, idx))
+                    score_idx_pairs.append((score, idx))
 
             # Sort by score (descending) and take top_k
-            scores.sort(reverse=True, key=lambda x: x[0])
-            top_scores = scores[:top_k]
+            score_idx_pairs.sort(reverse=True, key=lambda x: x[0])
+            top_results = score_idx_pairs[:top_k]
 
             # Create result objects
             results = [
@@ -362,11 +281,11 @@ class BM25Retriever:
                     score=score,
                     rank=rank,
                 )
-                for rank, (score, idx) in enumerate(top_scores, start=1)
+                for rank, (score, idx) in enumerate(top_results, start=1)
             ]
 
         logger.info(
-            f"Found {len(results)} results (filtered from {len(scores)} candidates)"
+            f"Found {len(results)} results (filtered from {len(score_idx_pairs)} candidates)"
         )
 
         if results:
@@ -386,7 +305,7 @@ class BM25Retriever:
         """
         Perform batch search for multiple queries efficiently.
 
-        Computes corpus statistics once and reuses for all queries.
+        Builds BM25 model once and reuses for all queries.
 
         Args:
             queries: List of query strings
@@ -402,9 +321,13 @@ class BM25Retriever:
 
         logger.info(f"Performing batch search for {len(queries)} queries")
 
-        # Pre-compute corpus statistics once
+        # Pre-build BM25 model once
         chunks = self._get_chunks()
-        stats = self._compute_corpus_statistics(chunks)
+        if not chunks:
+            logger.warning("No chunks found in database")
+            return {query: [] for query in queries}
+
+        bm25 = self._build_bm25_model(chunks)
 
         results = {}
         with PerformanceLogger(logger, f"Batch search for {len(queries)} queries"):
@@ -414,7 +337,7 @@ class BM25Retriever:
                         query=query,
                         top_k=top_k,
                         min_score=min_score,
-                        refresh_corpus=False,  # Reuse cached statistics
+                        refresh_corpus=False,  # Reuse cached model
                     )
                 except Exception as e:
                     logger.error(f"Error searching for '{query}': {str(e)}")
@@ -424,10 +347,11 @@ class BM25Retriever:
         return results
 
     def clear_cache(self):
-        """Clear cached corpus statistics and chunks."""
+        """Clear cached corpus and BM25 model."""
         logger.info("Clearing BM25 cache")
-        self._corpus_cache = None
         self._chunks_cache = None
+        self._bm25_model = None
+        self._tokenized_corpus = None
 
     def get_stats(self) -> Dict[str, Any]:
         """
@@ -437,14 +361,18 @@ class BM25Retriever:
             Dictionary with statistics about the retriever state
         """
         chunks = self._get_chunks()
-        stats = self._compute_corpus_statistics(chunks)
 
-        return {
-            "num_chunks": stats["num_docs"],
-            "avg_doc_length": stats["avg_doc_length"],
-            "num_unique_terms": len(stats["idf"]),
+        # Build model if not cached to get accurate stats
+        bm25 = self._build_bm25_model(chunks)
+
+        stats = {
+            "num_chunks": len(chunks),
             "k1": self.k1,
             "b": self.b,
             "cache_enabled": self.use_cache,
-            "is_cached": self._corpus_cache is not None,
+            "is_cached": self._bm25_model is not None,
+            "avg_doc_length": bm25.avgdl,
+            "num_unique_terms": len(bm25.idf),
         }
+
+        return stats
