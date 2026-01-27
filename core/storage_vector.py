@@ -5,18 +5,16 @@ This module provides clients for storing and retrieving vector embeddings
 from both OpenAI (3072 dimensions) and AWS Cohere (1536 dimensions) models.
 """
 
-from contextlib import contextmanager
 from typing import Dict, List, Optional, Set, Tuple
-from core.config import get_settings
 import psycopg
-from psycopg import Connection
+from core.storage_base import BaseStorageClient
 from core.schemas import VectorRecord
 from utils.logger import get_logger, PerformanceLogger
 
 logger = get_logger(__name__)
 
 
-class VectorStorageClient:
+class VectorStorageClient(BaseStorageClient):
     """
     Base class for vector storage operations.
 
@@ -32,98 +30,13 @@ class VectorStorageClient:
             table_name: Name of the embeddings table (e.g., 'embeddings_openai')
             embedding_dim: Expected dimension of embeddings (e.g., 3072 for OpenAI)
         """
-        logger.info(f"Initializing VectorStorageClient for table '{table_name}'")
-        try:
-            settings = get_settings()
-
-            # Validate configuration
-            if not settings.DB_HOST:
-                raise ValueError("DB_HOST is not configured")
-            if not settings.DB_USER:
-                raise ValueError("DB_USER is not configured")
-            if not settings.DB_NAME:
-                raise ValueError("DB_NAME is not configured")
-
-            self.db_host = settings.DB_HOST
-            self.db_user = settings.DB_USER
-            self.db_password = settings.DB_PASSWORD.get_secret_value()
-            self.db_name = settings.DB_NAME
-            self.db_port = 5432
-            self.table_name = table_name
-            self.embedding_dim = embedding_dim
-            self._conn: Optional[Connection] = None
-
-            self._connection_params = {
-                "host": self.db_host,
-                "user": self.db_user,
-                "password": self.db_password,
-                "dbname": self.db_name,
-                "port": self.db_port,
-            }
-
-            logger.info(
-                f"VectorStorageClient configured for {self.db_host}:{self.db_port}/{self.db_name} "
-                f"(table: {self.table_name}, dim: {self.embedding_dim})"
-            )
-            logger.debug(f"Database user: {self.db_user}")
-        except Exception as e:
-            logger.error(f"Failed to initialize VectorStorageClient: {str(e)}")
-            raise
-
-    @contextmanager
-    def get_connection(self):
-        """
-        Get a database connection with automatic cleanup.
-
-        Yields:
-            Connection: PostgreSQL connection object
-
-        Raises:
-            ConnectionError: If unable to connect to database
-        """
-        conn = None
-        try:
-            logger.debug(f"Connecting to database {self.db_name}@{self.db_host}")
-            conn = psycopg.connect(**self._connection_params)
-            logger.debug("Database connection established successfully")
-            yield conn
-            conn.commit()
-            logger.debug("Transaction committed successfully")
-        except psycopg.OperationalError as e:
-            if conn:
-                conn.rollback()
-            logger.error(f"Database connection error: {str(e)}")
-            raise ConnectionError(f"Unable to connect to database: {e}") from e
-        except psycopg.Error as e:
-            if conn:
-                conn.rollback()
-                logger.warning("Transaction rolled back due to error")
-            logger.error(f"Database error: {str(e)}")
-            raise ConnectionError(f"Database error: {e}") from e
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            logger.error(f"Unexpected error during database operation: {str(e)}")
-            raise
-        finally:
-            if conn and not conn.closed:
-                conn.close()
-                logger.debug("Database connection closed")
-
-    def close(self):
-        """Close the database connection if open."""
-        if self._conn and not self._conn.closed:
-            self._conn.close()
-            self._conn = None
-            logger.debug("Closed persistent connection")
-
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, _exc_type, _exc_val, _exc_tb):
-        """Context manager exit with cleanup."""
-        self.close()
+        super().__init__()
+        self.table_name = table_name
+        self.embedding_dim = embedding_dim
+        logger.info(
+            f"VectorStorageClient configured for table '{self.table_name}' "
+            f"with embedding dimension {self.embedding_dim}"
+        )
 
     def get_existing_chunk_ids(self) -> Set[str]:
         """
@@ -149,15 +62,15 @@ class VectorStorageClient:
             logger.error(f"Failed to fetch existing chunk IDs: {str(e)}")
             raise
 
-    def get_chunks_by_article_id(self, article_id: int) -> List[Dict]:
+    def get_chunks_by_article_id(self, article_id) -> List[Dict]:
         """
         Retrieve all chunks for a specific article.
 
         Args:
-            article_id: The parent article ID
+            article_id: The parent article ID (UUID)
 
         Returns:
-            List of chunk dictionaries with metadata
+            List of chunk dictionaries with metadata from article_chunks
 
         Raises:
             ConnectionError: If database operation fails
@@ -168,11 +81,12 @@ class VectorStorageClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         f"""
-                        SELECT chunk_id, parent_article_id, chunk_sequence, text_content,
-                               token_count, source_url, created_at
-                        FROM {self.table_name}
-                        WHERE parent_article_id = %s
-                        ORDER BY chunk_sequence
+                        SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
+                               c.text_content, c.token_count, c.url, e.created_at
+                        FROM {self.table_name} e
+                        JOIN article_chunks c ON e.chunk_id = c.id
+                        WHERE c.parent_article_id = %s
+                        ORDER BY c.chunk_sequence
                         """,  # type: ignore
                         (article_id,),
                     )
@@ -206,6 +120,7 @@ class VectorStorageClient:
 
         Args:
             records: List of tuples (VectorRecord, embedding_vector)
+                Note: Only chunk_id is used; other VectorRecord fields reference article_chunks
 
         Raises:
             ConnectionError: If database operation fails
@@ -234,22 +149,16 @@ class VectorStorageClient:
                                 cur.execute(
                                     f"""
                                     INSERT INTO {self.table_name}
-                                    (chunk_id, parent_article_id, chunk_sequence, text_content,
-                                     token_count, source_url, embedding)
-                                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                                    (chunk_id, embedding)
+                                    VALUES (%s, %s)
                                     """,  # type: ignore
                                     (
                                         record.chunk_id,
-                                        record.parent_article_id,
-                                        record.chunk_sequence,
-                                        record.text_content,
-                                        record.token_count,
-                                        str(record.source_url),
                                         embedding,
                                     ),
                                 )
                                 logger.debug(
-                                    f"Inserted embedding {record.chunk_id} for article {record.parent_article_id}"
+                                    f"Inserted embedding for chunk {record.chunk_id}"
                                 )
                             except psycopg.IntegrityError as e:
                                 logger.error(
@@ -279,6 +188,7 @@ class VectorStorageClient:
 
         Args:
             records: List of tuples (VectorRecord, embedding_vector)
+                Note: Only chunk_id and embedding are updated
 
         Raises:
             ConnectionError: If database operation fails
@@ -307,26 +217,16 @@ class VectorStorageClient:
                                 cur.execute(
                                     f"""
                                     UPDATE {self.table_name}
-                                    SET parent_article_id = %s,
-                                        chunk_sequence = %s,
-                                        text_content = %s,
-                                        token_count = %s,
-                                        source_url = %s,
-                                        embedding = %s
+                                    SET embedding = %s
                                     WHERE chunk_id = %s
                                     """,  # type: ignore
                                     (
-                                        record.parent_article_id,
-                                        record.chunk_sequence,
-                                        record.text_content,
-                                        record.token_count,
-                                        str(record.source_url),
                                         embedding,
                                         record.chunk_id,
                                     ),
                                 )
                                 logger.debug(
-                                    f"Updated embedding {record.chunk_id} for article {record.parent_article_id}"
+                                    f"Updated embedding for chunk {record.chunk_id}"
                                 )
                             except psycopg.Error as e:
                                 logger.error(
@@ -343,12 +243,12 @@ class VectorStorageClient:
             logger.error(f"Failed to update embeddings: {str(e)}")
             raise
 
-    def delete_embeddings_by_article_id(self, article_id: int) -> int:
+    def delete_embeddings_by_article_id(self, article_id) -> int:
         """
         Delete all embeddings for a specific article.
 
         Args:
-            article_id: The parent article ID
+            article_id: The parent article ID (UUID)
 
         Returns:
             Number of embeddings deleted
@@ -362,8 +262,15 @@ class VectorStorageClient:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
+                    # Delete embeddings by joining with article_chunks
                     cur.execute(
-                        f"DELETE FROM {self.table_name} WHERE parent_article_id = %s",  # type: ignore
+                        f"""
+                        DELETE FROM {self.table_name}
+                        WHERE chunk_id IN (
+                            SELECT id FROM article_chunks
+                            WHERE parent_article_id = %s
+                        )
+                        """,  # type: ignore
                         (article_id,),
                     )
                     deleted_count = cur.rowcount
@@ -457,9 +364,11 @@ class VectorStorageClient:
                         # Convert pgvector string representation to list of floats
                         # Format is like "[0.1,0.2,0.3]"
                         embedding_str = row[0]
-                        if embedding_str.startswith('[') and embedding_str.endswith(']'):
+                        if embedding_str.startswith("[") and embedding_str.endswith(
+                            "]"
+                        ):
                             # Remove brackets and split by comma
-                            values = embedding_str[1:-1].split(',')
+                            values = embedding_str[1:-1].split(",")
                             return [float(v) for v in values]
                         # If already a list, return as is
                         elif isinstance(embedding_str, list):
@@ -481,7 +390,7 @@ class VectorStorageClient:
             min_similarity: Minimum similarity threshold (0.0 to 1.0)
 
         Returns:
-            List of dictionaries with chunk data and similarity scores
+            List of dictionaries with chunk data (from article_chunks) and similarity scores
 
         Raises:
             ConnectionError: If database operation fails
@@ -497,15 +406,16 @@ class VectorStorageClient:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    # Use cosine similarity (1 - cosine distance)
+                    # Use cosine similarity (1 - cosine distance) and join with article_chunks
                     cur.execute(
                         f"""
-                        SELECT chunk_id, parent_article_id, chunk_sequence, text_content,
-                               token_count, source_url, created_at,
-                               1 - (embedding <=> %s::vector) AS similarity
-                        FROM {self.table_name}
-                        WHERE 1 - (embedding <=> %s::vector) >= %s
-                        ORDER BY embedding <=> %s::vector
+                        SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
+                               c.text_content, c.token_count, c.url, e.created_at,
+                               1 - (e.embedding <=> %s::vector) AS similarity
+                        FROM {self.table_name} e
+                        JOIN article_chunks c ON e.chunk_id = c.id
+                        WHERE 1 - (e.embedding <=> %s::vector) >= %s
+                        ORDER BY e.embedding <=> %s::vector
                         LIMIT %s
                         """,  # type: ignore
                         (

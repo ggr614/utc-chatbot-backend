@@ -64,9 +64,7 @@ def main():
     # Batch search example
     print("\n4. Batch Search Example:")
     print("   Running batch search for multiple queries...")
-    batch_results = retriever.batch_search(
-        queries=queries[:3], top_k=2, min_score=1.0
-    )
+    batch_results = retriever.batch_search(queries=queries[:3], top_k=2, min_score=1.0)
 
     for query, results in batch_results.items():
         print(f"\n   '{query}': {len(results)} results")

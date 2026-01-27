@@ -96,14 +96,14 @@ class GenerateDatasetOpenAI:
 
         # Replace common unicode escapes with actual characters
         replacements = {
-            '\u2019': "'",  # Right single quotation mark
-            '\u2018': "'",  # Left single quotation mark
-            '\u201c': '"',  # Left double quotation mark
-            '\u201d': '"',  # Right double quotation mark
-            '\u2013': '-',  # En dash
-            '\u2014': '—',  # Em dash
-            '\u2026': '...',  # Horizontal ellipsis
-            '\u00a0': ' ',  # Non-breaking space
+            "\u2019": "'",  # Right single quotation mark
+            "\u2018": "'",  # Left single quotation mark
+            "\u201c": '"',  # Left double quotation mark
+            "\u201d": '"',  # Right double quotation mark
+            "\u2013": "-",  # En dash
+            "\u2014": "—",  # Em dash
+            "\u2026": "...",  # Horizontal ellipsis
+            "\u00a0": " ",  # Non-breaking space
         }
 
         for unicode_char, replacement in replacements.items():
@@ -263,7 +263,9 @@ Return only the JSON object, no additional text."""
         # Filter out None results (failed requests)
         json_output = [r for r in results if r is not None]
 
-        print(f"\nCompleted: {len(json_output)}/{len(chunks)} chunks processed successfully")
+        print(
+            f"\nCompleted: {len(json_output)}/{len(chunks)} chunks processed successfully"
+        )
 
         return json_output
 
@@ -315,7 +317,7 @@ async def main_async():
         duration = (end_time - start_time).total_seconds()
 
         print(f"\nGeneration completed in {duration:.2f} seconds")
-        print(f"Average: {duration/len(chunks):.2f} seconds per chunk")
+        print(f"Average: {duration / len(chunks):.2f} seconds per chunk")
         print(f"Generated {len(json_output)} QA pair responses")
 
         print("\nSaving to file...")

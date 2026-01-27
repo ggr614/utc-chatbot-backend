@@ -1,110 +1,25 @@
-from contextlib import contextmanager
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 from uuid import UUID
-from core.config import get_settings
 import psycopg
-from psycopg import Connection
+from core.storage_base import BaseStorageClient
 from core.schemas import TdxArticle
 from utils.logger import get_logger, PerformanceLogger
 
 logger = get_logger(__name__)
 
 
-class PostgresClient:
+class PostgresClient(BaseStorageClient):
+    """
+    Storage client for raw article data.
+
+    Handles CRUD operations for the articles table, including
+    ingestion from TDX API and metadata management.
+    """
+
     def __init__(self):
-        logger.info("Initializing PostgresClient")
-        try:
-            settings = get_settings()
-
-            # Validate configuration
-            if not settings.DB_HOST:
-                raise ValueError("DB_HOST is not configured")
-            if not settings.DB_USER:
-                raise ValueError("DB_USER is not configured")
-            if not settings.DB_NAME:
-                raise ValueError("DB_NAME is not configured")
-
-            self.db_host = settings.DB_HOST
-            self.db_user = settings.DB_USER
-            self.db_password = settings.DB_PASSWORD.get_secret_value()
-            self.db_name = settings.DB_NAME
-            self.db_port = 5432
-            self._conn: Optional[Connection] = None
-            self._connection_params = {
-                "host": self.db_host,
-                "user": self.db_user,
-                "password": self.db_password,
-                "dbname": self.db_name,
-                "port": self.db_port,
-            }
-            logger.info(
-                f"PostgresClient configured for {self.db_host}:{self.db_port}/{self.db_name}"
-            )
-            logger.debug(f"Database user: {self.db_user}")
-        except Exception as e:
-            logger.error(f"Failed to initialize PostgresClient: {str(e)}")
-            raise
-
-    @contextmanager
-    def get_connection(self):
-        """
-        Get a database connection with automatic cleanup.
-
-        Yields:
-            Connection: PostgreSQL connection object
-
-        Raises:
-            ConnectionError: If unable to connect to database
-
-        Example:
-            >>> store = KBStore(host="localhost", user="admin", password="pass", db_name="kb")
-            >>> with store.get_connection() as conn:
-            ...     cursor = conn.cursor()
-            ...     cursor.execute("SELECT * FROM articles")
-        """
-        conn = None
-        try:
-            logger.debug(f"Connecting to database {self.db_name}@{self.db_host}")
-            conn = psycopg.connect(**self._connection_params)
-            logger.debug("Database connection established successfully")
-            yield conn
-            conn.commit()  # Auto-commit on success
-            logger.debug("Transaction committed successfully")
-        except psycopg.OperationalError as e:
-            if conn:
-                conn.rollback()
-            logger.error(f"Database connection error: {str(e)}")
-            raise ConnectionError(f"Unable to connect to database: {e}") from e
-        except psycopg.Error as e:
-            if conn:
-                conn.rollback()
-                logger.warning("Transaction rolled back due to error")
-            logger.error(f"Database error: {str(e)}")
-            raise ConnectionError(f"Database error: {e}") from e
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            logger.error(f"Unexpected error during database operation: {str(e)}")
-            raise
-        finally:
-            if conn and not conn.closed:
-                conn.close()
-                logger.debug("Database connection closed")
-
-    def close(self):
-        """Close the database connection if open."""
-        if self._conn and not self._conn.closed:
-            self._conn.close()
-            self._conn = None
-
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, _exc_type, _exc_val, _exc_tb):
-        """Context manager exit with cleanup."""
-        self.close()
+        """Initialize the PostgresClient for articles storage."""
+        super().__init__()
 
     def get_article_metadata(self) -> Dict[int, datetime]:
         """
@@ -168,8 +83,9 @@ class PostgresClient:
                                     ),
                                 )
                                 # Get the auto-generated UUID
-                                generated_id = cur.fetchone()[0]
-                                article.id = generated_id
+                                result = cur.fetchone()
+                                if result:
+                                    article.id = result[0]
                                 logger.debug(
                                     f"Inserted article TDX ID {article.tdx_article_id} (UUID: {article.id}): {article.title}"
                                 )

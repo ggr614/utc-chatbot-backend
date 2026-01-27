@@ -49,7 +49,7 @@ def main():
         results = retriever.search(
             query=query,
             top_k=3,
-            min_similarity=0.6  # Only show results with >60% similarity
+            min_similarity=0.6,  # Only show results with >60% similarity
         )
 
         if not results:
@@ -69,9 +69,7 @@ def main():
     print("\n4. Semantic Similarity Example:")
     print("   Searching for 'authentication problems'...")
     results = retriever.search(
-        query="authentication problems",
-        top_k=5,
-        min_similarity=0.5
+        query="authentication problems", top_k=5, min_similarity=0.5
     )
 
     print(f"   Found {len(results)} semantically related results")
@@ -87,13 +85,11 @@ def main():
     batch_queries = [
         "password recovery",
         "network connectivity",
-        "software installation"
+        "software installation",
     ]
 
     batch_results = retriever.batch_search(
-        queries=batch_queries,
-        top_k=2,
-        min_similarity=0.6
+        queries=batch_queries, top_k=2, min_similarity=0.6
     )
 
     for query, results in batch_results.items():
@@ -115,9 +111,7 @@ def main():
 
         # Find similar chunks
         similar = retriever.find_similar_to_chunk(
-            chunk_id=sample_chunk_id,
-            top_k=5,
-            min_similarity=0.5
+            chunk_id=sample_chunk_id, top_k=5, min_similarity=0.5
         )
 
         print(f"\n   Found {len(similar)} similar chunks:")

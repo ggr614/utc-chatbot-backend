@@ -35,6 +35,7 @@ class BM25SearchResult:
         score: BM25 relevance score
         rank: Position in the ranked results (1-indexed)
     """
+
     chunk: TextChunk
     score: float
     rank: int
@@ -136,7 +137,7 @@ class BM25Retriever:
         """
         # Convert to lowercase and split on whitespace/punctuation
         # Keep alphanumeric characters and common technical symbols
-        tokens = re.findall(r'\b[a-z0-9]+\b', text.lower())
+        tokens = re.findall(r"\b[a-z0-9]+\b", text.lower())
         return tokens
 
     def _get_chunks(self, refresh: bool = False) -> List[TextChunk]:
@@ -217,9 +218,7 @@ class BM25Retriever:
             # where N = total docs, n(qi) = docs containing qi
             idf: Dict[str, float] = {}
             for term, freq in doc_freq.items():
-                idf[term] = math.log(
-                    (num_docs - freq + 0.5) / (freq + 0.5) + 1.0
-                )
+                idf[term] = math.log((num_docs - freq + 0.5) / (freq + 0.5) + 1.0)
 
             stats = {
                 "num_docs": num_docs,

@@ -33,6 +33,7 @@ class VectorSearchResult:
         similarity: Cosine similarity score (0-1, higher is more similar)
         rank: Position in the ranked results (1-indexed)
     """
+
     chunk: TextChunk
     similarity: float
     rank: int
@@ -134,7 +135,9 @@ class VectorRetriever:
                 query_embedding = self.embedder.generate_embedding(query)
             except Exception as e:
                 logger.error(f"Failed to generate query embedding: {str(e)}")
-                raise RuntimeError(f"Query embedding generation failed: {str(e)}") from e
+                raise RuntimeError(
+                    f"Query embedding generation failed: {str(e)}"
+                ) from e
 
             logger.debug(f"Generated embedding with dimension {len(query_embedding)}")
 
@@ -143,7 +146,9 @@ class VectorRetriever:
             try:
                 # Apply similarity threshold if specified
                 # Note: vector_store.search_similar_vectors returns dict results
-                min_sim_threshold = min_similarity if min_similarity is not None else 0.0
+                min_sim_threshold = (
+                    min_similarity if min_similarity is not None else 0.0
+                )
                 db_results = self.vector_store.search_similar_vectors(
                     query_vector=query_embedding,
                     limit=top_k,
@@ -166,7 +171,9 @@ class VectorRetriever:
                     text_content=result_dict["text_content"],
                     token_count=result_dict["token_count"],
                     source_url=result_dict["source_url"],
-                    last_modified_date=result_dict.get("created_at"),  # Use created_at as last_modified
+                    last_modified_date=result_dict.get(
+                        "created_at"
+                    ),  # Use created_at as last_modified
                 )
                 similarity = result_dict["similarity"]
                 results.append((similarity, chunk))

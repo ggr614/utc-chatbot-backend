@@ -5,6 +5,7 @@ Tests for the storage_vector module (VectorStorageClient, OpenAIVectorStorage, C
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pydantic import HttpUrl
+from uuid import UUID
 
 from core.storage_vector import (
     VectorStorageClient,
@@ -20,7 +21,7 @@ class TestVectorStorageClient:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for database connection."""
-        with patch("core.storage_vector.get_settings") as mock:
+        with patch("core.storage_base.get_settings") as mock:
             settings = Mock()
             settings.DB_HOST = "localhost"
             settings.DB_USER = "test_user"
@@ -46,7 +47,7 @@ class TestVectorStorageClient:
 
     def test_init_validates_configuration(self):
         """Test that initialization validates configuration."""
-        with patch("core.storage_vector.get_settings") as mock_settings:
+        with patch("core.storage_base.get_settings") as mock_settings:
             # Test missing DB_HOST
             settings = Mock()
             settings.DB_HOST = None
@@ -60,7 +61,7 @@ class TestVectorStorageClient:
 
     def test_get_connection_success(self, client):
         """Test successful database connection."""
-        with patch("core.storage_vector.psycopg.connect") as mock_connect:
+        with patch("core.storage_base.psycopg.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_conn.closed = False
             mock_connect.return_value = mock_conn
@@ -73,7 +74,7 @@ class TestVectorStorageClient:
 
     def test_get_connection_rollback_on_error(self, client):
         """Test that connection rolls back on error."""
-        with patch("core.storage_vector.psycopg.connect") as mock_connect:
+        with patch("core.storage_base.psycopg.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_conn.closed = False
             mock_connect.return_value = mock_conn
@@ -148,9 +149,11 @@ class TestVectorStorageClient:
 
     def test_insert_embeddings_validates_dimensions(self, client):
         """Test that insert validates embedding dimensions."""
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
@@ -163,9 +166,11 @@ class TestVectorStorageClient:
 
     def test_insert_embeddings_success(self, client):
         """Test successful embedding insertion."""
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
@@ -195,9 +200,11 @@ class TestVectorStorageClient:
 
     def test_update_embeddings_validates_dimensions(self, client):
         """Test that update validates embedding dimensions."""
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
@@ -210,9 +217,11 @@ class TestVectorStorageClient:
 
     def test_update_embeddings_success(self, client):
         """Test successful embedding update."""
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Updated content",
             token_count=10,
@@ -324,7 +333,7 @@ class TestOpenAIVectorStorage:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for database connection."""
-        with patch("core.storage_vector.get_settings") as mock:
+        with patch("core.storage_base.get_settings") as mock:
             settings = Mock()
             settings.DB_HOST = "localhost"
             settings.DB_USER = "test_user"
@@ -346,9 +355,11 @@ class TestOpenAIVectorStorage:
         client = OpenAIVectorStorage()
 
         # Should accept 3072-dimensional vectors
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
@@ -368,7 +379,7 @@ class TestCohereVectorStorage:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for database connection."""
-        with patch("core.storage_vector.get_settings") as mock:
+        with patch("core.storage_base.get_settings") as mock:
             settings = Mock()
             settings.DB_HOST = "localhost"
             settings.DB_USER = "test_user"
@@ -390,9 +401,11 @@ class TestCohereVectorStorage:
         client = CohereVectorStorage()
 
         # Should accept 1536-dimensional vectors
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,

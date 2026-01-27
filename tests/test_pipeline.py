@@ -129,21 +129,17 @@ class TestRAGPipeline:
                         assert not hasattr(pipeline, "vector_store")
 
     def test_generate_chunk_id(self, pipeline_openai):
-        """Test chunk ID generation is deterministic."""
-        chunk_id_1 = pipeline_openai._generate_chunk_id(123, "Test content", 0)
-        chunk_id_2 = pipeline_openai._generate_chunk_id(123, "Test content", 0)
-        chunk_id_3 = pipeline_openai._generate_chunk_id(123, "Different content", 0)
-        chunk_id_4 = pipeline_openai._generate_chunk_id(123, "Test content", 1)
+        """Test chunk ID generation produces valid UUIDs."""
+        from uuid import UUID
 
-        # Same inputs produce same ID
-        assert chunk_id_1 == chunk_id_2
-        # Different content produces different ID
-        assert chunk_id_1 != chunk_id_3
-        # Different sequence produces different ID
-        assert chunk_id_1 != chunk_id_4
-        # IDs are strings of length 16
-        assert isinstance(chunk_id_1, str)
-        assert len(chunk_id_1) == 16
+        chunk_id_1 = pipeline_openai._generate_chunk_id()
+        chunk_id_2 = pipeline_openai._generate_chunk_id()
+
+        # IDs should be UUIDs
+        assert isinstance(chunk_id_1, UUID)
+        assert isinstance(chunk_id_2, UUID)
+        # Each call should produce a unique ID
+        assert chunk_id_1 != chunk_id_2
 
     def test_run_ingestion_when_skipped(self, mock_settings):
         """Test that run_ingestion raises error when skipped."""
@@ -188,8 +184,12 @@ class TestRAGPipeline:
 
     def test_process_article_to_chunks(self, pipeline_openai):
         """Test processing a single article into chunks."""
+        from uuid import UUID
+
+        test_article_id = UUID("12345678-1234-5678-1234-567812345678")
         article = TdxArticle(
-            id=123,
+            id=test_article_id,
+            tdx_article_id=123,
             title="Test Article",
             url=HttpUrl("https://example.com/123"),
             content_html="<p>Test content</p>",
@@ -209,7 +209,7 @@ class TestRAGPipeline:
 
         assert len(chunks) == 2
         assert all(isinstance(chunk, TextChunk) for chunk in chunks)
-        assert chunks[0].parent_article_id == 123
+        assert chunks[0].parent_article_id == test_article_id
         assert chunks[0].chunk_sequence == 0
         assert chunks[1].chunk_sequence == 1
         assert chunks[0].text_content == "Chunk 1"
@@ -240,10 +240,16 @@ class TestRAGPipeline:
 
     def test_run_embedding_success(self, pipeline_openai):
         """Test successful embedding generation."""
+        from uuid import UUID
+
+        test_chunk_id_1 = UUID("12345678-1234-5678-1234-567812345671")
+        test_chunk_id_2 = UUID("12345678-1234-5678-1234-567812345672")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
+
         chunks = [
             TextChunk(
-                chunk_id="chunk1",
-                parent_article_id=123,
+                chunk_id=test_chunk_id_1,
+                parent_article_id=test_article_id,
                 chunk_sequence=0,
                 text_content="Test content 1",
                 token_count=50,
@@ -251,8 +257,8 @@ class TestRAGPipeline:
                 last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
             ),
             TextChunk(
-                chunk_id="chunk2",
-                parent_article_id=123,
+                chunk_id=test_chunk_id_2,
+                parent_article_id=test_article_id,
                 chunk_sequence=1,
                 text_content="Test content 2",
                 token_count=60,
@@ -276,10 +282,16 @@ class TestRAGPipeline:
 
     def test_run_embedding_continues_on_error(self, pipeline_openai):
         """Test that embedding continues when individual chunks fail."""
+        from uuid import UUID
+
+        test_chunk_id_1 = UUID("12345678-1234-5678-1234-567812345671")
+        test_chunk_id_2 = UUID("12345678-1234-5678-1234-567812345672")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
+
         chunks = [
             TextChunk(
-                chunk_id="chunk1",
-                parent_article_id=123,
+                chunk_id=test_chunk_id_1,
+                parent_article_id=test_article_id,
                 chunk_sequence=0,
                 text_content="Test content 1",
                 token_count=50,
@@ -287,8 +299,8 @@ class TestRAGPipeline:
                 last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
             ),
             TextChunk(
-                chunk_id="chunk2",
-                parent_article_id=123,
+                chunk_id=test_chunk_id_2,
+                parent_article_id=test_article_id,
                 chunk_sequence=1,
                 text_content="Test content 2",
                 token_count=60,
@@ -306,7 +318,7 @@ class TestRAGPipeline:
 
         # Should only have 1 successful embedding
         assert len(embeddings) == 1
-        assert embeddings[0][0].chunk_id == "chunk1"
+        assert embeddings[0][0].chunk_id == test_chunk_id_1
 
     def test_run_storage_empty_embeddings(self, pipeline_openai):
         """Test storage with empty embeddings list."""
@@ -315,11 +327,16 @@ class TestRAGPipeline:
 
     def test_run_storage_success(self, pipeline_openai):
         """Test successful embedding storage."""
+        from uuid import UUID
+
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
+
         embeddings = [
             (
                 VectorRecord(
-                    chunk_id="chunk1",
-                    parent_article_id=123,
+                    chunk_id=test_chunk_id,
+                    parent_article_id=test_article_id,
                     chunk_sequence=0,
                     text_content="Test content",
                     token_count=50,

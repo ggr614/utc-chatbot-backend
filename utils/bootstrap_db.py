@@ -267,7 +267,8 @@ class DatabaseBootstrap:
             text_content TEXT NOT NULL,
             token_count INTEGER NOT NULL,
             url TEXT NOT NULL,
-            last_modified_date TIMESTAMP WITH TIME ZONE NOT NULL
+            last_modified_date TIMESTAMP WITH TIME ZONE NOT NULL,
+            FOREIGN KEY (parent_article_id) REFERENCES articles(id) ON DELETE CASCADE
         );
         """
 
@@ -280,7 +281,7 @@ class DatabaseBootstrap:
             cur.execute(create_table_sql)
             cur.execute(create_index_sql)
 
-        print(f"  [OK] Created table '{table_name}' with indexes")
+        print(f"  [OK] Created table '{table_name}' with indexes and foreign key")
 
     def create_embeddings_table_openai(self, conn: Connection) -> None:
         """
@@ -316,21 +317,15 @@ class DatabaseBootstrap:
 
         create_table_sql = """
         CREATE TABLE embeddings_openai (
-            chunk_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            parent_article_id UUID NOT NULL,
-            chunk_sequence INTEGER NOT NULL,
-            text_content TEXT NOT NULL,
-            token_count INTEGER NOT NULL,
-            source_url TEXT NOT NULL,
+            chunk_id UUID PRIMARY KEY,
             embedding vector(3072),
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parent_article_id) REFERENCES articles(id) ON DELETE CASCADE
+            FOREIGN KEY (chunk_id) REFERENCES article_chunks(id) ON DELETE CASCADE
         );
         """
 
         create_index_sql = """
-        CREATE INDEX idx_embeddings_openai_parent_article ON embeddings_openai(parent_article_id);
-        CREATE INDEX idx_embeddings_openai_chunk_sequence ON embeddings_openai(parent_article_id, chunk_sequence);
+        CREATE INDEX idx_embeddings_openai_created_at ON embeddings_openai(created_at);
         """
 
         with conn.cursor() as cur:
@@ -338,7 +333,7 @@ class DatabaseBootstrap:
             cur.execute(create_index_sql)
 
         print(
-            f"  [OK] Created table '{table_name}' with indexes and foreign key (3072 dimensions)"
+            f"  [OK] Created normalized table '{table_name}' with foreign key to article_chunks (3072 dimensions)"
         )
 
     def create_warm_cache_entries(self, conn: Connection) -> None:
@@ -498,21 +493,15 @@ class DatabaseBootstrap:
 
         create_table_sql = """
         CREATE TABLE embeddings_cohere (
-            chunk_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            parent_article_id UUID NOT NULL,
-            chunk_sequence INTEGER NOT NULL,
-            text_content TEXT NOT NULL,
-            token_count INTEGER NOT NULL,
-            source_url TEXT NOT NULL,
+            chunk_id UUID PRIMARY KEY,
             embedding vector(1536),
             created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (parent_article_id) REFERENCES articles(id) ON DELETE CASCADE
+            FOREIGN KEY (chunk_id) REFERENCES article_chunks(id) ON DELETE CASCADE
         );
         """
 
         create_index_sql = """
-        CREATE INDEX idx_embeddings_cohere_parent_article ON embeddings_cohere(parent_article_id);
-        CREATE INDEX idx_embeddings_cohere_chunk_sequence ON embeddings_cohere(parent_article_id, chunk_sequence);
+        CREATE INDEX idx_embeddings_cohere_created_at ON embeddings_cohere(created_at);
         CREATE INDEX idx_embeddings_cohere_vector ON embeddings_cohere USING ivfflat (embedding vector_cosine_ops) WITH (lists = 100);
         """
 
@@ -521,7 +510,7 @@ class DatabaseBootstrap:
             cur.execute(create_index_sql)
 
         print(
-            f"  [OK] Created table '{table_name}' with indexes and foreign key (1536 dimensions)"
+            f"  [OK] Created normalized table '{table_name}' with foreign key to article_chunks (1536 dimensions)"
         )
 
     def drop_all_tables(self, conn: Connection) -> None:

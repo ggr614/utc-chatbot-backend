@@ -151,7 +151,7 @@ class TestArticleProcessor:
         processed = processor.process_articles(articles)
 
         assert len(processed) == 1
-        assert processed[0].id == 456
+        assert processed[0].tdx_article_id == 456
 
     def test_process_articles_constructs_url(self, processor):
         """Test that article URLs are correctly constructed."""
@@ -206,7 +206,7 @@ class TestArticleProcessor:
 
         # Only the last article with all required fields should be processed
         assert len(processed) == 1
-        assert processed[0].id == 999
+        assert processed[0].tdx_article_id == 999
 
     def test_process_articles_validates_with_pydantic(self, processor):
         """Test that processed articles are valid Pydantic models."""
@@ -223,7 +223,7 @@ class TestArticleProcessor:
 
         assert len(processed) == 1
         assert isinstance(processed[0], TdxArticle)
-        assert processed[0].id == 123
+        assert processed[0].tdx_article_id == 123
         assert processed[0].title == "Test Article"
         assert processed[0].content_html == "Content"
 

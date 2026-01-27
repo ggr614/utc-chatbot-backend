@@ -117,8 +117,7 @@ class TestVectorRetriever:
     def test_initialization(self, mock_embedder, mock_vector_store):
         """Test VectorRetriever initialization."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         assert retriever.embedder == mock_embedder
@@ -126,9 +125,10 @@ class TestVectorRetriever:
 
     def test_initialization_without_args(self):
         """Test initialization creates default components."""
-        with patch('core.vector_search.GenerateEmbeddingsOpenAI') as mock_embedder_class, \
-             patch('core.vector_search.OpenAIVectorStorage') as mock_storage_class:
-
+        with (
+            patch("core.vector_search.GenerateEmbeddingsOpenAI") as mock_embedder_class,
+            patch("core.vector_search.OpenAIVectorStorage") as mock_storage_class,
+        ):
             retriever = VectorRetriever()
 
             # Should create default instances
@@ -138,8 +138,7 @@ class TestVectorRetriever:
     def test_search_basic(self, mock_embedder, mock_vector_store):
         """Test basic search functionality."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         results = retriever.search(query="password reset", top_k=2)
@@ -159,8 +158,7 @@ class TestVectorRetriever:
     def test_search_empty_query(self, mock_embedder, mock_vector_store):
         """Test search with empty query."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         with pytest.raises(ValueError, match="Query cannot be empty"):
@@ -169,8 +167,7 @@ class TestVectorRetriever:
     def test_search_invalid_top_k(self, mock_embedder, mock_vector_store):
         """Test search with invalid top_k."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         with pytest.raises(ValueError, match="top_k must be positive"):
@@ -182,8 +179,7 @@ class TestVectorRetriever:
     def test_search_invalid_min_similarity(self, mock_embedder, mock_vector_store):
         """Test search with invalid min_similarity."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         with pytest.raises(ValueError, match="min_similarity must be between 0 and 1"):
@@ -192,11 +188,12 @@ class TestVectorRetriever:
         with pytest.raises(ValueError, match="min_similarity must be between 0 and 1"):
             retriever.search(query="test", top_k=5, min_similarity=-0.1)
 
-    def test_search_with_min_similarity(self, mock_embedder, mock_vector_store, sample_chunks):
+    def test_search_with_min_similarity(
+        self, mock_embedder, mock_vector_store, sample_chunks
+    ):
         """Test search with minimum similarity filtering."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         # Search with high min_similarity should filter out low-similarity results
@@ -210,8 +207,7 @@ class TestVectorRetriever:
     def test_search_similarity_conversion(self, mock_embedder, mock_vector_store):
         """Test that similarities are correctly retrieved from database."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         results = retriever.search(query="test", top_k=3)
@@ -224,8 +220,7 @@ class TestVectorRetriever:
     def test_search_embedding_generation_error(self, mock_embedder, mock_vector_store):
         """Test error handling when embedding generation fails."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         # Mock embedding generation to raise an error
@@ -237,12 +232,13 @@ class TestVectorRetriever:
     def test_search_vector_search_error(self, mock_embedder, mock_vector_store):
         """Test error handling when vector search fails."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         # Mock vector search to raise an error
-        mock_vector_store.search_similar_vectors.side_effect = Exception("Database error")
+        mock_vector_store.search_similar_vectors.side_effect = Exception(
+            "Database error"
+        )
 
         with pytest.raises(RuntimeError, match="Vector search failed"):
             retriever.search(query="test", top_k=5)
@@ -250,8 +246,7 @@ class TestVectorRetriever:
     def test_batch_search(self, mock_embedder, mock_vector_store):
         """Test batch search functionality."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         queries = ["password reset", "VPN connection", "email setup"]
@@ -266,8 +261,7 @@ class TestVectorRetriever:
     def test_batch_search_empty(self, mock_embedder, mock_vector_store):
         """Test batch search with empty query list."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         results = retriever.batch_search(queries=[], top_k=5)
@@ -277,8 +271,7 @@ class TestVectorRetriever:
     def test_batch_search_error_handling(self, mock_embedder, mock_vector_store):
         """Test batch search continues on individual query errors."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         # Make embedding generation fail for specific query
@@ -301,8 +294,7 @@ class TestVectorRetriever:
     def test_get_stats(self, mock_embedder, mock_vector_store):
         """Test retriever statistics."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         stats = retriever.get_stats()
@@ -316,8 +308,7 @@ class TestVectorRetriever:
     def test_get_stats_error_handling(self, mock_embedder, mock_vector_store):
         """Test get_stats handles errors gracefully."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         # Mock error in getting count
@@ -330,11 +321,12 @@ class TestVectorRetriever:
         assert "error" in stats
         assert stats["embedding_dimension"] == 3072
 
-    def test_find_similar_to_chunk(self, mock_embedder, mock_vector_store, sample_chunks):
+    def test_find_similar_to_chunk(
+        self, mock_embedder, mock_vector_store, sample_chunks
+    ):
         """Test finding similar chunks to a given chunk."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         chunk_id = str(sample_chunks[0].chunk_id)
@@ -386,8 +378,7 @@ class TestVectorRetriever:
     def test_find_similar_to_chunk_not_found(self, mock_embedder, mock_vector_store):
         """Test find_similar_to_chunk with non-existent chunk ID."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         # Mock get_embedding_by_chunk_id to return None
@@ -396,11 +387,12 @@ class TestVectorRetriever:
         with pytest.raises(ValueError, match="Chunk ID not found"):
             retriever.find_similar_to_chunk(chunk_id="nonexistent", top_k=5)
 
-    def test_find_similar_to_chunk_with_min_similarity(self, mock_embedder, mock_vector_store, sample_chunks):
+    def test_find_similar_to_chunk_with_min_similarity(
+        self, mock_embedder, mock_vector_store, sample_chunks
+    ):
         """Test find_similar_to_chunk with minimum similarity filtering."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         chunk_id = str(sample_chunks[0].chunk_id)
@@ -446,9 +438,7 @@ class TestVectorRetriever:
         mock_vector_store.search_similar_vectors.side_effect = mock_search
 
         results = retriever.find_similar_to_chunk(
-            chunk_id=chunk_id,
-            top_k=5,
-            min_similarity=0.5
+            chunk_id=chunk_id, top_k=5, min_similarity=0.5
         )
 
         # Should only return chunks with similarity >= 0.5 and excluding self
@@ -457,11 +447,7 @@ class TestVectorRetriever:
 
     def test_result_to_dict(self, sample_chunks):
         """Test VectorSearchResult.to_dict()."""
-        result = VectorSearchResult(
-            chunk=sample_chunks[0],
-            similarity=0.95,
-            rank=1
-        )
+        result = VectorSearchResult(chunk=sample_chunks[0], similarity=0.95, rank=1)
 
         result_dict = result.to_dict()
 
@@ -476,8 +462,7 @@ class TestVectorRetriever:
     def test_context_manager(self, mock_embedder, mock_vector_store):
         """Test VectorRetriever as context manager."""
         with VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         ) as retriever:
             assert retriever is not None
 
@@ -487,8 +472,7 @@ class TestVectorRetriever:
     def test_close(self, mock_embedder, mock_vector_store):
         """Test explicit close() method."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         retriever.close()
@@ -498,8 +482,7 @@ class TestVectorRetriever:
     def test_close_error_handling(self, mock_embedder, mock_vector_store):
         """Test close() handles errors gracefully."""
         retriever = VectorRetriever(
-            embedding_generator=mock_embedder,
-            vector_storage=mock_vector_store
+            embedding_generator=mock_embedder, vector_storage=mock_vector_store
         )
 
         # Mock close to raise an error

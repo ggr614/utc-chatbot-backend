@@ -6,6 +6,7 @@ import pytest
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch, MagicMock
 from pydantic import HttpUrl
+from uuid import UUID
 
 from core.storage_raw import PostgresClient
 from core.schemas import TdxArticle
@@ -17,7 +18,7 @@ class TestPostgresClient:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for database connection."""
-        with patch("core.storage_raw.get_settings") as mock:
+        with patch("core.storage_base.get_settings") as mock:
             settings = Mock()
             settings.DB_HOST = "localhost"
             settings.DB_USER = "test_user"
@@ -41,7 +42,7 @@ class TestPostgresClient:
 
     def test_get_connection_success(self, client):
         """Test successful database connection."""
-        with patch("core.storage_raw.psycopg.connect") as mock_connect:
+        with patch("core.storage_base.psycopg.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_conn.closed = False
             mock_connect.return_value = mock_conn
@@ -55,7 +56,7 @@ class TestPostgresClient:
 
     def test_get_connection_rollback_on_error(self, client):
         """Test that connection rolls back on error."""
-        with patch("core.storage_raw.psycopg.connect") as mock_connect:
+        with patch("core.storage_base.psycopg.connect") as mock_connect:
             with patch("core.storage_raw.psycopg.Error", Exception):
                 mock_conn = MagicMock()
                 mock_conn.closed = False
@@ -92,7 +93,7 @@ class TestPostgresClient:
             assert metadata[123] == datetime(2024, 1, 1, tzinfo=timezone.utc)
             assert metadata[456] == datetime(2024, 1, 2, tzinfo=timezone.utc)
             mock_cursor.execute.assert_called_once_with(
-                "SELECT id, last_modified_date FROM articles"
+                "SELECT tdx_article_id, last_modified_date FROM articles"
             )
 
     def test_get_existing_article_ids(self, client):
@@ -111,20 +112,20 @@ class TestPostgresClient:
 
             assert article_ids == {123, 456, 789}
             assert isinstance(article_ids, set)
-            mock_cursor.execute.assert_called_once_with("SELECT id FROM articles")
+            mock_cursor.execute.assert_called_once_with("SELECT tdx_article_id FROM articles")
 
     def test_insert_articles(self, client):
         """Test inserting new articles."""
         articles = [
             TdxArticle(
-                id=123,
+                tdx_article_id=123,
                 title="Test Article",
                 url=HttpUrl("https://example.com/123"),
                 content_html="<p>Test content</p>",
                 last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
             ),
             TdxArticle(
-                id=456,
+                tdx_article_id=456,
                 title="Another Article",
                 url=HttpUrl("https://example.com/456"),
                 content_html="<p>More content</p>",
@@ -133,6 +134,10 @@ class TestPostgresClient:
         ]
 
         mock_cursor = MagicMock()
+        # Mock fetchone to return UUIDs for RETURNING id clause
+        test_uuid1 = UUID("12345678-1234-5678-1234-567812345678")
+        test_uuid2 = UUID("87654321-4321-8765-4321-876543218765")
+        mock_cursor.fetchone.side_effect = [(test_uuid1,), (test_uuid2,)]
 
         with patch.object(client, "get_connection") as mock_get_conn:
             mock_conn = MagicMock()
@@ -147,13 +152,15 @@ class TestPostgresClient:
             # Verify the SQL query structure
             first_call = mock_cursor.execute.call_args_list[0]
             assert "INSERT INTO articles" in first_call[0][0]
-            assert "id, title, url, content_html" in first_call[0][0]
+            assert "tdx_article_id, title, url, content_html" in first_call[0][0]
 
     def test_update_articles(self, client):
         """Test updating existing articles."""
+        test_uuid = UUID("12345678-1234-5678-1234-567812345678")
         articles = [
             TdxArticle(
-                id=123,
+                id=test_uuid,
+                tdx_article_id=123,
                 title="Updated Title",
                 url=HttpUrl("https://example.com/123"),
                 content_html="<p>Updated content</p>",
@@ -162,6 +169,8 @@ class TestPostgresClient:
         ]
 
         mock_cursor = MagicMock()
+        # Mock fetchone to return UUID for RETURNING id clause
+        mock_cursor.fetchone.return_value = (test_uuid,)
 
         with patch.object(client, "get_connection") as mock_get_conn:
             mock_conn = MagicMock()
@@ -177,11 +186,11 @@ class TestPostgresClient:
             call_args = mock_cursor.execute.call_args[0]
             assert "UPDATE articles" in call_args[0]
             assert "SET title = %s" in call_args[0]
-            assert "WHERE id = %s" in call_args[0]
+            assert "WHERE tdx_article_id = %s" in call_args[0]
             # Verify parameters
             params = call_args[1]
             assert params[0] == "Updated Title"
-            assert params[-1] == 123  # ID should be last parameter
+            assert params[-1] == 123  # tdx_article_id should be last parameter
 
     def test_context_manager_enter_exit(self, client):
         """Test context manager protocol."""
@@ -230,7 +239,7 @@ class TestPostgresClient:
 
     def test_init_validates_configuration(self):
         """Test that initialization validates configuration."""
-        with patch("core.storage_raw.get_settings") as mock_settings:
+        with patch("core.storage_base.get_settings") as mock_settings:
             # Test missing DB_HOST
             settings = Mock()
             settings.DB_HOST = None
