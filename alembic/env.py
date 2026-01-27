@@ -6,21 +6,21 @@ from sqlalchemy import pool
 from alembic import context
 
 # Import your settings
-from core.config import get_settings
+from core.config import get_database_settings
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
 # Get database settings from your Pydantic configuration
-settings = get_settings()
+db_settings = get_database_settings()
 
 # Override sqlalchemy.url with settings from .env
 # Using psycopg (psycopg3) dialect
 database_url = (
-    f"postgresql+psycopg://{settings.DB_USER}:"
-    f"{settings.DB_PASSWORD.get_secret_value()}@"
-    f"{settings.DB_HOST}:5432/{settings.DB_NAME}"
+    f"postgresql+psycopg://{db_settings.USER}:"
+    f"{db_settings.PASSWORD.get_secret_value()}@"
+    f"{db_settings.HOST}:5432/{db_settings.NAME}"
 )
 config.set_main_option("sqlalchemy.url", database_url)
 
@@ -84,9 +84,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection, target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

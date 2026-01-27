@@ -18,12 +18,12 @@ class TestPostgresClient:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for database connection."""
-        with patch("core.storage_base.get_settings") as mock:
+        with patch("core.storage_base.get_database_settings") as mock:
             settings = Mock()
-            settings.DB_HOST = "localhost"
-            settings.DB_USER = "test_user"
-            settings.DB_PASSWORD.get_secret_value.return_value = "test_password"
-            settings.DB_NAME = "test_db"
+            settings.HOST = "localhost"
+            settings.USER = "test_user"
+            settings.PASSWORD.get_secret_value.return_value = "test_password"
+            settings.NAME = "test_db"
             mock.return_value = settings
             yield settings
 
@@ -112,7 +112,9 @@ class TestPostgresClient:
 
             assert article_ids == {123, 456, 789}
             assert isinstance(article_ids, set)
-            mock_cursor.execute.assert_called_once_with("SELECT tdx_article_id FROM articles")
+            mock_cursor.execute.assert_called_once_with(
+                "SELECT tdx_article_id FROM articles"
+            )
 
     def test_insert_articles(self, client):
         """Test inserting new articles."""
@@ -239,26 +241,26 @@ class TestPostgresClient:
 
     def test_init_validates_configuration(self):
         """Test that initialization validates configuration."""
-        with patch("core.storage_base.get_settings") as mock_settings:
-            # Test missing DB_HOST
+        with patch("core.storage_base.get_database_settings") as mock_settings:
+            # Test missing HOST
             settings = Mock()
-            settings.DB_HOST = None
-            settings.DB_USER = "user"
-            settings.DB_NAME = "db"
-            settings.DB_PASSWORD.get_secret_value.return_value = "pass"
+            settings.HOST = None
+            settings.USER = "user"
+            settings.NAME = "db"
+            settings.PASSWORD.get_secret_value.return_value = "pass"
             mock_settings.return_value = settings
 
-            with pytest.raises(ValueError, match="DB_HOST is not configured"):
+            with pytest.raises(ValueError, match="HOST is not configured"):
                 PostgresClient()
 
-            # Test missing DB_USER
-            settings.DB_HOST = "localhost"
-            settings.DB_USER = None
-            with pytest.raises(ValueError, match="DB_USER is not configured"):
+            # Test missing USER
+            settings.HOST = "localhost"
+            settings.USER = None
+            with pytest.raises(ValueError, match="USER is not configured"):
                 PostgresClient()
 
-            # Test missing DB_NAME
-            settings.DB_USER = "user"
-            settings.DB_NAME = None
-            with pytest.raises(ValueError, match="DB_NAME is not configured"):
+            # Test missing NAME
+            settings.USER = "user"
+            settings.NAME = None
+            with pytest.raises(ValueError, match="NAME is not configured"):
                 PostgresClient()

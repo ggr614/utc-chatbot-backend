@@ -7,7 +7,7 @@ from openai import (
 from typing import List, Dict, Any
 from core.storage_chunk import PostgresClient
 from core.schemas import TextChunk
-from core.config import get_settings
+from core.config import get_chat_settings
 import json
 import asyncio
 import html
@@ -28,48 +28,38 @@ class GenerateDatasetOpenAI:
                                    Azure OpenAI allows 2500 RPM, so 50 concurrent is safe
         """
         try:
-            settings = get_settings()
+            settings = get_chat_settings()
 
             # Validate required configuration
-            if not settings.AZURE_OPENAI_CHAT_DEPLOYMENT_NAME:
-                raise ValueError("AZURE_OPENAI_CHAT_DEPLOYMENT_NAME is not configured")
-            if not settings.AZURE_OPENAI_CHAT_ENDPOINT:
-                raise ValueError("AZURE_OPENAI_CHAT_ENDPOINT is not configured")
-            if not settings.AZURE_OPENAI_CHAT_API_VERSION:
-                raise ValueError("AZURE_OPENAI_CHAT_API_VERSION is not configured")
-            if (
-                not settings.AZURE_OPENAI_CHAT_MAX_TOKENS
-                or settings.AZURE_OPENAI_CHAT_MAX_TOKENS <= 0
-            ):
-                raise ValueError(
-                    "AZURE_OPENAI_CHAT_MAX_TOKENS must be a positive integer"
-                )
-            if not settings.AZURE_OPENAI_CHAT_TEMPERATURE:
-                raise ValueError("AZURE_OPENAI_CHAT_TEMPERATURE must be configured")
-            if (
-                not settings.AZURE_OPENAI_CHAT_COMPLETION_TOKENS
-                or settings.AZURE_OPENAI_CHAT_COMPLETION_TOKENS <= 0
-            ):
-                raise ValueError(
-                    "AZURE_OPENAI_CHAT_COMPLETION_TOKENS must be a positive integer"
-                )
+            if not settings.DEPLOYMENT_NAME:
+                raise ValueError("DEPLOYMENT_NAME is not configured")
+            if not settings.ENDPOINT:
+                raise ValueError("ENDPOINT is not configured")
+            if not settings.API_VERSION:
+                raise ValueError("API_VERSION is not configured")
+            if not settings.MAX_TOKENS or settings.MAX_TOKENS <= 0:
+                raise ValueError("MAX_TOKENS must be a positive integer")
+            if not settings.TEMPERATURE:
+                raise ValueError("TEMPERATURE must be configured")
+            if not settings.COMPLETION_TOKENS or settings.COMPLETION_TOKENS <= 0:
+                raise ValueError("COMPLETION_TOKENS must be a positive integer")
 
-            self.deployment_name = settings.AZURE_OPENAI_CHAT_DEPLOYMENT_NAME
-            self.max_tokens = settings.AZURE_OPENAI_CHAT_MAX_TOKENS
-            self.temperature = settings.AZURE_OPENAI_CHAT_TEMPERATURE
-            self.completion_tokens = settings.AZURE_OPENAI_CHAT_COMPLETION_TOKENS
+            self.deployment_name = settings.DEPLOYMENT_NAME
+            self.max_tokens = settings.MAX_TOKENS
+            self.temperature = settings.TEMPERATURE
+            self.completion_tokens = settings.COMPLETION_TOKENS
             self.max_concurrent_requests = max_concurrent_requests
 
             # Initialize async client
             try:
-                api_key = settings.AZURE_OPENAI_CHAT_API_KEY.get_secret_value()
+                api_key = settings.API_KEY.get_secret_value()
                 if not api_key:
-                    raise ValueError("AZURE_OPENAI_CHAT_API_KEY is empty")
+                    raise ValueError("API_KEY is empty")
 
                 self.client = AsyncAzureOpenAI(
                     api_key=api_key,
-                    azure_endpoint=settings.AZURE_OPENAI_CHAT_ENDPOINT,
-                    api_version=settings.AZURE_OPENAI_CHAT_API_VERSION,
+                    azure_endpoint=settings.ENDPOINT,
+                    api_version=settings.API_VERSION,
                 )
             except Exception as e:
                 raise RuntimeError(

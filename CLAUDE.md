@@ -18,6 +18,8 @@ This is a RAG (Retrieval-Augmented Generation) backend service for a helpdesk ch
 - Retrieval-agnostic interfaces
 ## Development Commands
 
+Best practices calls for using virtual environments. Remember to use the virtual environment's python when running commands.
+
 ### Environment Setup
 ```bash
 # Install dependencies

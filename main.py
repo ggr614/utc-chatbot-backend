@@ -31,7 +31,6 @@ from datetime import datetime
 from core.pipeline import RAGPipeline
 from core.ingestion import ArticleProcessor
 from utils.logger import get_logger
-from core.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -412,17 +411,6 @@ def main() -> int:
     # Validate that a command was provided
     if not args.command:
         parser.print_help()
-        return 1
-
-    # Validate configuration
-    try:
-        get_settings()
-        logger.debug("Configuration loaded successfully")
-    except Exception as e:
-        logger.error(f"Configuration error: {str(e)}")
-        logger.error(
-            "Please ensure all required environment variables are set in .env file"
-        )
         return 1
 
     # Route to appropriate command handler

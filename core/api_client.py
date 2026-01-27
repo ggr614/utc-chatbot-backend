@@ -4,7 +4,7 @@ TDX API Wrapper that simplifies interactions with the TDX KB articles API
 
 import time
 from typing import Any, Dict, List, Optional, Tuple
-from core.config import get_settings
+from core.config import get_tdx_settings
 import requests
 from requests import Session
 from requests.adapters import HTTPAdapter
@@ -21,13 +21,13 @@ class TDXClient:
     Retrieves and processes content from our TDX Knowledge base.
     """
 
-    def __init__(
-        self,
-        base_url: str = get_settings().BASE_URL,
-        app_id: int = get_settings().APP_ID,
-        web_services_key: str = get_settings().WEBSERVICES_KEY.get_secret_value(),
-        beid: str = get_settings().BEID.get_secret_value(),
-    ):
+    def __init__(self):
+        settings = get_tdx_settings()
+        self.base_url = settings.BASE_URL
+        self.app_id = settings.APP_ID
+        self.web_services_key = settings.WEBSERVICES_KEY
+        self.beid = settings.BEID
+        self.bearer_token: Optional[str] = None
         """
         Initialize the TDX KB Client wrapper.
 
@@ -38,29 +38,24 @@ class TDXClient:
             webserviceskey: Second Identifier required for bearer token generation
             app_id: The Client Portal application ID
         """
-        logger.info(f"Initializing TDXClient for {base_url}")
+        logger.info(f"Initializing TDXClient for {self.base_url}")
 
-        if not base_url:
+        if not settings.BASE_URL:
             logger.error("BASE_URL is not configured")
             raise ValueError("BASE_URL is required")
-        if not app_id:
+        if not settings.APP_ID:
             logger.error("APP_ID is not configured")
             raise ValueError("APP_ID is required")
-        if not web_services_key:
+        if not settings.WEBSERVICES_KEY:
             logger.error("WEBSERVICES_KEY is not configured")
             raise ValueError("WEBSERVICES_KEY is required")
-        if not beid:
+        if not settings.BEID:
             logger.error("BEID is not configured")
             raise ValueError("BEID is required")
 
-        self.base_url = base_url
-        self.app_id = app_id
-        self.web_services_key = web_services_key
-        self.beid = beid
-        self.bearer_token: Optional[str] = None
         self.rate_limiter = RateLimiter()
         self.session = self._create_session()
-        logger.debug(f"TDXClient initialized successfully for app_id={app_id}")
+        logger.debug(f"TDXClient initialized successfully for app_id={self.app_id}")
 
     def _create_session(self) -> Session:
         """

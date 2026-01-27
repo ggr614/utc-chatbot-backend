@@ -1,10 +1,11 @@
 """initial_schema
 
 Revision ID: f6c4e9a6ae4d
-Revises: 
+Revises:
 Create Date: 2026-01-27 12:01:13.914991
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -12,7 +13,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'f6c4e9a6ae4d'
+revision: str = "f6c4e9a6ae4d"
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -38,9 +39,9 @@ def upgrade() -> None:
     """)
 
     # Create indexes for articles
-    op.create_index('idx_articles_tdx_id', 'articles', ['tdx_article_id'])
-    op.create_index('idx_articles_last_modified', 'articles', ['last_modified_date'])
-    op.create_index('idx_articles_ingestion_date', 'articles', ['raw_ingestion_date'])
+    op.create_index("idx_articles_tdx_id", "articles", ["tdx_article_id"])
+    op.create_index("idx_articles_last_modified", "articles", ["last_modified_date"])
+    op.create_index("idx_articles_ingestion_date", "articles", ["raw_ingestion_date"])
 
     # Create article_chunks table
     op.execute("""
@@ -57,8 +58,14 @@ def upgrade() -> None:
     """)
 
     # Create indexes for article_chunks
-    op.create_index('idx_chunks_parent_article', 'article_chunks', ['parent_article_id'])
-    op.create_index('idx_chunks_chunk_sequence', 'article_chunks', ['parent_article_id', 'chunk_sequence'])
+    op.create_index(
+        "idx_chunks_parent_article", "article_chunks", ["parent_article_id"]
+    )
+    op.create_index(
+        "idx_chunks_chunk_sequence",
+        "article_chunks",
+        ["parent_article_id", "chunk_sequence"],
+    )
 
     # Create embeddings_openai table
     op.execute("""
@@ -71,7 +78,9 @@ def upgrade() -> None:
     """)
 
     # Create index for embeddings_openai
-    op.create_index('idx_embeddings_openai_created_at', 'embeddings_openai', ['created_at'])
+    op.create_index(
+        "idx_embeddings_openai_created_at", "embeddings_openai", ["created_at"]
+    )
 
     # Create warm_cache_entries table
     op.execute("""
@@ -115,12 +124,12 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema."""
     # Drop tables in reverse order (respecting foreign key constraints)
-    op.drop_table('query_logs')
-    op.drop_table('cache_metrics')
-    op.drop_table('warm_cache_entries')
-    op.drop_table('embeddings_openai')
-    op.drop_table('article_chunks')
-    op.drop_table('articles')
+    op.drop_table("query_logs")
+    op.drop_table("cache_metrics")
+    op.drop_table("warm_cache_entries")
+    op.drop_table("embeddings_openai")
+    op.drop_table("article_chunks")
+    op.drop_table("articles")
 
     # Drop extensions
     op.execute('DROP EXTENSION IF EXISTS "vector"')

@@ -7,7 +7,7 @@ error handling, and logging for all storage clients.
 
 from contextlib import contextmanager
 from typing import Optional
-from core.config import get_settings
+from core.config import get_database_settings
 import psycopg
 from psycopg import Connection
 from utils.logger import get_logger
@@ -32,20 +32,20 @@ class BaseStorageClient:
         """
         logger.info(f"Initializing {self.__class__.__name__}")
         try:
-            settings = get_settings()
+            settings = get_database_settings()
 
             # Validate configuration
-            if not settings.DB_HOST:
+            if not settings.HOST:
                 raise ValueError("DB_HOST is not configured")
-            if not settings.DB_USER:
+            if not settings.USER:
                 raise ValueError("DB_USER is not configured")
-            if not settings.DB_NAME:
+            if not settings.NAME:
                 raise ValueError("DB_NAME is not configured")
 
-            self.db_host = settings.DB_HOST
-            self.db_user = settings.DB_USER
-            self.db_password = settings.DB_PASSWORD.get_secret_value()
-            self.db_name = settings.DB_NAME
+            self.db_host = settings.HOST
+            self.db_user = settings.USER
+            self.db_password = settings.PASSWORD.get_secret_value()
+            self.db_name = settings.NAME
             self.db_port = 5432
             self._conn: Optional[Connection] = None
             self._connection_params = {

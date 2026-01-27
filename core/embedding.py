@@ -7,7 +7,7 @@ from openai import (
     AuthenticationError,
 )
 from typing import List
-from core.config import get_settings
+from core.config import get_embedding_settings
 from core.tokenizer import Tokenizer
 import time
 import logging
@@ -18,37 +18,35 @@ logger = logging.getLogger(__name__)
 class GenerateEmbeddingsOpenAI:
     def __init__(self):
         try:
-            settings = get_settings()
+            settings = get_embedding_settings()
 
             # Validate required configuration
-            if not settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME:
-                raise ValueError(
-                    "AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME is not configured"
-                )
-            if not settings.AZURE_OPENAI_EMBED_ENDPOINT:
-                raise ValueError("AZURE_OPENAI_EMBED_ENDPOINT is not configured")
-            if not settings.AZURE_OPENAI_API_VERSION:
-                raise ValueError("AZURE_OPENAI_API_VERSION is not configured")
-            if not settings.AZURE_MAX_TOKENS or settings.AZURE_MAX_TOKENS <= 0:
-                raise ValueError("AZURE_MAX_TOKENS must be a positive integer")
-            if not settings.AZURE_EMBED_DIM or settings.AZURE_EMBED_DIM <= 0:
-                raise ValueError("AZURE_EMBED_DIM must be a positive integer")
+            if not settings.DEPLOYMENT_NAME:
+                raise ValueError("EMBEDDING_DEPLOYMENT_NAME is not configured")
+            if not settings.ENDPOINT:
+                raise ValueError("EMBEDDING_ENDPOINT is not configured")
+            if not settings.API_VERSION:
+                raise ValueError("EMBEDDING_API_VERSION is not configured")
+            if not settings.MAX_TOKENS or settings.MAX_TOKENS <= 0:
+                raise ValueError("EMBEDDING_MAX_TOKENS must be a positive integer")
+            if not settings.EMBED_DIM or settings.EMBED_DIM <= 0:
+                raise ValueError("EMBEDDING_EMBED_DIM must be a positive integer")
 
-            self.deployment_name = settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME
-            self.max_tokens = settings.AZURE_MAX_TOKENS
-            self.expected_dim = settings.AZURE_EMBED_DIM
+            self.deployment_name = settings.DEPLOYMENT_NAME
+            self.max_tokens = settings.MAX_TOKENS
+            self.expected_dim = settings.EMBED_DIM
             self.tokenizer = Tokenizer()
 
             # Initialize client with error handling
             try:
-                api_key = settings.AZURE_OPENAI_API_KEY.get_secret_value()
+                api_key = settings.API_KEY.get_secret_value()
                 if not api_key:
                     raise ValueError("AZURE_OPENAI_API_KEY is empty")
 
                 self.client = AzureOpenAI(
                     api_key=api_key,
-                    azure_endpoint=settings.AZURE_OPENAI_EMBED_ENDPOINT,
-                    api_version=settings.AZURE_OPENAI_API_VERSION,
+                    azure_endpoint=settings.ENDPOINT,
+                    api_version=settings.API_VERSION,
                 )
             except Exception as e:
                 raise RuntimeError(

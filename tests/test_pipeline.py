@@ -17,27 +17,42 @@ class TestRAGPipeline:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for pipeline components."""
-        with patch("core.pipeline.get_settings") as mock:
-            settings = Mock()
-            # Database settings
-            settings.DB_HOST = "localhost"
-            settings.DB_USER = "test_user"
-            settings.DB_PASSWORD.get_secret_value.return_value = "test_password"
-            settings.DB_NAME = "test_db"
-            # OpenAI settings
-            settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME = "text-embedding-3-large"
-            settings.AZURE_OPENAI_EMBED_ENDPOINT = "https://test.openai.azure.com"
-            settings.AZURE_OPENAI_API_VERSION = "2023-05-15"
-            settings.AZURE_MAX_TOKENS = 8000
-            settings.AZURE_EMBED_DIM = 3072
-            settings.AZURE_OPENAI_API_KEY.get_secret_value.return_value = "test-key"
-            # TDX API settings
-            settings.BASE_URL = "https://test.teamdynamix.com"
-            settings.APP_ID = 123
-            settings.WEBSERVICES_KEY.get_secret_value.return_value = "test-ws-key"
-            settings.BEID.get_secret_value.return_value = "test-beid"
-            mock.return_value = settings
-            yield settings
+        # Mock database settings
+        with patch("core.storage_base.get_database_settings") as mock_db:
+            db_settings = Mock()
+            db_settings.HOST = "localhost"
+            db_settings.USER = "test_user"
+            db_settings.PASSWORD.get_secret_value.return_value = "test_password"
+            db_settings.NAME = "test_db"
+            mock_db.return_value = db_settings
+
+            # Mock embedding settings
+            with patch("core.embedding.get_embedding_settings") as mock_embed:
+                embed_settings = Mock()
+                embed_settings.DEPLOYMENT_NAME = "text-embedding-3-large"
+                embed_settings.ENDPOINT = "https://test.openai.azure.com"
+                embed_settings.API_VERSION = "2023-05-15"
+                embed_settings.MAX_TOKENS = 8000
+                embed_settings.EMBED_DIM = 3072
+                embed_settings.API_KEY.get_secret_value.return_value = "test-key"
+                mock_embed.return_value = embed_settings
+
+                # Mock TDX settings
+                with patch("core.api_client.get_tdx_settings") as mock_tdx:
+                    tdx_settings = Mock()
+                    tdx_settings.BASE_URL = "https://test.teamdynamix.com"
+                    tdx_settings.APP_ID = 123
+                    tdx_settings.WEBSERVICES_KEY.get_secret_value.return_value = (
+                        "test-ws-key"
+                    )
+                    tdx_settings.BEID.get_secret_value.return_value = "test-beid"
+                    mock_tdx.return_value = tdx_settings
+
+                    yield {
+                        "db": db_settings,
+                        "embed": embed_settings,
+                        "tdx": tdx_settings,
+                    }
 
     @pytest.fixture
     def pipeline_openai(self, mock_settings):
@@ -48,7 +63,10 @@ class TestRAGPipeline:
                     with patch("core.pipeline.OpenAIVectorStorage"):
                         with patch("core.pipeline.PostgresClient"):
                             with patch("core.pipeline.Tokenizer"):
-                                return RAGPipeline(embedding_provider="openai")
+                                # Mock get_embedding_settings call in process_article_to_chunks
+                                with patch("core.pipeline.get_embedding_settings") as mock_embed_runtime:
+                                    mock_embed_runtime.return_value = mock_settings["embed"]
+                                    yield RAGPipeline(embedding_provider="openai")
 
     def test_init_openai(self, pipeline_openai):
         """Test pipeline initialization with OpenAI provider."""

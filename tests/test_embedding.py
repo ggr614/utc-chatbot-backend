@@ -15,14 +15,14 @@ class TestGenerateEmbeddingsOpenAI:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for Azure OpenAI."""
-        with patch("core.embedding.get_settings") as mock:
+        with patch("core.embedding.get_embedding_settings") as mock:
             settings = Mock()
-            settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME = "text-embedding-3-large"
-            settings.AZURE_OPENAI_EMBED_ENDPOINT = "https://test.openai.azure.com"
-            settings.AZURE_OPENAI_API_VERSION = "2023-05-15"
-            settings.AZURE_MAX_TOKENS = 8000
-            settings.AZURE_EMBED_DIM = 3072
-            settings.AZURE_OPENAI_API_KEY.get_secret_value.return_value = "test-key"
+            settings.DEPLOYMENT_NAME = "text-embedding-3-large"
+            settings.ENDPOINT = "https://test.openai.azure.com"
+            settings.API_VERSION = "2023-05-15"
+            settings.MAX_TOKENS = 8000
+            settings.EMBED_DIM = 3072
+            settings.API_KEY.get_secret_value.return_value = "test-key"
             mock.return_value = settings
             yield settings
 
@@ -34,19 +34,17 @@ class TestGenerateEmbeddingsOpenAI:
 
     def test_init_validates_configuration(self):
         """Test that initialization validates required configuration."""
-        with patch("core.embedding.get_settings") as mock_settings:
+        with patch("core.embedding.get_embedding_settings") as mock_settings:
             settings = Mock()
-            settings.AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME = None
-            settings.AZURE_OPENAI_EMBED_ENDPOINT = "https://test.openai.azure.com"
-            settings.AZURE_OPENAI_API_VERSION = "2023-05-15"
-            settings.AZURE_MAX_TOKENS = 8000
-            settings.AZURE_EMBED_DIM = 3072
-            settings.AZURE_OPENAI_API_KEY.get_secret_value.return_value = "test-key"
+            settings.DEPLOYMENT_NAME = None
+            settings.ENDPOINT = "https://test.openai.azure.com"
+            settings.API_VERSION = "2023-05-15"
+            settings.MAX_TOKENS = 8000
+            settings.EMBED_DIM = 3072
+            settings.API_KEY.get_secret_value.return_value = "test-key"
             mock_settings.return_value = settings
 
-            with pytest.raises(
-                ValueError, match="AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME"
-            ):
+            with pytest.raises(ValueError, match="DEPLOYMENT_NAME"):
                 GenerateEmbeddingsOpenAI()
 
     def test_generate_embedding_validates_empty_chunk(self, embeddings_client):

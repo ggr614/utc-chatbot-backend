@@ -23,7 +23,12 @@ from core.embedding import GenerateEmbeddingsOpenAI
 from core.storage_raw import PostgresClient
 from core.storage_vector import OpenAIVectorStorage
 from core.schemas import TdxArticle, TextChunk, VectorRecord
-from core.config import get_settings
+from core.config import (
+    get_embedding_settings,
+    get_chat_settings,
+    get_database_settings,
+    get_tdx_settings,
+)
 from utils.logger import get_logger, PerformanceLogger
 from core.tokenizer import Tokenizer
 
@@ -247,8 +252,8 @@ class RAGPipeline:
             logger.debug(f"Converted HTML to clean text for article {article.id}")
 
             # Chunk the text
-            settings = get_settings()
-            max_tokens = settings.AZURE_MAX_TOKENS
+            settings = get_embedding_settings()
+            max_tokens = settings.MAX_TOKENS
             overlap = 50  # Token overlap between chunks
 
             text_chunks_raw = self.text_processor.text_to_chunks(

@@ -25,7 +25,7 @@ def sample_article_data():
 def sample_article_model():
     """Sample TdxArticle Pydantic model."""
     return TdxArticle(
-        id=123,
+        tdx_article_id=123,
         title="Test Article",
         url=HttpUrl(
             "https://utc.teamdynamix.com/TDClient/2717/Portal/KB/ArticleDet?ID=123"
