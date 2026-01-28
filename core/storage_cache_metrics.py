@@ -33,9 +33,14 @@ class CacheMetricsClient(BaseStorageClient):
     - Optional foreign key to warm_cache_entries
     """
 
-    def __init__(self):
-        """Initialize the CacheMetricsClient for metrics storage."""
-        super().__init__()
+    def __init__(self, connection_pool=None):
+        """
+        Initialize the CacheMetricsClient for metrics storage.
+
+        Args:
+            connection_pool: Optional DatabaseConnectionPool instance for API mode
+        """
+        super().__init__(connection_pool=connection_pool)
         logger.info("CacheMetricsClient initialized for cache_metrics table")
 
     def log_cache_event(

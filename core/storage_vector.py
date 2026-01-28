@@ -22,15 +22,16 @@ class VectorStorageClient(BaseStorageClient):
     for vector embeddings storage.
     """
 
-    def __init__(self, table_name: str, embedding_dim: int):
+    def __init__(self, table_name: str, embedding_dim: int, connection_pool=None):
         """
         Initialize the vector storage client.
 
         Args:
             table_name: Name of the embeddings table (e.g., 'embeddings_openai')
             embedding_dim: Expected dimension of embeddings (e.g., 3072 for OpenAI)
+            connection_pool: Optional DatabaseConnectionPool instance for API mode
         """
-        super().__init__()
+        super().__init__(connection_pool=connection_pool)
         self.table_name = table_name
         self.embedding_dim = embedding_dim
         logger.info(
@@ -454,7 +455,12 @@ class OpenAIVectorStorage(VectorStorageClient):
     Uses the text-embedding-3-large model.
     """
 
-    def __init__(self):
-        """Initialize OpenAI vector storage client."""
-        super().__init__(table_name="embeddings_openai", embedding_dim=3072)
+    def __init__(self, connection_pool=None):
+        """
+        Initialize OpenAI vector storage client.
+
+        Args:
+            connection_pool: Optional DatabaseConnectionPool instance for API mode
+        """
+        super().__init__(table_name="embeddings_openai", embedding_dim=3072, connection_pool=connection_pool)
         logger.info("OpenAIVectorStorage client initialized")

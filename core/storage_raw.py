@@ -17,9 +17,14 @@ class PostgresClient(BaseStorageClient):
     ingestion from TDX API and metadata management.
     """
 
-    def __init__(self):
-        """Initialize the PostgresClient for articles storage."""
-        super().__init__()
+    def __init__(self, connection_pool=None):
+        """
+        Initialize the PostgresClient for articles storage.
+
+        Args:
+            connection_pool: Optional DatabaseConnectionPool instance for API mode
+        """
+        super().__init__(connection_pool=connection_pool)
 
     def get_article_metadata(self) -> Dict[int, datetime]:
         """

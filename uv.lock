@@ -171,7 +171,6 @@ dependencies = [
     { name = "uvicorn" },
     { name = "virtualenv" },
     { name = "watchfiles" },
-    { name = "webhook-sender" },
     { name = "websockets" },
     { name = "wheel" },
     { name = "xxhash" },
@@ -300,7 +299,6 @@ requires-dist = [
     { name = "uvicorn", specifier = "==0.38.0" },
     { name = "virtualenv", specifier = "==20.35.4" },
     { name = "watchfiles", specifier = "==1.1.1" },
-    { name = "webhook-sender", git = "ssh://git@itcode.utc.edu/di/webhooks.git?rev=f489eab7ef0126341746d7ec34381c699bf6d470" },
     { name = "websockets", specifier = "==15.0.1" },
     { name = "wheel", specifier = "==0.45.1" },
     { name = "xxhash", specifier = "==3.6.0" },
@@ -2940,15 +2938,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/bd/95/615e72cd27b85b61eec764a5ca51bd94d40b5adea5ff47567d9ebc4d275a/watchfiles-1.1.1-pp311-pypy311_pp73-macosx_11_0_arm64.whl", hash = "sha256:89eef07eee5e9d1fda06e38822ad167a044153457e6fd997f8a858ab7564a336", size = 396117, upload-time = "2025-10-14T15:06:11.28Z" },
     { url = "https://files.pythonhosted.org/packages/c9/81/e7fe958ce8a7fb5c73cc9fb07f5aeaf755e6aa72498c57d760af760c91f8/watchfiles-1.1.1-pp311-pypy311_pp73-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:ce19e06cbda693e9e7686358af9cd6f5d61312ab8b00488bc36f5aabbaf77e24", size = 450493, upload-time = "2025-10-14T15:06:12.321Z" },
     { url = "https://files.pythonhosted.org/packages/6e/d4/ed38dd3b1767193de971e694aa544356e63353c33a85d948166b5ff58b9e/watchfiles-1.1.1-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:3e6f39af2eab0118338902798b5aa6664f46ff66bc0280de76fca67a7f262a49", size = 457546, upload-time = "2025-10-14T15:06:13.372Z" },
-]
-
-[[package]]
-name = "webhook-sender"
-version = "1.1.0"
-source = { git = "ssh://git@itcode.utc.edu/di/webhooks.git?rev=f489eab7ef0126341746d7ec34381c699bf6d470#f489eab7ef0126341746d7ec34381c699bf6d470" }
-dependencies = [
-    { name = "python-dotenv" },
-    { name = "requests" },
 ]
 
 [[package]]

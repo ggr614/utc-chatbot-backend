@@ -124,13 +124,9 @@ dependencies = [
     "uvicorn==0.38.0",
     "virtualenv==20.35.4",
     "watchfiles==1.1.1",
-    "webhook-sender",
     "websockets==15.0.1",
     "wheel==0.45.1",
     "xxhash==3.6.0",
     "zipp==3.23.0",
     "zstandard==0.25.0",
 ]
-
-[tool.uv.sources]
-webhook-sender = { git = "ssh://git@itcode.utc.edu/di/webhooks.git", rev = "f489eab7ef0126341746d7ec34381c699bf6d470" }

@@ -443,36 +443,31 @@ class RAGPipeline:
                     logger.info("PHASE 3: EMBEDDING GENERATION")
                     logger.info("=" * 80)
 
-                    # Fetch chunks from database to get the full TextChunk objects
+                    # Fetch stored chunks from database instead of re-processing
+                    # This ensures we use the same chunk IDs that were stored
                     logger.info(
-                        f"Preparing to generate embeddings for {len(chunk_ids)} chunks"
+                        f"Fetching {len(chunk_ids)} stored chunks from database"
                     )
 
-                    # For now, we'll use the chunks from processing phase if available
-                    # In a production system, you might want to fetch from DB to support resume
-                    articles_to_embed = []
-                    if article_ids:
-                        articles_to_embed = self.raw_store.get_articles_by_ids(
-                            article_ids
-                        )
-                    elif not self.skip_processing:
-                        # If we just processed, we can use those articles
-                        # Otherwise we'd need to fetch all from DB
-                        logger.debug("Using articles from processing phase")
-                        articles_to_embed = self.raw_store.get_all_articles()
+                    # Fetch all chunks from database
+                    all_chunks_in_db = self.raw_store.get_all_chunks()
 
-                    # Process articles to chunks and generate embeddings
-                    all_embeddings = []
-                    for article in articles_to_embed:
-                        try:
-                            chunks = self.process_article_to_chunks(article)
-                            embeddings = self.run_embedding(chunks)
-                            all_embeddings.extend(embeddings)
-                        except Exception as e:
-                            logger.error(
-                                f"Failed to embed article {article.id}: {str(e)}"
-                            )
-                            continue
+                    # Filter to only the chunks we just created (if article_ids specified)
+                    if chunk_ids:
+                        chunk_id_set = set(chunk_ids)
+                        chunks_to_embed = [
+                            chunk for chunk in all_chunks_in_db
+                            if chunk.chunk_id in chunk_id_set
+                        ]
+                        logger.info(
+                            f"Filtered to {len(chunks_to_embed)} chunks for embedding"
+                        )
+                    else:
+                        chunks_to_embed = all_chunks_in_db
+
+                    # Generate embeddings using the stored chunks with correct IDs
+                    logger.info(f"Generating embeddings for {len(chunks_to_embed)} chunks")
+                    all_embeddings = self.run_embedding(chunks_to_embed)
 
                     stats["embedding"]["embedding_count"] = len(all_embeddings)
 

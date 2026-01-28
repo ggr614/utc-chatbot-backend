@@ -32,9 +32,14 @@ class QueryLogClient(BaseStorageClient):
     - Handles optional vector embeddings (3072 dimensions)
     """
 
-    def __init__(self):
-        """Initialize the QueryLogClient for query_logs table."""
-        super().__init__()
+    def __init__(self, connection_pool=None):
+        """
+        Initialize the QueryLogClient for query_logs table.
+
+        Args:
+            connection_pool: Optional DatabaseConnectionPool instance for API mode
+        """
+        super().__init__(connection_pool=connection_pool)
         logger.info("QueryLogClient initialized for query_logs table")
 
     def log_query(
