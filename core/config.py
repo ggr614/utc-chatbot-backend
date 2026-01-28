@@ -67,6 +67,28 @@ class ChatSettings(BaseSettings):
     )
 
 
+class APISettings(BaseSettings):
+    """Settings for FastAPI application."""
+
+    API_KEY: SecretStr
+    ALLOWED_API_KEYS: str = ""
+    POOL_MIN_SIZE: int = 5
+    POOL_MAX_SIZE: int = 20
+    POOL_TIMEOUT: float = 30.0
+    HOST: str = "0.0.0.0"
+    PORT: int = 8000
+    WORKERS: int = 4
+    LOG_LEVEL: str = "info"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+        env_prefix="API_",
+    )
+
+
 # Cached accessor functions for modules to get their settings
 
 
@@ -92,3 +114,9 @@ def get_embedding_settings() -> EmbeddingSettings:
 def get_chat_settings() -> ChatSettings:
     """Get cached chat settings for LLM/chat module."""
     return ChatSettings()  # type: ignore[call-arg]
+
+
+@lru_cache()
+def get_api_settings() -> APISettings:
+    """Get cached API settings for FastAPI application."""
+    return APISettings()  # type: ignore[call-arg]

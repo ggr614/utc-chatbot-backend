@@ -123,6 +123,43 @@ ruff check .
 ruff check --fix .
 ```
 
+### FastAPI Application
+```bash
+# Start API server (development mode with auto-reload)
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Start API server (production mode with 4 workers)
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4 --limit-concurrency 100
+
+# Or run directly with python (development only)
+python api/main.py
+
+# Access API documentation (once server is running)
+# OpenAPI/Swagger: http://localhost:8000/docs
+# ReDoc: http://localhost:8000/redoc
+
+# Health check
+curl http://localhost:8000/health/
+
+# Test BM25 search
+curl -X POST http://localhost:8000/api/v1/search/bm25 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"query": "password reset", "top_k": 10}'
+
+# Test vector search
+curl -X POST http://localhost:8000/api/v1/search/vector \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"query": "how do I recover my account", "top_k": 10}'
+
+# Test hybrid search
+curl -X POST http://localhost:8000/api/v1/search/hybrid \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"query": "vpn connection issues", "top_k": 10, "fusion_method": "rrf"}'
+```
+
 ## Architecture
 
 ### Data Flow Pipeline
@@ -177,6 +214,78 @@ TDX API → Ingestion → articles (raw HTML)
 - Orchestrates the full pipeline: ingest → process → embed
 - Context manager for resource cleanup
 - Returns detailed statistics for each phase
+
+### FastAPI Application (api/)
+
+The FastAPI application provides REST API endpoints for search and query logging. It uses connection pooling and shared retrievers for efficient concurrent request handling.
+
+**api/main.py** - Application entry point
+- FastAPI app with lifespan management (startup/shutdown)
+- Initializes connection pool (5 min, 20 max connections)
+- Initializes BM25 and vector retrievers once at startup
+- Pre-warms BM25 corpus cache
+- Stores shared resources in `app.state` for dependency injection
+- Registers search and health routers
+
+**api/dependencies.py** - Dependency injection
+- `verify_api_key()`: Validates X-API-Key header, supports multiple keys
+- `get_bm25_retriever()`: Returns shared BM25 retriever from app.state
+- `get_vector_retriever()`: Returns shared vector retriever from app.state
+- `get_query_log_client()`: Creates QueryLogClient with connection pool
+
+**api/routers/search.py** - Search endpoints
+- `POST /api/v1/search/bm25`: BM25 keyword search (fast, <100ms)
+- `POST /api/v1/search/vector`: Vector semantic search (~500ms-1s, API call)
+- `POST /api/v1/search/hybrid`: Hybrid search with RRF or weighted fusion
+- All endpoints require API key authentication via X-API-Key header
+- Query logging integrated into each endpoint (best-effort, non-blocking)
+
+**api/routers/health.py** - Health check endpoints
+- `GET /health/`: Detailed health check with component status (BM25, vector, database pool)
+- `GET /health/ready`: Simple readiness probe for Kubernetes/orchestration
+- No authentication required (for monitoring systems)
+
+**api/utils/hybrid_search.py** - Hybrid search implementation
+- `reciprocal_rank_fusion()`: Rank-based RRF fusion (robust, default)
+- `weighted_score_fusion()`: Score-based weighted fusion with normalization
+- `hybrid_search()`: Main function that combines BM25 + vector results
+
+**api/utils/connection_pool.py** - Database connection pooling
+- `DatabaseConnectionPool`: Thread-safe connection pool using psycopg_pool
+- Singleton pattern via `get_connection_pool()`
+- Configuration: min_size=5, max_size=20, timeout=30s
+- Prevents connection exhaustion under concurrent load
+
+**api/models/requests.py** - Pydantic request models
+- `BM25SearchRequest`: Validates BM25 search parameters
+- `VectorSearchRequest`: Validates vector search parameters
+- `HybridSearchRequest`: Validates hybrid search parameters (fusion method, weights)
+- Request validation: query length, top_k range, score thresholds
+
+**api/models/responses.py** - Pydantic response models
+- `SearchResponse`: Unified response for all search methods
+- `SearchResultChunk`: Individual result with rank, score, chunk data
+- `HealthResponse`: Health check status with component details
+
+**Authentication**:
+- Simple header-based: `X-API-Key: your-api-key`
+- Primary key: `API_API_KEY` environment variable
+- Multiple keys: `API_ALLOWED_API_KEYS` (comma-separated)
+- Internal network only (no rate limiting)
+
+**Concurrency Strategy**:
+- Synchronous endpoints (not async) - compatible with existing codebase
+- Connection pooling handles concurrent requests efficiently
+- Shared retrievers initialized once at startup (not per-request)
+- BM25 corpus loaded into memory once (cached)
+- Recommended: 4 uvicorn workers, 100 max concurrent requests
+- Resource allocation: ~500MB per worker for BM25 corpus
+
+**Query Logging**:
+- All search requests logged to `query_logs` table
+- Fields: raw_query, cache_result, latency_ms, user_id, created_at
+- Best-effort logging (doesn't fail request if logging fails)
+- Uses connection pool for efficient database access
 
 ### Database Schema
 

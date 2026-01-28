@@ -1,0 +1,100 @@
+"""
+Pydantic response models for search API endpoints.
+
+Provides consistent response structure for:
+- Search results (BM25, vector, hybrid)
+- Health checks
+"""
+
+from pydantic import BaseModel, Field, HttpUrl
+from typing import List, Literal
+from uuid import UUID
+from datetime import datetime
+
+
+class SearchResultChunk(BaseModel):
+    """
+    Individual search result chunk with metadata.
+
+    Contains the ranked search result with score, chunk content,
+    and source article information.
+    """
+
+    rank: int = Field(..., description="Result ranking position (1-indexed)", examples=[1])
+    score: float = Field(
+        ...,
+        description="Relevance score (BM25 score, similarity, or combined hybrid score)",
+        examples=[5.5],
+    )
+    chunk_id: UUID = Field(..., description="Unique chunk identifier")
+    parent_article_id: UUID = Field(..., description="Source article UUID")
+    chunk_sequence: int = Field(
+        ..., description="Chunk position within article (0-indexed)", examples=[0]
+    )
+    text_content: str = Field(
+        ...,
+        description="Clean text content of the chunk",
+        examples=["To reset your password, navigate to the login page..."],
+    )
+    token_count: int = Field(
+        ..., description="Number of tokens in chunk", examples=[150]
+    )
+    source_url: HttpUrl = Field(
+        ..., description="Source article URL", examples=["https://help.example.com/article/123"]
+    )
+    last_modified_date: datetime = Field(
+        ..., description="Article last modified timestamp"
+    )
+
+
+class SearchResponse(BaseModel):
+    """
+    Search API response with ranked results and metadata.
+
+    Returned by all search endpoints (BM25, vector, hybrid).
+    """
+
+    query: str = Field(
+        ..., description="Original query text", examples=["password reset"]
+    )
+    method: Literal["bm25", "vector", "hybrid"] = Field(
+        ..., description="Search method used", examples=["bm25"]
+    )
+    results: List[SearchResultChunk] = Field(
+        ..., description="Ranked search results (empty list if no results)"
+    )
+    total_results: int = Field(
+        ..., description="Number of results returned", examples=[10]
+    )
+    latency_ms: int = Field(
+        ..., description="Query processing latency in milliseconds", examples=[156]
+    )
+    metadata: dict = Field(
+        default_factory=dict,
+        description="Additional method-specific metadata (min_score, fusion_method, etc.)",
+        examples=[{"min_score": 1.0}],
+    )
+
+
+class HealthResponse(BaseModel):
+    """
+    Health check response with component status.
+
+    Used by monitoring systems and load balancers to verify service health.
+    """
+
+    status: Literal["healthy", "degraded", "unhealthy"] = Field(
+        ..., description="Overall health status", examples=["healthy"]
+    )
+    timestamp: datetime = Field(..., description="Health check timestamp")
+    checks: dict = Field(
+        ...,
+        description="Individual component health checks (bm25, vector, database)",
+        examples=[
+            {
+                "bm25": {"status": "healthy", "num_chunks": 1500, "cached": True},
+                "vector": {"status": "healthy", "num_embeddings": 1500},
+                "database": {"status": "healthy", "pool_size": 10},
+            }
+        ],
+    )

@@ -1,5 +1,6 @@
 from pydantic import BaseModel, Field, HttpUrl
 from datetime import datetime, timezone
+from typing import List
 from uuid import UUID
 
 
@@ -81,3 +82,153 @@ class VectorRecord(BaseModel):
     last_modified_date: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+
+
+# Cache Metrics
+class CacheMetric(BaseModel):
+    """
+    Schema for cache performance metrics.
+
+    Used for tracking cache hit rates, latency, and user analytics.
+    This is an append-only table for analytics purposes.
+    """
+
+    # Primary key - auto-generated BIGSERIAL
+    id: int | None = Field(
+        default=None, description="Auto-generated BIGSERIAL primary key."
+    )
+
+    # Foreign key to warm_cache_entries (optional - can be NULL)
+    cache_entry_id: UUID | None = Field(
+        default=None,
+        description="Reference to warm_cache_entries.id (NULL for cache misses).",
+    )
+
+    # Timestamp - auto-defaults to NOW() in database
+    request_timestamp: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When the cache request occurred.",
+    )
+
+    # Cache metadata
+    cache_type: str = Field(
+        ..., description="Type of cache event: 'hit', 'miss', 'warm_hit', etc."
+    )
+
+    # Performance metrics
+    latency_ms: int | None = Field(
+        default=None, description="Response latency in milliseconds."
+    )
+
+    # User tracking
+    user_id: str | None = Field(
+        default=None, description="User identifier for analytics."
+    )
+
+
+# Cache analytics aggregation models
+class CacheHitRateStats(BaseModel):
+    """Aggregated cache hit rate statistics."""
+
+    total_requests: int
+    cache_hits: int
+    cache_misses: int
+    hit_rate: float  # Percentage 0.0 to 100.0
+    time_period_start: datetime
+    time_period_end: datetime
+
+
+class CacheLatencyStats(BaseModel):
+    """Aggregated cache latency statistics."""
+
+    avg_latency_ms: float
+    min_latency_ms: int
+    max_latency_ms: int
+    p50_latency_ms: float  # Median
+    p95_latency_ms: float
+    p99_latency_ms: float
+    total_requests: int
+    time_period_start: datetime
+    time_period_end: datetime
+
+
+# Query Logging
+class QueryLog(BaseModel):
+    """
+    Schema for query logging and analytics.
+
+    Used for tracking user queries, their embeddings, cache performance,
+    and latency metrics. This is an append-only table for analytics purposes.
+    """
+
+    # Primary key - auto-generated BIGSERIAL
+    id: int | None = Field(
+        default=None, description="Auto-generated BIGSERIAL primary key."
+    )
+
+    # Query data
+    raw_query: str = Field(..., description="The original user query text.")
+
+    # Vector embedding (optional - may not be generated for all queries)
+    query_embedding: List[float] | None = Field(
+        default=None,
+        description="Vector embedding of the query (3072 dimensions for OpenAI).",
+    )
+
+    # Cache result tracking
+    cache_result: str = Field(
+        ...,
+        description="Cache result type: 'hit', 'miss', 'warm_hit', 'partial_hit', etc.",
+    )
+
+    # Performance metrics
+    latency_ms: int | None = Field(
+        default=None, description="Query response latency in milliseconds."
+    )
+
+    # User tracking
+    user_id: str | None = Field(
+        default=None, description="User identifier for analytics."
+    )
+
+    # Timestamp - auto-defaults to NOW() in database
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When the query was logged.",
+    )
+
+
+# Query analytics aggregation models
+class QueryLatencyStats(BaseModel):
+    """Aggregated query latency statistics."""
+
+    avg_latency_ms: float
+    min_latency_ms: int
+    max_latency_ms: int
+    p50_latency_ms: float  # Median
+    p95_latency_ms: float
+    p99_latency_ms: float
+    total_queries: int
+    time_period_start: datetime
+    time_period_end: datetime
+
+
+class PopularQuery(BaseModel):
+    """Popular query with frequency count."""
+
+    raw_query: str
+    query_count: int
+    avg_latency_ms: float
+    cache_hit_rate: float  # Percentage 0.0 to 100.0
+    last_queried_at: datetime
+
+
+class QueryCacheStats(BaseModel):
+    """Cache performance statistics for queries."""
+
+    total_queries: int
+    cache_hits: int
+    cache_misses: int
+    hit_rate: float  # Percentage 0.0 to 100.0
+    time_period_start: datetime
+    time_period_end: datetime

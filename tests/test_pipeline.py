@@ -64,8 +64,12 @@ class TestRAGPipeline:
                         with patch("core.pipeline.PostgresClient"):
                             with patch("core.pipeline.Tokenizer"):
                                 # Mock get_embedding_settings call in process_article_to_chunks
-                                with patch("core.pipeline.get_embedding_settings") as mock_embed_runtime:
-                                    mock_embed_runtime.return_value = mock_settings["embed"]
+                                with patch(
+                                    "core.pipeline.get_embedding_settings"
+                                ) as mock_embed_runtime:
+                                    mock_embed_runtime.return_value = mock_settings[
+                                        "embed"
+                                    ]
                                     yield RAGPipeline(embedding_provider="openai")
 
     def test_init_openai(self, pipeline_openai):
