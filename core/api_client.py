@@ -25,8 +25,8 @@ class TDXClient:
         settings = get_tdx_settings()
         self.base_url = settings.BASE_URL
         self.app_id = settings.APP_ID
-        self.web_services_key = settings.WEBSERVICES_KEY
-        self.beid = settings.BEID
+        self.web_services_key = settings.WEBSERVICES_KEY.get_secret_value()
+        self.beid = settings.BEID.get_secret_value()
         self.bearer_token: Optional[str] = None
         """
         Initialize the TDX KB Client wrapper.
