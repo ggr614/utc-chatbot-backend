@@ -1,0 +1,26 @@
+# Git attributes for proper line ending handling
+
+# Default behavior: let Git auto-detect
+* text=auto
+
+# Shell scripts should always use LF (Unix line endings)
+*.sh text eol=lf
+
+# Python files
+*.py text eol=lf
+
+# Docker files
+Dockerfile text eol=lf
+docker-entrypoint.sh text eol=lf
+
+# Windows batch files should use CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.db binary

@@ -1,0 +1,81 @@
+# .dockerignore - Exclude files from Docker build context
+# Reduces build context size and improves build speed
+
+# Python cache and compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Environment and secrets
+.env
+.env.*
+!example.env
+*.key
+*.pem
+secrets/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+tests/
+
+# Logs and data
+logs/
+*.log
+data/
+*.db
+*.sqlite3
+
+# Documentation (except README)
+*.md
+!README.md
+docs/
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Project files
+.DS_Store
+Thumbs.db
+.claude/
+qa/
+
+# Alembic local overrides
+alembic.ini.local
+
+# Lock files (using requirements.txt)
+uv.lock
+poetry.lock
+
+# Docker files (don't copy into image)
+Dockerfile
+.dockerignore
+docker-compose.yml
+docker-compose*.yml

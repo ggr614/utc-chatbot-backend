@@ -4,18 +4,28 @@ A comprehensive RAG (Retrieval-Augmented Generation) backend service that ingest
 
 ## Architecture Overview
 
-The system follows a modular pipeline architecture:
+The system follows a modular pipeline architecture with a REST API for querying:
 
 ```
-TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chunks) → Embedding → Storage (Vectors) → Retrieval
+TDX API → Ingestion → Storage (Raw Articles) → Processing → Storage (Chunks) → Embedding → Storage (Vectors)
+                                                                                                    ↓
+                                                                                            REST API Layer
+                                                                                                    ↓
+                                                                    BM25 Search / Vector Search / Hybrid Search
 ```
 
 ### Data Flow
+
+**Pipeline (Data Ingestion):**
 1. **Ingestion**: Fetch articles from TDX API and store raw HTML in `articles` table
 2. **Processing**: Convert HTML to clean text, count tokens, store in `article_chunks` table
-3. **Embedding**: Generate vector embeddings for chunks
-4. **Storage**: Store embeddings with metadata in `embeddings` table
-5. **Retrieval**: Hybrid search using BM25 (sparse) and vector similarity (dense)
+3. **Embedding**: Generate vector embeddings for chunks using Azure OpenAI
+4. **Storage**: Store embeddings with metadata in `embeddings_openai` table
+
+**Query (FastAPI REST API):**
+5. **BM25 Retrieval**: Fast keyword-based sparse retrieval (~50-100ms)
+6. **Vector Retrieval**: Semantic dense retrieval with pgvector (~500ms-1s)
+7. **Hybrid Retrieval**: Combined BM25 + vector with fusion algorithms
 
 ## Database Schema
 
@@ -109,28 +119,63 @@ pip install -r requirements.txt
 
 ### 2. Configure Environment Variables
 
-Create a `.env` file in the backend directory with the following variables:
+Copy the example environment file and configure it:
+
+```bash
+cp example.env .env
+# Edit .env with your credentials
+```
+
+**Required variables:**
 
 ```bash
 # TDX API Configuration
-BASE_URL=https://your-instance.teamdynamix.com
-APP_ID=2717
-WEBSERVICES_KEY=your_key
-BEID=your_beid
+TDX_WEBSERVICES_KEY=your_key
+TDX_BEID=your_beid
+TDX_BASE_URL=https://your-instance.teamdynamix.com
+TDX_APP_ID=2717
 
 # Database Configuration
 DB_HOST=localhost
-DB_USER=your_user
+DB_USER=postgres
 DB_PASSWORD=your_password
-DB_NAME=your_database
+DB_NAME=helpdesk_chatbot
 
-# Azure OpenAI Configuration
-AZURE_OPENAI_API_KEY=your_api_key
-AZURE_OPENAI_EMBED_ENDPOINT=https://your-resource.openai.azure.com/
-AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-large
-AZURE_OPENAI_API_VERSION=2024-02-01
-AZURE_EMBED_DIM=3072
-AZURE_MAX_TOKENS=8191
+# Azure OpenAI Embedding Configuration
+EMBEDDING_API_KEY=your_azure_openai_key
+EMBEDDING_ENDPOINT=https://your-resource.openai.azure.com/
+EMBEDDING_DEPLOYMENT_NAME=text-embedding-3-large
+EMBEDDING_API_VERSION=2024-02-01
+EMBEDDING_EMBED_DIM=3072
+EMBEDDING_MAX_TOKENS=8191
+
+# Azure OpenAI Chat Configuration (for LLM responses)
+CHAT_API_KEY=your_azure_openai_chat_key
+CHAT_ENDPOINT=https://your-resource.openai.azure.com/
+CHAT_DEPLOYMENT_NAME=gpt-4o
+CHAT_API_VERSION=2024-12-01-preview
+CHAT_MAX_TOKENS=8191
+CHAT_TEMPERATURE=0.7
+CHAT_COMPLETION_TOKENS=500
+
+# API Authentication (for REST API)
+API_API_KEY=your-secret-api-key-min-32-chars-recommended
+API_ALLOWED_API_KEYS=""  # Optional: comma-separated list for multiple keys
+```
+
+**Optional API server configuration:**
+
+```bash
+# Connection Pool
+API_POOL_MIN_SIZE=5
+API_POOL_MAX_SIZE=20
+API_POOL_TIMEOUT=30.0
+
+# Server Settings
+API_HOST=0.0.0.0
+API_PORT=8000
+API_WORKERS=4
+API_LOG_LEVEL=info
 ```
 
 ### 3. Database Setup with Alembic Migrations
@@ -373,9 +418,301 @@ Run specific test file:
 pytest tests/test_ingestion.py -v
 ```
 
+## REST API
+
+The backend includes a production-ready FastAPI application providing REST API endpoints for search and query operations.
+
+### Quick Start
+
+```bash
+# Development mode (auto-reload)
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Production mode (4 workers)
+uvicorn api.main:app --host 0.0.0.0 --port 8000 --workers 4
+
+# Access documentation
+# Swagger UI: http://localhost:8000/docs
+# ReDoc: http://localhost:8000/redoc
+```
+
+### Available Endpoints
+
+| Endpoint | Method | Auth | Description |
+|----------|--------|------|-------------|
+| `/api/v1/search/bm25` | POST | Yes | BM25 keyword search (~50-100ms) |
+| `/api/v1/search/vector` | POST | Yes | Vector semantic search (~500ms-1s) |
+| `/api/v1/search/hybrid` | POST | Yes | Hybrid search with RRF/weighted fusion |
+| `/health/` | GET | No | Detailed health check with component status |
+| `/health/ready` | GET | No | Simple readiness probe for orchestration |
+
+### Authentication
+
+All search endpoints require API key authentication:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/search/bm25 \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your-api-key" \
+  -d '{"query": "password reset", "top_k": 5}'
+```
+
+### Features
+
+- 🔐 Header-based API key authentication
+- 🚀 Fast BM25 search (<100ms after corpus cached)
+- 🧠 Semantic vector search with Azure OpenAI embeddings
+- 🔀 Hybrid search with Reciprocal Rank Fusion (RRF) or weighted scoring
+- 📊 Query logging for analytics
+- 🏥 Health checks for monitoring
+- ⚡ Connection pooling for concurrent requests
+- 📖 OpenAPI/Swagger documentation
+
+**For complete API documentation, examples, and deployment guides, see [API_README.md](API_README.md).**
+
+## Docker Deployment
+
+The application can be containerized using Docker for easy deployment and portability. The Docker setup assumes you have an existing PostgreSQL database with pgvector extension.
+
+### Prerequisites
+
+- Docker installed on your system
+- PostgreSQL 14+ with pgvector extension (external database)
+- All required environment variables configured
+
+### Quick Start with Docker Compose
+
+1. **Create environment configuration**
+
+```bash
+# Copy example environment file
+cp example.env .env.local
+
+# Edit .env.local with your actual credentials
+# IMPORTANT: Update DB_HOST to point to your PostgreSQL server
+# For Docker Desktop (macOS/Windows): use host.docker.internal
+# For Linux: use host IP or --network host
+# For production: use actual database hostname
+```
+
+2. **Build and run with docker-compose**
+
+```bash
+# Build and start the API server
+docker-compose --env-file .env.local up --build
+
+# View logs
+docker-compose logs -f api
+
+# Stop the container
+docker-compose down
+```
+
+3. **Access the API**
+
+- API Documentation: http://localhost:8000/docs
+- Health Check: http://localhost:8000/health/ready
+
+### Build Docker Image Manually
+
+```bash
+# Build the Docker image
+docker build -t helpdesk-api:1.0.0 .
+
+# Run the container
+docker run -d \
+  --name helpdesk-api \
+  --env-file .env.local \
+  -p 8000:8000 \
+  helpdesk-api:1.0.0
+
+# View logs
+docker logs -f helpdesk-api
+
+# Stop the container
+docker stop helpdesk-api
+docker rm helpdesk-api
+```
+
+### Docker Architecture
+
+**Multi-Stage Build:**
+- **Stage 1 (Builder)**: Compiles Python dependencies (gcc, g++, build tools)
+- **Stage 2 (Runtime)**: Minimal production image with only runtime dependencies
+
+**Key Features:**
+- 🔒 Non-root user (`appuser`) for security
+- 📦 Multi-stage build (~500-700MB final image)
+- 🏥 Built-in health checks
+- 🔄 Automatic database migration on startup
+- ⚡ Connection pooling for concurrent requests
+- 📝 Comprehensive logging
+
+**Startup Sequence:**
+1. Wait for external PostgreSQL database to be ready (max 60 seconds)
+2. Run Alembic migrations: `alembic upgrade head`
+3. Start uvicorn server with configured workers
+
+### Database Connectivity
+
+**For localhost database access:**
+
+- **Docker Desktop (macOS/Windows):**
+  ```bash
+  # In .env.local, set:
+  DB_HOST=host.docker.internal
+  ```
+
+- **Linux:**
+  ```bash
+  # Option 1: Use host network mode
+  docker run --network host --env-file .env.local -p 8000:8000 helpdesk-api:1.0.0
+
+  # Option 2: Use host IP address
+  # In .env.local, set:
+  DB_HOST=192.168.1.100  # Your host machine IP
+  ```
+
+- **Production:**
+  ```bash
+  # Use actual database hostname or IP
+  DB_HOST=db.example.com
+  ```
+
+### Development Mode with Hot Reload
+
+To enable code hot-reload during development, uncomment the volume mounts in `docker-compose.yml`:
+
+```yaml
+volumes:
+  - ./api:/app/api
+  - ./core:/app/core
+  - ./utils:/app/utils
+  - ./logs:/app/logs
+```
+
+This allows you to edit code locally and see changes without rebuilding the container.
+
+### Health Checks
+
+**Readiness Probe** (no authentication required):
+```bash
+curl http://localhost:8000/health/ready
+# Response: {"status": "ok"}
+```
+
+**Detailed Health Check** (with authentication):
+```bash
+curl -H "X-API-Key: your-api-key" http://localhost:8000/health/
+# Response: JSON with BM25, vector, and database pool status
+```
+
+### Resource Requirements
+
+- **Memory**: 1-2GB (depending on BM25 corpus size and worker count)
+- **CPU**: 2+ cores recommended
+- **Disk**: Minimal (source code only, data in PostgreSQL)
+- **Network**: Access to PostgreSQL and Azure OpenAI endpoints
+
+### Troubleshooting
+
+**Database Connection Issues:**
+```bash
+# Check if database is accessible from container
+docker exec helpdesk-api pg_isready -h $DB_HOST -U $DB_USER -d $DB_NAME
+
+# View container logs
+docker logs helpdesk-api
+
+# Check database connectivity
+docker-compose logs api | grep -i "database"
+```
+
+**Health Check Failing:**
+```bash
+# Check if BM25 corpus is loading (can take 30-60 seconds)
+docker logs helpdesk-api | grep -i "bm25"
+
+# Manually test health endpoint
+docker exec helpdesk-api curl http://localhost:8000/health/ready
+```
+
+**Out of Memory:**
+```bash
+# Reduce number of workers in .env.local
+API_WORKERS=2
+
+# Or in docker-compose.yml
+environment:
+  API_WORKERS: 2
+```
+
+**Migration Failures:**
+```bash
+# Check migration status
+docker exec helpdesk-api alembic current
+
+# View migration history
+docker exec helpdesk-api alembic history
+
+# Manually run migrations
+docker exec helpdesk-api alembic upgrade head
+```
+
+### Production Deployment
+
+For production deployment with Kubernetes, AWS ECS, or other container orchestration platforms:
+
+1. **Use managed PostgreSQL** (AWS RDS, Azure Database, etc.) with pgvector
+2. **Store secrets securely** (Kubernetes Secrets, AWS Secrets Manager, HashiCorp Vault)
+3. **Set resource limits**:
+   - Memory: 1-2GB per pod/container
+   - CPU: 500m-1000m per pod/container
+4. **Configure health probes**:
+   - Liveness: `GET /health/ready`
+   - Readiness: `GET /health/ready`
+5. **Enable TLS/HTTPS** via ingress/load balancer
+6. **Implement rate limiting** at API gateway or middleware
+7. **Enable log aggregation** (CloudWatch, ELK, Datadog)
+8. **Set up monitoring** (Prometheus, Grafana)
+
+**Example Kubernetes deployment excerpt:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+      - name: api
+        image: helpdesk-api:1.0.0
+        ports:
+        - containerPort: 8000
+        resources:
+          requests:
+            memory: "1Gi"
+            cpu: "500m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+```
+
 ## Retrieval System
 
-The backend supports hybrid retrieval combining sparse (BM25) and dense (vector) search strategies.
+The backend supports multiple retrieval strategies: BM25 (sparse), vector (dense), and hybrid search.
 
 ### BM25 Search (Keyword-Based)
 
@@ -562,5 +899,53 @@ with VectorRetriever() as retriever:
 
 ### Hybrid Search
 
-Coming soon: Combine BM25 and vector search with configurable weighting for optimal retrieval.
+Hybrid search combines BM25 and vector search using fusion algorithms for optimal retrieval.
+
+#### Available via REST API
+
+Hybrid search is available through the FastAPI REST API endpoints. See [API_README.md](API_README.md) for detailed documentation.
+
+#### Fusion Methods
+
+1. **Reciprocal Rank Fusion (RRF)** - Default, recommended
+   - Rank-based fusion (robust to score scales)
+   - Formula: `score = Σ(1 / (k + rank))`
+
+2. **Weighted Score Fusion**
+   - Score-based fusion with normalized weights
+   - Formula: `score = (w_bm25 × norm_bm25) + (w_vec × similarity)`
+
+#### Programmatic Usage
+
+```python
+from api.utils.hybrid_search import hybrid_search
+from core.bm25_search import BM25Retriever
+from core.vector_search import VectorRetriever
+
+# Initialize retrievers
+bm25 = BM25Retriever(use_cache=True)
+vector = VectorRetriever()
+
+# Perform hybrid search with RRF
+results = hybrid_search(
+    query="password reset issues",
+    bm25_retriever=bm25,
+    vector_retriever=vector,
+    top_k=10,
+    fusion_method="rrf",  # or "weighted"
+    rrf_k=60,
+    bm25_weight=0.5
+)
+
+# Access results
+for result in results:
+    print(f"[{result['rank']}] Score: {result['score']:.4f}")
+    print(f"Content: {result['text_content'][:100]}...")
+```
+
+**Use Hybrid Search when:**
+- You want the best of both keyword and semantic search
+- Your queries vary in style (some technical, some natural language)
+- You need robust results across different query types
+- General-purpose search with balanced precision and recall
 
