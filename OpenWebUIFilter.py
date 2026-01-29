@@ -106,6 +106,9 @@ class Filter:
     def __init__(self):
         self.valves = self.Valves()
         self.name = "RAG Helpdesk Filter"
+        # Instance variables to pass data from inlet to outlet
+        self._query_log_id = None
+        self._search_response_data = None
 
     def _get_user_query(self, messages: List[Dict[str, Any]]) -> Optional[str]:
         """Extract the latest user message from the conversation."""
@@ -382,9 +385,9 @@ INSTRUCTIONS:
             # Capture query_log_id for LLM response logging in outlet
             query_log_id = search_response.get("query_log_id")
             if query_log_id and self.valves.ENABLE_LLM_RESPONSE_LOGGING:
-                # Store in body for access in outlet
-                body["__query_log_id__"] = query_log_id
-                body["__search_response_data__"] = {
+                # Store in instance variables for access in outlet (don't pollute body sent to LLM)
+                self._query_log_id = query_log_id
+                self._search_response_data = {
                     "num_documents": num_docs,
                     "results": search_response.get("results", []),
                 }
@@ -516,12 +519,12 @@ INSTRUCTIONS:
                 print("[RAG Filter] LLM response logging disabled, skipping outlet")
             return body
 
-        # Extract query_log_id from body (set in inlet)
-        query_log_id = body.get("__query_log_id__")
+        # Extract query_log_id from instance variable (set in inlet)
+        query_log_id = self._query_log_id
         if not query_log_id:
             if self.valves.DEBUG_MODE:
                 print(
-                    "[RAG Filter] No query_log_id found in body, skipping response logging"
+                    "[RAG Filter] No query_log_id found, skipping response logging"
                 )
             return body
 
@@ -566,8 +569,8 @@ INSTRUCTIONS:
             )
             print(f"[RAG Filter] Response length: {len(response_text)} chars")
 
-            # Extract search data for citations
-            search_data = body.get("__search_response_data__", {})
+            # Extract search data for citations from instance variable
+            search_data = self._search_response_data or {}
 
             # Build citations JSONB
             citations = None
@@ -654,8 +657,8 @@ INSTRUCTIONS:
                 print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")
 
         finally:
-            # Clean up internal fields from body before returning
-            body.pop("__query_log_id__", None)
-            body.pop("__search_response_data__", None)
+            # Clean up instance variables after logging
+            self._query_log_id = None
+            self._search_response_data = None
 
         return body
