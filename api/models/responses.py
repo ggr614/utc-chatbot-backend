@@ -7,7 +7,7 @@ Provides consistent response structure for:
 """
 
 from pydantic import BaseModel, Field, HttpUrl
-from typing import List, Literal
+from typing import List, Literal, Optional
 from uuid import UUID
 from datetime import datetime
 
@@ -74,6 +74,11 @@ class SearchResponse(BaseModel):
         description="Additional method-specific metadata (min_score, fusion_method, etc.)",
         examples=[{"min_score": 1.0}],
     )
+    query_log_id: Optional[int] = Field(
+        default=None,
+        description="Query log ID for this search (for LLM response logging)",
+        examples=[12345],
+    )
 
 
 class HealthResponse(BaseModel):
@@ -97,4 +102,19 @@ class HealthResponse(BaseModel):
                 "database": {"status": "healthy", "pool_size": 10},
             }
         ],
+    )
+
+
+class LogLLMResponseResponse(BaseModel):
+    """
+    Response model for successful LLM response logging.
+    """
+
+    id: int = Field(..., description="LLM response ID", examples=[12345])
+    query_log_id: int = Field(
+        ..., description="Associated query log ID", examples=[67890]
+    )
+    created_at: datetime = Field(..., description="Timestamp when logged")
+    message: str = Field(
+        default="LLM response logged successfully", description="Success message"
     )

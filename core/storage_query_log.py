@@ -10,6 +10,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import psycopg
+from psycopg.types.json import Json
 
 from core.schemas import PopularQuery, QueryCacheStats, QueryLatencyStats, QueryLog
 from core.storage_base import BaseStorageClient
@@ -1616,4 +1617,185 @@ class QueryLogClient(BaseStorageClient):
 
         except Exception as e:
             logger.error(f"Failed to get article coverage: {str(e)}")
+            raise
+
+    def log_llm_response(
+        self,
+        query_log_id: int,
+        response_text: str,
+        model_name: Optional[str] = None,
+        llm_latency_ms: Optional[int] = None,
+        prompt_tokens: Optional[int] = None,
+        completion_tokens: Optional[int] = None,
+        total_tokens: Optional[int] = None,
+        citations: Optional[Dict[str, Any]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        """
+        Log an LLM-generated response for a query.
+
+        Args:
+            query_log_id: The query log ID (must exist in query_logs table)
+            response_text: Full LLM response text
+            model_name: LLM model identifier (e.g., 'gpt-4')
+            llm_latency_ms: LLM generation latency in milliseconds
+            prompt_tokens: Number of tokens in prompt
+            completion_tokens: Number of tokens in completion
+            total_tokens: Total tokens (prompt + completion)
+            citations: JSONB data with source URLs and chunk IDs
+            metadata: JSONB data with model parameters
+
+        Returns:
+            The auto-generated llm_response ID (BIGSERIAL)
+
+        Raises:
+            ValueError: If response_text is empty or tokens are negative
+            psycopg.IntegrityError: If query_log_id doesn't exist or already has response
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> client = QueryLogClient()
+            >>> response_id = client.log_llm_response(
+            ...     query_log_id=12345,
+            ...     response_text="To reset your password...",
+            ...     model_name="gpt-4",
+            ...     llm_latency_ms=1250,
+            ...     citations={"num_documents_used": 3, "source_urls": [...]}
+            ... )
+        """
+        if not response_text or not response_text.strip():
+            raise ValueError("response_text cannot be empty")
+
+        # Validate token counts are non-negative
+        if prompt_tokens is not None and prompt_tokens < 0:
+            raise ValueError(f"prompt_tokens cannot be negative: {prompt_tokens}")
+        if completion_tokens is not None and completion_tokens < 0:
+            raise ValueError(
+                f"completion_tokens cannot be negative: {completion_tokens}"
+            )
+        if total_tokens is not None and total_tokens < 0:
+            raise ValueError(f"total_tokens cannot be negative: {total_tokens}")
+        if llm_latency_ms is not None and llm_latency_ms < 0:
+            raise ValueError(f"llm_latency_ms cannot be negative: {llm_latency_ms}")
+
+        logger.debug(
+            f"Logging LLM response for query_log_id {query_log_id}: "
+            f"model={model_name}, latency={llm_latency_ms}ms, tokens={total_tokens}"
+        )
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO llm_responses
+                        (query_log_id, response_text, model_name, llm_latency_ms,
+                         prompt_tokens, completion_tokens, total_tokens,
+                         citations, metadata)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            query_log_id,
+                            response_text,
+                            model_name,
+                            llm_latency_ms,
+                            prompt_tokens,
+                            completion_tokens,
+                            total_tokens,
+                            Json(citations) if citations else None,
+                            Json(metadata) if metadata else None,
+                        ),
+                    )
+
+                    result = cur.fetchone()
+                    if not result:
+                        raise ConnectionError(
+                            "Failed to retrieve response ID after insert"
+                        )
+                    response_id = result[0]
+
+                    logger.debug(
+                        f"LLM response logged successfully with ID {response_id}"
+                    )
+                    return response_id
+
+        except psycopg.IntegrityError as e:
+            # This catches:
+            # - FK violation (query_log_id doesn't exist)
+            # - UNIQUE violation (response already logged for this query_log_id)
+            logger.error(f"Integrity error logging LLM response: {str(e)}")
+            if "foreign key" in str(e).lower():
+                raise ValueError(f"Query log ID {query_log_id} not found") from e
+            elif "unique" in str(e).lower():
+                raise ValueError(
+                    f"LLM response already logged for query_log_id {query_log_id}"
+                ) from e
+            raise
+        except Exception as e:
+            logger.error(f"Failed to log LLM response: {str(e)}")
+            raise
+
+    def get_llm_response_by_query_log_id(
+        self, query_log_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Retrieve LLM response for a specific query log.
+
+        Args:
+            query_log_id: The query log ID
+
+        Returns:
+            Dictionary with LLM response data or None if not found
+
+        Raises:
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> response = client.get_llm_response_by_query_log_id(12345)
+            >>> if response:
+            ...     print(f"Model: {response['model_name']}")
+            ...     print(f"Response: {response['response_text'][:100]}")
+        """
+        logger.debug(f"Fetching LLM response for query_log_id {query_log_id}")
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, query_log_id, response_text, model_name,
+                               llm_latency_ms, prompt_tokens, completion_tokens,
+                               total_tokens, citations, metadata, created_at
+                        FROM llm_responses
+                        WHERE query_log_id = %s
+                        """,
+                        (query_log_id,),
+                    )
+                    row = cur.fetchone()
+
+                    if not row:
+                        logger.debug(
+                            f"No LLM response found for query_log_id {query_log_id}"
+                        )
+                        return None
+
+                    return {
+                        "id": row[0],
+                        "query_log_id": row[1],
+                        "response_text": row[2],
+                        "model_name": row[3],
+                        "llm_latency_ms": row[4],
+                        "prompt_tokens": row[5],
+                        "completion_tokens": row[6],
+                        "total_tokens": row[7],
+                        "citations": row[8],  # Already deserialized from JSONB
+                        "metadata": row[9],  # Already deserialized from JSONB
+                        "created_at": row[10],
+                    }
+
+        except Exception as e:
+            logger.error(
+                f"Failed to fetch LLM response for query_log_id {query_log_id}: {str(e)}"
+            )
             raise

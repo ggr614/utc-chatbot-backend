@@ -119,8 +119,9 @@ def search_bm25(
         ]
 
         # Log query and results to database (best-effort, don't fail request if logging fails)
+        query_log_id_for_response = None
         try:
-            query_log_client.log_query_with_results(
+            query_log_id_for_response = query_log_client.log_query_with_results(
                 raw_query=request.query,
                 cache_result="miss",  # No cache implemented yet
                 search_method="bm25",
@@ -143,6 +144,7 @@ def search_bm25(
             metadata={"min_score": request.min_score}
             if request.min_score is not None
             else {},
+            query_log_id=query_log_id_for_response,
         )
 
     except ValueError as e:
@@ -246,8 +248,9 @@ def search_vector(
         ]
 
         # Log query and results to database (best-effort)
+        query_log_id_for_response = None
         try:
-            query_log_client.log_query_with_results(
+            query_log_id_for_response = query_log_client.log_query_with_results(
                 raw_query=request.query,
                 cache_result="miss",
                 search_method="vector",
@@ -269,6 +272,7 @@ def search_vector(
             metadata={"min_similarity": request.min_similarity}
             if request.min_similarity is not None
             else {},
+            query_log_id=query_log_id_for_response,
         )
 
     except ValueError as e:
@@ -402,8 +406,9 @@ def search_hybrid(
         ]
 
         # Log query and results to database (best-effort)
+        query_log_id_for_response = None
         try:
-            query_log_client.log_query_with_results(
+            query_log_id_for_response = query_log_client.log_query_with_results(
                 raw_query=request.query,
                 cache_result="miss",
                 search_method="hybrid",
@@ -431,6 +436,7 @@ def search_hybrid(
             total_results=len(results),
             latency_ms=latency_ms,
             metadata=metadata,
+            query_log_id=query_log_id_for_response,
         )
 
     except ValueError as e:

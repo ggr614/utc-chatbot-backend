@@ -97,6 +97,12 @@ class Filter:
             default=False, description="Enable debug logging to console"
         )
 
+        # LLM Response Logging
+        ENABLE_LLM_RESPONSE_LOGGING: bool = Field(
+            default=False,
+            description="Log LLM-generated responses to backend for analytics (requires working query logging)",
+        )
+
     def __init__(self):
         self.valves = self.Valves()
         self.name = "RAG Helpdesk Filter"
@@ -373,6 +379,20 @@ INSTRUCTIONS:
             context = self._format_context(search_response)
             num_docs = len(search_response.get("results", []))
 
+            # Capture query_log_id for LLM response logging in outlet
+            query_log_id = search_response.get("query_log_id")
+            if query_log_id and self.valves.ENABLE_LLM_RESPONSE_LOGGING:
+                # Store in body for access in outlet
+                body["__query_log_id__"] = query_log_id
+                body["__search_response_data__"] = {
+                    "num_documents": num_docs,
+                    "results": search_response.get("results", []),
+                }
+                if self.valves.DEBUG_MODE:
+                    print(
+                        f"[RAG Filter] Stored query_log_id {query_log_id} for response logging"
+                    )
+
             print(f"[RAG Filter] SUCCESS: Retrieved {num_docs} documents")
             if self.valves.DEBUG_MODE:
                 latency = search_response.get("latency_ms", "?")
@@ -479,10 +499,8 @@ INSTRUCTIONS:
         """
         Outlet filter: Intercepts the response after the LLM generates it.
 
-        Currently passes through unchanged. Can be extended to:
-        - Add citation formatting
-        - Log responses for analytics
-        - Post-process the output
+        If ENABLE_LLM_RESPONSE_LOGGING is True, logs the full LLM response
+        to the backend for analytics and evaluation.
 
         Args:
             body: The response body from the LLM
@@ -490,8 +508,154 @@ INSTRUCTIONS:
             __event_emitter__: Optional callback for status updates
 
         Returns:
-            Response body (unchanged in current implementation)
+            Response body (unchanged)
         """
-        # Pass through unchanged for now
-        # Future: could add citation formatting, logging, etc.
+        # Check if LLM response logging is enabled
+        if not self.valves.ENABLE_LLM_RESPONSE_LOGGING:
+            if self.valves.DEBUG_MODE:
+                print("[RAG Filter] LLM response logging disabled, skipping outlet")
+            return body
+
+        # Extract query_log_id from body (set in inlet)
+        query_log_id = body.get("__query_log_id__")
+        if not query_log_id:
+            if self.valves.DEBUG_MODE:
+                print(
+                    "[RAG Filter] No query_log_id found in body, skipping response logging"
+                )
+            return body
+
+        # Extract LLM response text from body
+        try:
+            messages = body.get("messages", [])
+            if not messages:
+                if self.valves.DEBUG_MODE:
+                    print("[RAG Filter] No messages in response body")
+                return body
+
+            last_message = messages[-1]
+            if last_message.get("role") != "assistant":
+                if self.valves.DEBUG_MODE:
+                    print(
+                        f"[RAG Filter] Last message not from assistant: {last_message.get('role')}"
+                    )
+                return body
+
+            response_text = last_message.get("content", "")
+            if not response_text:
+                if self.valves.DEBUG_MODE:
+                    print("[RAG Filter] Empty response text")
+                return body
+
+            # Handle multimodal content (list of parts)
+            if isinstance(response_text, list):
+                text_parts = [
+                    part.get("text", "")
+                    for part in response_text
+                    if part.get("type") == "text"
+                ]
+                response_text = " ".join(text_parts)
+
+            if not response_text.strip():
+                if self.valves.DEBUG_MODE:
+                    print("[RAG Filter] Response text is empty after extraction")
+                return body
+
+            print(
+                f"[RAG Filter] Logging LLM response for query_log_id {query_log_id}"
+            )
+            print(f"[RAG Filter] Response length: {len(response_text)} chars")
+
+            # Extract search data for citations
+            search_data = body.get("__search_response_data__", {})
+
+            # Build citations JSONB
+            citations = None
+            if search_data:
+                results = search_data.get("results", [])
+                citations = {
+                    "num_documents_used": len(results),
+                    "source_urls": [
+                        r.get("source_url") for r in results if r.get("source_url")
+                    ],
+                    "chunk_ids": [
+                        str(r.get("chunk_id")) for r in results if r.get("chunk_id")
+                    ],
+                }
+
+            # Extract model info from body if available
+            model_name = body.get("model")  # Open WebUI includes this
+
+            # Prepare request payload
+            url = f"{self.valves.RAG_API_BASE_URL.rstrip('/')}/api/v1/query-logs/{query_log_id}/response"
+
+            headers = {
+                "Content-Type": "application/json",
+                "X-API-Key": self.valves.RAG_API_KEY,
+            }
+
+            payload = {
+                "response_text": response_text,
+                "model_name": model_name,
+                # Note: LLM latency not easily available in outlet
+                # Token counts not available unless model API returns them
+            }
+
+            if citations:
+                payload["citations"] = citations
+
+            if self.valves.DEBUG_MODE:
+                print("[RAG Filter] ========== LLM RESPONSE LOGGING ==========")
+                print(f"[RAG Filter] URL: {url}")
+                print(
+                    f"[RAG Filter] Payload: {json.dumps(payload, indent=2)[:500]}..."
+                )
+
+            # Log response (best-effort, non-blocking)
+            try:
+                response = requests.post(
+                    url,
+                    headers=headers,
+                    json=payload,
+                    timeout=self.valves.REQUEST_TIMEOUT,
+                )
+                response.raise_for_status()
+
+                result = response.json()
+                print(
+                    f"[RAG Filter] LLM response logged successfully: ID {result.get('id')}"
+                )
+
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 409:
+                    # Already logged - this is OK (idempotent)
+                    print(
+                        f"[RAG Filter] LLM response already logged for query_log_id {query_log_id}"
+                    )
+                else:
+                    print(
+                        f"[RAG Filter] Failed to log LLM response (HTTP {e.response.status_code}): {e.response.text[:200]}"
+                    )
+
+            except Exception as e:
+                # Don't fail the outlet on logging errors
+                print(
+                    f"[RAG Filter] Failed to log LLM response: {type(e).__name__}: {str(e)}"
+                )
+                if self.valves.DEBUG_MODE:
+                    print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")
+
+        except Exception as e:
+            # Catch-all: don't fail outlet
+            print(
+                f"[RAG Filter] Error in outlet LLM logging: {type(e).__name__}: {str(e)}"
+            )
+            if self.valves.DEBUG_MODE:
+                print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")
+
+        finally:
+            # Clean up internal fields from body before returning
+            body.pop("__query_log_id__", None)
+            body.pop("__search_response_data__", None)
+
         return body

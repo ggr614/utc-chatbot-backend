@@ -23,7 +23,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 
-from api.routers import search, health
+from api.routers import search, health, query_logs
 from api.utils.connection_pool import get_connection_pool, close_connection_pool
 from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
@@ -186,6 +186,11 @@ app.include_router(
     search.router,
     prefix="/api/v1/search",
     tags=["Search"],
+)
+app.include_router(
+    query_logs.router,
+    prefix="/api/v1/query-logs",
+    tags=["Query Logs"],
 )
 
 
