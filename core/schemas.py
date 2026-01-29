@@ -232,3 +232,77 @@ class QueryCacheStats(BaseModel):
     hit_rate: float  # Percentage 0.0 to 100.0
     time_period_start: datetime
     time_period_end: datetime
+
+
+# Query Results Logging
+class QueryResult(BaseModel):
+    """
+    Schema for a single query result record.
+
+    Represents one result (chunk) returned for a specific query.
+    Used for logging retrieval results to enable effectiveness evaluation.
+    """
+
+    # Primary key - auto-generated BIGSERIAL
+    id: int | None = Field(
+        default=None, description="Auto-generated BIGSERIAL primary key."
+    )
+
+    # Foreign key to query_logs
+    query_log_id: int = Field(..., description="Reference to query_logs.id")
+
+    # Search metadata
+    search_method: str = Field(
+        ..., description="Search method used: 'bm25', 'vector', or 'hybrid'"
+    )
+
+    # Result metadata
+    rank: int = Field(
+        ..., description="Result position (1-indexed)", ge=1
+    )
+
+    score: float = Field(
+        ..., description="Relevance score (BM25 score, similarity, or hybrid score)"
+    )
+
+    # Chunk/article references
+    chunk_id: UUID = Field(..., description="Reference to article_chunks.id")
+
+    parent_article_id: UUID = Field(..., description="Reference to articles.id")
+
+    # Timestamp
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When the result was logged.",
+    )
+
+
+# Query results analytics aggregation models
+class ArticleTopKStats(BaseModel):
+    """Aggregated statistics for article appearance in top-k results."""
+
+    article_id: UUID
+    search_method: str | None  # None = all methods
+    top_k: int
+    total_queries: int
+    top_k_appearances: int
+    top_k_rate: float  # Percentage 0.0 to 100.0
+    avg_rank: float  # When appearing
+    avg_score: float  # When appearing
+    time_period_start: datetime | None
+    time_period_end: datetime | None
+
+
+class RetrievalMethodStats(BaseModel):
+    """Aggregated statistics for a retrieval method's effectiveness."""
+
+    search_method: str
+    total_queries: int
+    avg_score: float
+    min_score: float
+    max_score: float
+    p50_score: float
+    p95_score: float
+    p99_score: float
+    time_period_start: datetime | None
+    time_period_end: datetime | None

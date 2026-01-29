@@ -107,17 +107,30 @@ def search_bm25(
             f"BM25 search completed: {len(results)} results, {latency_ms}ms latency"
         )
 
-        # Log query to database (best-effort, don't fail request if logging fails)
+        # Prepare results for logging (extract minimal data)
+        results_for_logging = [
+            {
+                "rank": r.rank,
+                "score": r.score,
+                "chunk_id": r.chunk_id,
+                "parent_article_id": r.parent_article_id,
+            }
+            for r in result_chunks
+        ]
+
+        # Log query and results to database (best-effort, don't fail request if logging fails)
         try:
-            query_log_client.log_query(
+            query_log_client.log_query_with_results(
                 raw_query=request.query,
                 cache_result="miss",  # No cache implemented yet
+                search_method="bm25",
+                results=results_for_logging,
                 latency_ms=latency_ms,
                 user_id=request.user_id,
                 query_embedding=None,
             )
         except Exception as e:
-            logger.error(f"Query logging failed: {e}")
+            logger.error(f"Query and result logging failed: {e}")
             # Don't propagate logging errors to client
 
         # Build response
@@ -221,17 +234,30 @@ def search_vector(
             f"Vector search completed: {len(results)} results, {latency_ms}ms latency"
         )
 
-        # Log query to database (best-effort)
+        # Prepare results for logging (extract minimal data)
+        results_for_logging = [
+            {
+                "rank": r.rank,
+                "score": r.score,
+                "chunk_id": r.chunk_id,
+                "parent_article_id": r.parent_article_id,
+            }
+            for r in result_chunks
+        ]
+
+        # Log query and results to database (best-effort)
         try:
-            query_log_client.log_query(
+            query_log_client.log_query_with_results(
                 raw_query=request.query,
                 cache_result="miss",
+                search_method="vector",
+                results=results_for_logging,
                 latency_ms=latency_ms,
                 user_id=request.user_id,
                 query_embedding=None,  # Could store embedding here if needed
             )
         except Exception as e:
-            logger.error(f"Query logging failed: {e}")
+            logger.error(f"Query and result logging failed: {e}")
 
         # Build response
         return SearchResponse(
@@ -364,17 +390,30 @@ def search_hybrid(
             f"Hybrid search completed: {len(results)} results, {latency_ms}ms latency"
         )
 
-        # Log query to database (best-effort)
+        # Prepare results for logging (extract minimal data)
+        results_for_logging = [
+            {
+                "rank": r.rank,
+                "score": r.score,
+                "chunk_id": r.chunk_id,
+                "parent_article_id": r.parent_article_id,
+            }
+            for r in result_chunks
+        ]
+
+        # Log query and results to database (best-effort)
         try:
-            query_log_client.log_query(
+            query_log_client.log_query_with_results(
                 raw_query=request.query,
                 cache_result="miss",
+                search_method="hybrid",
+                results=results_for_logging,
                 latency_ms=latency_ms,
                 user_id=request.user_id,
                 query_embedding=None,
             )
         except Exception as e:
-            logger.error(f"Query logging failed: {e}")
+            logger.error(f"Query and result logging failed: {e}")
 
         # Build metadata with fusion-specific info
         metadata = {"fusion_method": request.fusion_method}

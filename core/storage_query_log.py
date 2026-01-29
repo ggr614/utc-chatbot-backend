@@ -230,6 +230,199 @@ class QueryLogClient(BaseStorageClient):
             logger.error(f"Failed to insert query logs: {str(e)}")
             raise
 
+    def log_query_results(
+        self,
+        query_log_id: int,
+        results: List[Dict[str, Any]],
+        search_method: str,
+    ) -> None:
+        """
+        Log retrieval results for a query to the query_results table.
+
+        Args:
+            query_log_id: The query log ID (from log_query() return value)
+            results: List of result dictionaries with keys:
+                - rank (int): 1-indexed position
+                - score (float): Relevance score
+                - chunk_id (UUID): Chunk identifier
+                - parent_article_id (UUID): Article identifier
+            search_method: Search method used ('bm25', 'vector', 'hybrid')
+
+        Raises:
+            ValueError: If results empty or missing required fields
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> log_id = client.log_query("password reset", "miss", 125, "user123")
+            >>> results = [
+            ...     {"rank": 1, "score": 5.2, "chunk_id": uuid1, "parent_article_id": uuid2},
+            ...     {"rank": 2, "score": 4.8, "chunk_id": uuid3, "parent_article_id": uuid4},
+            ... ]
+            >>> client.log_query_results(log_id, results, "bm25")
+        """
+        if not results:
+            raise ValueError("results cannot be empty")
+
+        if search_method not in ("bm25", "vector", "hybrid"):
+            raise ValueError(
+                f"search_method must be 'bm25', 'vector', or 'hybrid', got '{search_method}'"
+            )
+
+        logger.debug(
+            f"Logging {len(results)} results for query_log_id {query_log_id} "
+            f"(method={search_method})"
+        )
+
+        try:
+            with PerformanceLogger(logger, f"Insert {len(results)} query results"):
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        for idx, result in enumerate(results, 1):
+                            try:
+                                # Validate required fields
+                                if "rank" not in result:
+                                    raise ValueError(
+                                        f"Result {idx}: missing required field 'rank'"
+                                    )
+                                if "score" not in result:
+                                    raise ValueError(
+                                        f"Result {idx}: missing required field 'score'"
+                                    )
+                                if "chunk_id" not in result:
+                                    raise ValueError(
+                                        f"Result {idx}: missing required field 'chunk_id'"
+                                    )
+                                if "parent_article_id" not in result:
+                                    raise ValueError(
+                                        f"Result {idx}: missing required field 'parent_article_id'"
+                                    )
+
+                                # Validate rank >= 1
+                                if result["rank"] < 1:
+                                    raise ValueError(
+                                        f"Result {idx}: rank must be >= 1, got {result['rank']}"
+                                    )
+
+                                cur.execute(
+                                    """
+                                    INSERT INTO query_results
+                                    (query_log_id, search_method, rank, score,
+                                     chunk_id, parent_article_id)
+                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                    """,
+                                    (
+                                        query_log_id,
+                                        search_method,
+                                        result["rank"],
+                                        result["score"],
+                                        result["chunk_id"],
+                                        result["parent_article_id"],
+                                    ),
+                                )
+
+                                logger.debug(
+                                    f"Inserted query result {idx}/{len(results)} "
+                                    f"(rank={result['rank']}, score={result['score']:.2f})"
+                                )
+
+                            except psycopg.IntegrityError as e:
+                                logger.error(
+                                    f"Integrity error inserting query result {idx}: {str(e)}"
+                                )
+                                raise
+                            except psycopg.Error as e:
+                                logger.error(
+                                    f"Database error inserting query result {idx}: {str(e)}"
+                                )
+                                raise
+
+                logger.info(
+                    f"Successfully inserted {len(results)} query results for query_log_id {query_log_id}"
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to insert query results: {str(e)}")
+            raise
+
+    def log_query_with_results(
+        self,
+        raw_query: str,
+        cache_result: str,
+        search_method: str,
+        results: List[Dict[str, Any]],
+        latency_ms: Optional[int] = None,
+        user_id: Optional[str] = None,
+        query_embedding: Optional[List[float]] = None,
+    ) -> int:
+        """
+        Log query and results in a single transaction.
+
+        This is the recommended method for logging queries with their results,
+        as it ensures atomicity - both the query and its results are logged
+        together, or neither is logged if an error occurs.
+
+        Args:
+            raw_query: The original user query text
+            cache_result: Cache result type ('hit', 'miss', etc.)
+            search_method: Search method used ('bm25', 'vector', 'hybrid')
+            results: List of result dictionaries with keys:
+                - rank (int): 1-indexed position
+                - score (float): Relevance score
+                - chunk_id (UUID): Chunk identifier
+                - parent_article_id (UUID): Article identifier
+            latency_ms: Query response latency in milliseconds
+            user_id: User identifier for analytics
+            query_embedding: Optional vector embedding (3072 dimensions)
+
+        Returns:
+            The query log ID
+
+        Raises:
+            ValueError: If validation fails
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> log_id = client.log_query_with_results(
+            ...     raw_query="password reset",
+            ...     cache_result="miss",
+            ...     search_method="bm25",
+            ...     results=result_list,
+            ...     latency_ms=125,
+            ...     user_id="user123"
+            ... )
+        """
+        logger.debug(
+            f"Logging query with {len(results)} results: {raw_query[:50]}... "
+            f"(method={search_method})"
+        )
+
+        try:
+            # First log the query to get the query_log_id
+            query_log_id = self.log_query(
+                raw_query=raw_query,
+                cache_result=cache_result,
+                query_embedding=query_embedding,
+                latency_ms=latency_ms,
+                user_id=user_id,
+            )
+
+            # Then log the results with the query_log_id
+            if results:
+                self.log_query_results(
+                    query_log_id=query_log_id,
+                    results=results,
+                    search_method=search_method,
+                )
+
+            logger.info(
+                f"Successfully logged query and {len(results)} results (query_log_id={query_log_id})"
+            )
+            return query_log_id
+
+        except Exception as e:
+            logger.error(f"Failed to log query with results: {str(e)}")
+            raise
+
     def get_queries_by_time_range(
         self,
         start_time: datetime,
@@ -962,4 +1155,465 @@ class QueryLogClient(BaseStorageClient):
 
         except Exception as e:
             logger.error(f"Failed to get queries per hour: {str(e)}")
+            raise
+
+    def get_results_by_query_log_id(
+        self, query_log_id: int, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve all results for a specific query log.
+
+        Args:
+            query_log_id: The query log ID
+            limit: Optional limit on number of results
+
+        Returns:
+            List of result dictionaries ordered by rank
+
+        Raises:
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> results = client.get_results_by_query_log_id(12345)
+            >>> for r in results:
+            ...     print(f"Rank {r['rank']}: {r['score']:.2f}")
+        """
+        logger.debug(
+            f"Fetching results for query_log_id {query_log_id} (limit={limit})"
+        )
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    query = """
+                        SELECT id, query_log_id, search_method, rank, score,
+                               chunk_id, parent_article_id, created_at
+                        FROM query_results
+                        WHERE query_log_id = %s
+                        ORDER BY rank
+                    """
+                    params = [query_log_id]
+
+                    if limit:
+                        query += " LIMIT %s"
+                        params.append(limit)
+
+                    cur.execute(query, tuple(params))
+                    rows = cur.fetchall()
+
+                    results = []
+                    for row in rows:
+                        results.append(
+                            {
+                                "id": row[0],
+                                "query_log_id": row[1],
+                                "search_method": row[2],
+                                "rank": row[3],
+                                "score": row[4],
+                                "chunk_id": row[5],
+                                "parent_article_id": row[6],
+                                "created_at": row[7],
+                            }
+                        )
+
+                    logger.info(
+                        f"Retrieved {len(results)} results for query_log_id {query_log_id}"
+                    )
+                    return results
+
+        except Exception as e:
+            logger.error(
+                f"Failed to fetch results for query_log_id {query_log_id}: {str(e)}"
+            )
+            raise
+
+    def get_article_top_k_frequency(
+        self,
+        article_id,
+        top_k: int = 5,
+        search_method: Optional[str] = None,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """
+        Calculate how often an article appears in top-k results.
+
+        Args:
+            article_id: The article UUID to analyze
+            top_k: Top-k cutoff (e.g., 5 for "top 5")
+            search_method: Filter by method ('bm25', 'vector', 'hybrid')
+            start_time: Optional start of time range
+            end_time: Optional end of time range
+
+        Returns:
+            Dictionary with:
+                - article_id: Article UUID
+                - search_method: Search method (or None for all)
+                - top_k: Top-k cutoff used
+                - total_queries: Total queries in time range
+                - top_k_appearances: Count of appearances in top-k
+                - top_k_rate: Percentage (0-100)
+                - avg_rank: Average rank when appearing
+                - avg_score: Average score when appearing
+                - time_period_start: Start time (or None)
+                - time_period_end: End time (or None)
+
+        Raises:
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> stats = client.get_article_top_k_frequency(
+            ...     article_id=UUID('...'),
+            ...     top_k=5,
+            ...     search_method='bm25'
+            ... )
+            >>> print(f"Article appears in top 5: {stats['top_k_rate']:.1f}%")
+        """
+        logger.debug(
+            f"Calculating top-{top_k} frequency for article {article_id} "
+            f"(method={search_method})"
+        )
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    # Build dynamic query based on filters
+                    query = """
+                        SELECT
+                            COUNT(DISTINCT query_log_id) AS total_queries,
+                            COUNT(*) FILTER (WHERE rank <= %s) AS top_k_appearances,
+                            COUNT(*) FILTER (WHERE rank <= %s)::FLOAT /
+                                NULLIF(COUNT(DISTINCT query_log_id), 0) * 100 AS top_k_rate,
+                            AVG(rank) FILTER (WHERE rank <= %s) AS avg_rank,
+                            AVG(score) FILTER (WHERE rank <= %s) AS avg_score
+                        FROM query_results
+                        WHERE parent_article_id = %s
+                    """
+                    params: List = [top_k, top_k, top_k, top_k, article_id]
+
+                    if search_method:
+                        query += " AND search_method = %s"
+                        params.append(search_method)
+
+                    if start_time:
+                        query += " AND created_at >= %s"
+                        params.append(start_time)
+
+                    if end_time:
+                        query += " AND created_at <= %s"
+                        params.append(end_time)
+
+                    cur.execute(query, tuple(params))
+                    row = cur.fetchone()
+
+                    if not row or row[0] == 0:
+                        logger.warning(
+                            f"No data found for article {article_id} in specified time range"
+                        )
+                        return {
+                            "article_id": article_id,
+                            "search_method": search_method,
+                            "top_k": top_k,
+                            "total_queries": 0,
+                            "top_k_appearances": 0,
+                            "top_k_rate": 0.0,
+                            "avg_rank": 0.0,
+                            "avg_score": 0.0,
+                            "time_period_start": start_time,
+                            "time_period_end": end_time,
+                        }
+
+                    stats = {
+                        "article_id": article_id,
+                        "search_method": search_method,
+                        "top_k": top_k,
+                        "total_queries": row[0],
+                        "top_k_appearances": row[1] if row[1] else 0,
+                        "top_k_rate": float(row[2]) if row[2] else 0.0,
+                        "avg_rank": float(row[3]) if row[3] else 0.0,
+                        "avg_score": float(row[4]) if row[4] else 0.0,
+                        "time_period_start": start_time,
+                        "time_period_end": end_time,
+                    }
+
+                    logger.info(
+                        f"Article {article_id} appears in top-{top_k}: "
+                        f"{stats['top_k_rate']:.1f}% "
+                        f"({stats['top_k_appearances']}/{stats['total_queries']} queries)"
+                    )
+                    return stats
+
+        except Exception as e:
+            logger.error(f"Failed to calculate top-k frequency: {str(e)}")
+            raise
+
+    def get_rank_distribution(
+        self,
+        search_method: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get distribution of ranks for a search method.
+
+        Useful for understanding how well the retrieval method performs.
+
+        Args:
+            search_method: Search method ('bm25', 'vector', 'hybrid')
+            start_time: Optional start of time range
+            end_time: Optional end of time range
+
+        Returns:
+            List of dictionaries with 'rank', 'count', 'avg_score' keys
+
+        Raises:
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> dist = client.get_rank_distribution('bm25')
+            >>> for entry in dist:
+            ...     print(f"Rank {entry['rank']}: {entry['count']} results, "
+            ...           f"avg score {entry['avg_score']:.2f}")
+        """
+        logger.debug(
+            f"Getting rank distribution for {search_method} "
+            f"(time_range={start_time} to {end_time})"
+        )
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    query = """
+                        SELECT
+                            rank,
+                            COUNT(*) AS count,
+                            AVG(score) AS avg_score
+                        FROM query_results
+                        WHERE search_method = %s
+                    """
+                    params: List = [search_method]
+
+                    if start_time:
+                        query += " AND created_at >= %s"
+                        params.append(start_time)
+
+                    if end_time:
+                        query += " AND created_at <= %s"
+                        params.append(end_time)
+
+                    query += " GROUP BY rank ORDER BY rank"
+
+                    cur.execute(query, tuple(params))
+                    rows = cur.fetchall()
+
+                    distribution = []
+                    for row in rows:
+                        distribution.append(
+                            {
+                                "rank": row[0],
+                                "count": row[1],
+                                "avg_score": float(row[2]) if row[2] else 0.0,
+                            }
+                        )
+
+                    logger.info(
+                        f"Retrieved rank distribution for {search_method}: "
+                        f"{len(distribution)} ranks"
+                    )
+                    return distribution
+
+        except Exception as e:
+            logger.error(f"Failed to get rank distribution: {str(e)}")
+            raise
+
+    def get_score_statistics(
+        self,
+        search_method: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+    ) -> Dict[str, Any]:
+        """
+        Calculate score statistics for a search method.
+
+        Uses PostgreSQL percentile functions to compute p50, p95, p99.
+
+        Args:
+            search_method: Search method ('bm25', 'vector', 'hybrid')
+            start_time: Optional start of time range
+            end_time: Optional end of time range
+
+        Returns:
+            Dictionary with avg, min, max, p50, p95, p99 scores
+
+        Raises:
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> stats = client.get_score_statistics('vector')
+            >>> print(f"Avg similarity: {stats['avg_score']:.3f}")
+            >>> print(f"P95 similarity: {stats['p95_score']:.3f}")
+        """
+        logger.debug(
+            f"Calculating score statistics for {search_method} "
+            f"(time_range={start_time} to {end_time})"
+        )
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    query = """
+                        SELECT
+                            AVG(score) AS avg_score,
+                            MIN(score) AS min_score,
+                            MAX(score) AS max_score,
+                            PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY score) AS p50_score,
+                            PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY score) AS p95_score,
+                            PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY score) AS p99_score,
+                            COUNT(*) AS total_results
+                        FROM query_results
+                        WHERE search_method = %s
+                    """
+                    params: List = [search_method]
+
+                    if start_time:
+                        query += " AND created_at >= %s"
+                        params.append(start_time)
+
+                    if end_time:
+                        query += " AND created_at <= %s"
+                        params.append(end_time)
+
+                    cur.execute(query, tuple(params))
+                    row = cur.fetchone()
+
+                    if not row or row[6] == 0:
+                        logger.warning(
+                            f"No score data found for {search_method} in specified time range"
+                        )
+                        return {
+                            "search_method": search_method,
+                            "total_results": 0,
+                            "avg_score": 0.0,
+                            "min_score": 0.0,
+                            "max_score": 0.0,
+                            "p50_score": 0.0,
+                            "p95_score": 0.0,
+                            "p99_score": 0.0,
+                            "time_period_start": start_time,
+                            "time_period_end": end_time,
+                        }
+
+                    stats = {
+                        "search_method": search_method,
+                        "total_results": row[6],
+                        "avg_score": float(row[0]) if row[0] else 0.0,
+                        "min_score": float(row[1]) if row[1] else 0.0,
+                        "max_score": float(row[2]) if row[2] else 0.0,
+                        "p50_score": float(row[3]) if row[3] else 0.0,
+                        "p95_score": float(row[4]) if row[4] else 0.0,
+                        "p99_score": float(row[5]) if row[5] else 0.0,
+                        "time_period_start": start_time,
+                        "time_period_end": end_time,
+                    }
+
+                    logger.info(
+                        f"Score statistics for {search_method}: "
+                        f"avg={stats['avg_score']:.2f}, "
+                        f"p50={stats['p50_score']:.2f}, "
+                        f"p95={stats['p95_score']:.2f}, "
+                        f"p99={stats['p99_score']:.2f}"
+                    )
+                    return stats
+
+        except Exception as e:
+            logger.error(f"Failed to calculate score statistics: {str(e)}")
+            raise
+
+    def get_article_coverage(
+        self,
+        search_method: str,
+        start_time: Optional[datetime] = None,
+        end_time: Optional[datetime] = None,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get articles that appear most frequently in results.
+
+        Args:
+            search_method: Search method ('bm25', 'vector', 'hybrid')
+            start_time: Optional start of time range
+            end_time: Optional end of time range
+            limit: Maximum number of articles to return
+
+        Returns:
+            List of dicts with article_id, num_queries, avg_rank, avg_score, rank_1_count
+
+        Raises:
+            ConnectionError: If database operation fails
+
+        Example:
+            >>> coverage = client.get_article_coverage('bm25', limit=10)
+            >>> for article in coverage:
+            ...     print(f"Article {article['parent_article_id']}: "
+            ...           f"{article['num_queries']} queries, "
+            ...           f"avg rank {article['avg_rank']:.1f}")
+        """
+        logger.debug(
+            f"Getting article coverage for {search_method} "
+            f"(time_range={start_time} to {end_time}, limit={limit})"
+        )
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    query = """
+                        SELECT
+                            parent_article_id,
+                            COUNT(DISTINCT query_log_id) AS num_queries,
+                            AVG(rank) AS avg_rank,
+                            AVG(score) AS avg_score,
+                            COUNT(*) FILTER (WHERE rank = 1) AS rank_1_count
+                        FROM query_results
+                        WHERE search_method = %s
+                    """
+                    params: List = [search_method]
+
+                    if start_time:
+                        query += " AND created_at >= %s"
+                        params.append(start_time)
+
+                    if end_time:
+                        query += " AND created_at <= %s"
+                        params.append(end_time)
+
+                    query += """
+                        GROUP BY parent_article_id
+                        ORDER BY num_queries DESC
+                        LIMIT %s
+                    """
+                    params.append(limit)
+
+                    cur.execute(query, tuple(params))
+                    rows = cur.fetchall()
+
+                    coverage = []
+                    for row in rows:
+                        coverage.append(
+                            {
+                                "parent_article_id": row[0],
+                                "num_queries": row[1],
+                                "avg_rank": float(row[2]) if row[2] else 0.0,
+                                "avg_score": float(row[3]) if row[3] else 0.0,
+                                "rank_1_count": row[4] if row[4] else 0,
+                            }
+                        )
+
+                    logger.info(
+                        f"Retrieved article coverage for {search_method}: "
+                        f"{len(coverage)} articles"
+                    )
+                    return coverage
+
+        except Exception as e:
+            logger.error(f"Failed to get article coverage: {str(e)}")
             raise
