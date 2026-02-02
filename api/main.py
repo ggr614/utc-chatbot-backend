@@ -28,6 +28,7 @@ from api.utils.connection_pool import get_connection_pool, close_connection_pool
 from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
+from core.reranker import CohereReranker
 from core.embedding import GenerateEmbeddingsOpenAI
 from core.storage_vector import OpenAIVectorStorage
 from utils.logger import get_logger
@@ -44,6 +45,7 @@ async def lifespan(app: FastAPI):
     - Initialize database connection pool
     - Initialize BM25 retriever (loads corpus into memory)
     - Initialize vector retriever
+    - Initialize Cohere reranker (AWS Bedrock)
     - Pre-warm BM25 corpus cache
     - Store shared resources in app.state
 
@@ -117,6 +119,17 @@ async def lifespan(app: FastAPI):
             f"model={vector_stats.get('model', 'unknown')}"
         )
 
+        # Initialize Cohere reranker
+        logger.info("Initializing Cohere reranker...")
+        try:
+            reranker = CohereReranker()
+            app.state.reranker = reranker
+            logger.info("✓ Cohere reranker initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize reranker: {e}", exc_info=True)
+            app.state.reranker = None
+            logger.warning("⚠ Reranker unavailable - hybrid search will use RRF fallback")
+
         logger.info("=" * 80)
         logger.info("FastAPI application startup complete!")
         logger.info("API Documentation: http://localhost:8000/docs")
@@ -165,7 +178,7 @@ app = FastAPI(
         "Provides three search methods:\n"
         "- **BM25**: Fast keyword-based sparse retrieval\n"
         "- **Vector**: Semantic dense retrieval using embeddings\n"
-        "- **Hybrid**: Combined BM25 + vector with fusion algorithms\n\n"
+        "- **Hybrid**: Combined BM25 + vector with RRF fusion and Cohere neural reranking\n\n"
         "All endpoints require API key authentication via X-API-Key header.\n\n"
         "**Authentication**: Include header `X-API-Key: your-api-key`"
     ),

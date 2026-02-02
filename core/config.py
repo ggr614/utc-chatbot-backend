@@ -88,6 +88,22 @@ class APISettings(BaseSettings):
         env_prefix="API_",
     )
 
+class AWSRerankerSettings(BaseSettings):
+    """Settings for AWS Bedrock Cohere Reranker."""
+    ACCESS_KEY_ID: SecretStr
+    SECRET_ACCESS_KEY: SecretStr
+    REGION_NAME: str = 'us-east-1'
+    RERANKER_ARN: str
+    
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+        env_prefix="AWS_",
+    )
+    
+
 
 # Cached accessor functions for modules to get their settings
 
@@ -120,3 +136,8 @@ def get_chat_settings() -> ChatSettings:
 def get_api_settings() -> APISettings:
     """Get cached API settings for FastAPI application."""
     return APISettings()  # type: ignore[call-arg]
+
+@lru_cache()
+def get_aws_reranker_settings() -> AWSRerankerSettings:
+    """Get cached AWS Bedrock Cohere Reranker settings."""
+    return AWSRerankerSettings()  # type: ignore[call-arg]

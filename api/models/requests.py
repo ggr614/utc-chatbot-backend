@@ -8,7 +8,7 @@ Provides validation for:
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, Optional
 
 
 class SearchRequest(BaseModel):
@@ -83,19 +83,19 @@ class VectorSearchRequest(SearchRequest):
 
 class HybridSearchRequest(SearchRequest):
     """
-    Hybrid search request combining BM25 and vector retrieval.
+    Hybrid search request with RRF fusion and Cohere reranking.
 
-    Provides best of both worlds: keyword precision + semantic understanding.
-    Uses Reciprocal Rank Fusion (RRF) or weighted score fusion to combine results.
+    Combines BM25 keyword search and vector semantic search using
+    Reciprocal Rank Fusion, then applies Cohere neural reranking
+    for optimal relevance.
+
+    Workflow:
+    1. BM25 + Vector search (2× top_k results)
+    2. RRF fusion (combines and deduplicates)
+    3. Cohere reranking (neural relevance scoring)
+    4. Return top_k results
     """
 
-    bm25_weight: float = Field(
-        default=0.5,
-        ge=0.0,
-        le=1.0,
-        description="Weight for BM25 results (0-1). Vector weight = 1 - bm25_weight. Only used with 'weighted' fusion.",
-        examples=[0.5],
-    )
     min_bm25_score: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -109,15 +109,10 @@ class HybridSearchRequest(SearchRequest):
         description="Minimum vector similarity threshold (0.0-1.0)",
         examples=[0.7],
     )
-    fusion_method: Literal["rrf", "weighted"] = Field(
-        default="rrf",
-        description="Fusion method: 'rrf' (Reciprocal Rank Fusion, rank-based) or 'weighted' (score-based)",
-        examples=["rrf"],
-    )
     rrf_k: int = Field(
         default=60,
         ge=1,
-        description="RRF constant (only used with 'rrf' fusion). Typical value: 60.",
+        description="RRF constant (controls rank-based weighting). Typical value: 60.",
         examples=[60],
     )
 

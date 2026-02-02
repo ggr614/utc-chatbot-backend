@@ -4,19 +4,20 @@ Search endpoints for BM25, vector, and hybrid retrieval.
 Provides three search methods:
 1. BM25 - Fast keyword-based sparse retrieval
 2. Vector - Semantic dense retrieval via embeddings
-3. Hybrid - Combined BM25 + vector with fusion algorithms
+3. Hybrid - Combined BM25 + vector with RRF fusion and Cohere reranking
 
 All endpoints include query logging for analytics.
 """
 
 from fastapi import APIRouter, Depends, Request, HTTPException, status
-from typing import Annotated
+from typing import Annotated, Optional
 import time
 
 from api.dependencies import (
     verify_api_key,
     get_bm25_retriever,
     get_vector_retriever,
+    get_reranker,
     get_query_log_client,
 )
 from api.models.requests import (
@@ -28,6 +29,7 @@ from api.models.responses import SearchResponse, SearchResultChunk
 from api.utils.hybrid_search import hybrid_search
 from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
+from core.reranker import CohereReranker
 from core.storage_query_log import QueryLogClient
 from utils.logger import get_logger
 
@@ -299,8 +301,8 @@ def search_vector(
 @router.post(
     "/hybrid",
     response_model=SearchResponse,
-    summary="Hybrid Search (BM25 + Vector)",
-    description="Perform hybrid search combining BM25 and vector retrieval using Reciprocal Rank Fusion or weighted scoring. Best overall performance.",
+    summary="Hybrid Search with Reranking",
+    description="Perform hybrid search combining BM25 and vector retrieval with RRF fusion and Cohere neural reranking. Best overall performance.",
     tags=["Search"],
 )
 def search_hybrid(
@@ -308,65 +310,57 @@ def search_hybrid(
     api_key: Annotated[str, Depends(verify_api_key)],
     bm25_retriever: Annotated[BM25Retriever, Depends(get_bm25_retriever)],
     vector_retriever: Annotated[VectorRetriever, Depends(get_vector_retriever)],
+    reranker: Annotated[Optional[CohereReranker], Depends(get_reranker)],
     query_log_client: Annotated[QueryLogClient, Depends(get_query_log_client)],
 ) -> SearchResponse:
     """
-    Perform hybrid search combining BM25 and vector retrieval.
+    Perform hybrid search with neural reranking.
 
     **Best for:**
-    - General-purpose search (works well for most queries)
-    - Combining precision and recall
-    - Balancing keyword matching and semantic understanding
+    - General-purpose search (best overall performance)
+    - Combining keyword precision and semantic understanding
+    - Production use cases requiring high relevance
 
-    **Fusion Methods:**
-
-    1. **RRF (Reciprocal Rank Fusion)** - Default, recommended
-       - Rank-based fusion (robust to score scales)
-       - Formula: score = Σ(1 / (k + rank))
-       - Parameter: `rrf_k` (default 60)
-
-    2. **Weighted** - Score-based fusion
-       - Combines normalized scores with weights
-       - Formula: score = (w_bm25 × norm_bm25) + (w_vec × similarity)
-       - Parameter: `bm25_weight` (default 0.5)
+    **Workflow:**
+    1. **BM25 Search**: Fast keyword-based retrieval (2×top_k results)
+    2. **Vector Search**: Semantic similarity retrieval (2×top_k results)
+    3. **RRF Fusion**: Reciprocal Rank Fusion combines and deduplicates results
+    4. **Cohere Rerank**: Neural reranking refines relevance using Cohere v3.5
 
     **Characteristics:**
-    - Combines best of both methods
-    - Latency: ~500ms-1s (dominated by vector embedding API)
-    - More robust than single method
+    - Best relevance quality (neural reranking)
+    - Latency: ~800ms-1.5s (vector API + reranking API)
+    - Automatic fallback to RRF if reranking fails
+    - Scores are Cohere relevance scores (0-1, calibrated)
 
     **Request:**
     - `query`: Search query text (1-1000 chars)
     - `top_k`: Number of results to return (1-100, default 10)
-    - `fusion_method`: "rrf" or "weighted" (default "rrf")
-    - `bm25_weight`: Weight for BM25 (0-1, only for weighted fusion)
-    - `rrf_k`: RRF constant (default 60, only for RRF fusion)
+    - `rrf_k`: RRF constant (default 60, controls rank-based weighting)
     - `min_bm25_score`: Optional BM25 score threshold
     - `min_vector_similarity`: Optional vector similarity threshold
     - `user_id`: Optional user identifier for analytics
 
     **Response:**
-    - Ranked results with combined scores
-    - Latency in milliseconds
-    - Metadata (fusion_method, bm25_weight or rrf_k)
+    - Ranked results with Cohere relevance scores (0-1)
+    - Latency in milliseconds (includes all API calls)
+    - Metadata: reranking status, RRF parameters, diagnostics
     """
     start_time = time.time()
 
     logger.info(
-        f"Hybrid search: query='{request.query[:50]}', top_k={request.top_k}, "
-        f"fusion={request.fusion_method}, bm25_weight={request.bm25_weight}, "
+        f"Hybrid search with reranking: query='{request.query[:50]}', top_k={request.top_k}, "
         f"rrf_k={request.rrf_k}, user_id={request.user_id}"
     )
 
     try:
-        # Perform hybrid search
-        results = hybrid_search(
+        # Perform hybrid search with reranking
+        results, reranking_metadata = hybrid_search(
             query=request.query,
             bm25_retriever=bm25_retriever,
             vector_retriever=vector_retriever,
+            reranker=reranker,
             top_k=request.top_k,
-            bm25_weight=request.bm25_weight,
-            fusion_method=request.fusion_method,
             rrf_k=request.rrf_k,
             min_bm25_score=request.min_bm25_score,
             min_vector_similarity=request.min_vector_similarity,
@@ -391,7 +385,8 @@ def search_hybrid(
         latency_ms = int((time.time() - start_time) * 1000)
 
         logger.info(
-            f"Hybrid search completed: {len(results)} results, {latency_ms}ms latency"
+            f"Hybrid search completed: {len(results)} results, {latency_ms}ms latency, "
+            f"reranked={reranking_metadata.get('reranked', False)}"
         )
 
         # Prepare results for logging (extract minimal data)
@@ -420,13 +415,11 @@ def search_hybrid(
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
 
-        # Build metadata with fusion-specific info
-        metadata = {"fusion_method": request.fusion_method}
-        if request.fusion_method == "rrf":
-            metadata["rrf_k"] = request.rrf_k
-        else:  # weighted
-            metadata["bm25_weight"] = request.bm25_weight
-            metadata["vector_weight"] = 1.0 - request.bm25_weight
+        # Build metadata with RRF and reranking info
+        metadata = {
+            "rrf_k": request.rrf_k,
+            **reranking_metadata,
+        }
 
         # Build response
         return SearchResponse(

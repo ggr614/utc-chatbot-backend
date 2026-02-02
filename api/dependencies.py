@@ -3,15 +3,16 @@ Dependency injection for FastAPI endpoints.
 
 Provides reusable dependencies for:
 - API key authentication
-- Retriever access (BM25, vector)
+- Retriever access (BM25, vector, reranker)
 - Query logging client
 """
 
 from fastapi import Header, HTTPException, status, Request
-from typing import Annotated
+from typing import Annotated, Optional
 from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
+from core.reranker import CohereReranker
 from core.storage_query_log import QueryLogClient
 from utils.logger import get_logger
 
@@ -153,6 +154,43 @@ def get_vector_retriever(request: Request) -> VectorRetriever:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Vector retriever not initialized",
         )
+
+
+def get_reranker(request: Request) -> Optional[CohereReranker]:
+    """
+    Dependency to access the shared Cohere reranker.
+
+    The reranker is initialized once at application startup and stored
+    in app.state for reuse across requests. Returns None if reranker
+    failed to initialize (graceful degradation).
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Initialized CohereReranker instance, or None if unavailable
+
+    Example:
+        >>> @router.post("/search/hybrid")
+        >>> def search(reranker: Annotated[Optional[CohereReranker], Depends(get_reranker)]):
+        >>>     if reranker:
+        >>>         results = reranker.rerank("query", candidates)
+    """
+    try:
+        reranker = request.app.state.reranker
+
+        # Check if reranker is None (initialization failed)
+        if reranker is None:
+            logger.warning(
+                "Cohere reranker is None (initialization failed at startup). "
+                "Hybrid search will fall back to RRF."
+            )
+
+        return reranker  # May be None, which is OK (graceful degradation)
+
+    except AttributeError:
+        logger.warning("Cohere reranker not found in app.state. Falling back to RRF.")
+        return None  # Graceful degradation
 
 
 def get_query_log_client(request: Request) -> QueryLogClient:
