@@ -75,8 +75,17 @@ class SearchResponse(BaseModel):
     )
     metadata: dict = Field(
         default_factory=dict,
-        description="Additional method-specific metadata (min_score, fusion_method, etc.)",
-        examples=[{"min_score": 1.0}],
+        description=(
+            "Additional method-specific metadata. "
+            "For hybrid/hyde endpoints: rrf_k (int), reranked (bool), "
+            "reranker_status ('success'|'failed'|'unavailable'), "
+            "reranker_latency_ms (int), num_candidates_reranked (int), "
+            "fallback_method (str), error (str). "
+            "For hyde: hyde_latency_ms (int), hypothetical_document (str), token_usage (dict)."
+        ),
+        examples=[
+            {"rrf_k": 60, "reranked": True, "reranker_status": "success", "reranker_latency_ms": 245}
+        ],
     )
     query_log_id: Optional[int] = Field(
         default=None,

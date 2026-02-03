@@ -38,6 +38,12 @@ class SearchRequest(BaseModel):
         description="Optional user identifier for analytics",
         examples=["user123"],
     )
+    command: Optional[str] = Field(
+        default=None,
+        max_length=10,
+        description="Command type used: 'bypass', 'q', 'qlong', 'debug', 'debuglong', or NULL",
+        examples=["q"],
+    )
 
     @field_validator("query")
     @classmethod
@@ -47,6 +53,19 @@ class SearchRequest(BaseModel):
         if not stripped:
             raise ValueError("Query cannot be empty or whitespace only")
         return stripped
+
+    @field_validator("command")
+    @classmethod
+    def validate_command(cls, v: Optional[str]) -> Optional[str]:
+        """Validate that command is one of the allowed values."""
+        if v is None:
+            return v
+        valid_commands = {"bypass", "q", "qlong", "debug", "debuglong"}
+        if v not in valid_commands:
+            raise ValueError(
+                f"Command must be one of {valid_commands}, got '{v}'"
+            )
+        return v
 
 
 class BM25SearchRequest(SearchRequest):

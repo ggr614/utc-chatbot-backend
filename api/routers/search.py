@@ -138,6 +138,7 @@ def search_bm25(
                 latency_ms=latency_ms,
                 user_id=request.user_id,
                 query_embedding=None,
+                command=request.command,
             )
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
@@ -267,6 +268,7 @@ def search_vector(
                 latency_ms=latency_ms,
                 user_id=request.user_id,
                 query_embedding=None,  # Could store embedding here if needed
+                command=request.command,
             )
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
@@ -419,6 +421,7 @@ def search_hybrid(
                 latency_ms=latency_ms,
                 user_id=search_request.user_id,
                 query_embedding=None,
+                command=search_request.command,
             )
 
             # Log reranking data if query was logged successfully
@@ -703,6 +706,7 @@ async def search_hyde(
                 latency_ms=latency_ms,
                 user_id=search_request.user_id,
                 query_embedding=None,
+                command=search_request.command,
             )
 
             # Log reranking data if query was logged successfully

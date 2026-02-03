@@ -186,6 +186,7 @@ def hybrid_search(
         reranked_results = combined_results
         reranking_metadata = {
             "reranked": False,
+            "reranker_status": "unavailable",
             "reranking_failed": True,
             "fallback_method": "rrf",
             "error": "Reranker not initialized",
@@ -200,6 +201,7 @@ def hybrid_search(
             )
             reranking_metadata = {
                 "reranked": True,
+                "reranker_status": "success",
                 "num_candidates_reranked": len(combined_results),
                 "reranker_latency_ms": reranker.last_rerank_latency_ms,
             }
@@ -209,6 +211,7 @@ def hybrid_search(
             reranked_results = combined_results
             reranking_metadata = {
                 "reranked": False,
+                "reranker_status": "failed",
                 "reranking_failed": True,
                 "fallback_method": "rrf",
                 "error": str(e),

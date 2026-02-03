@@ -191,6 +191,12 @@ class QueryLog(BaseModel):
         default=None, description="User identifier for analytics."
     )
 
+    # Command tracking
+    command: str | None = Field(
+        default=None,
+        description="Command type used: 'bypass', 'q', 'qlong', 'debug', 'debuglong', or NULL.",
+    )
+
     # Timestamp - auto-defaults to NOW() in database
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),

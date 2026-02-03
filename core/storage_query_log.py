@@ -50,6 +50,7 @@ class QueryLogClient(BaseStorageClient):
         query_embedding: Optional[List[float]] = None,
         latency_ms: Optional[int] = None,
         user_id: Optional[str] = None,
+        command: Optional[str] = None,
         created_at: Optional[datetime] = None,
     ) -> int:
         """
@@ -61,6 +62,7 @@ class QueryLogClient(BaseStorageClient):
             query_embedding: Optional vector embedding (3072 dimensions)
             latency_ms: Response latency in milliseconds
             user_id: User identifier for analytics
+            command: Command type ('bypass', 'q', 'qlong', 'debug', 'debuglong', or None)
             created_at: Query timestamp (defaults to NOW())
 
         Returns:
@@ -70,6 +72,7 @@ class QueryLogClient(BaseStorageClient):
             ConnectionError: If database operation fails
             ValueError: If raw_query or cache_result is empty
             ValueError: If query_embedding dimensions don't match (must be 3072)
+            ValueError: If command is not a valid value
 
         Example:
             >>> client = QueryLogClient()
@@ -77,7 +80,8 @@ class QueryLogClient(BaseStorageClient):
             ...     raw_query="How do I reset my password?",
             ...     cache_result='hit',
             ...     latency_ms=125,
-            ...     user_id='user456'
+            ...     user_id='user456',
+            ...     command='q'
             ... )
         """
         if not raw_query or not raw_query.strip():
@@ -89,6 +93,11 @@ class QueryLogClient(BaseStorageClient):
         if query_embedding is not None and len(query_embedding) != 3072:
             raise ValueError(
                 f"query_embedding must have 3072 dimensions, got {len(query_embedding)}"
+            )
+
+        if command is not None and command not in ("bypass", "q", "qlong", "debug", "debuglong"):
+            raise ValueError(
+                f"command must be 'bypass', 'q', 'qlong', 'debug', 'debuglong', or None, got '{command}'"
             )
 
         logger.debug(
@@ -104,7 +113,25 @@ class QueryLogClient(BaseStorageClient):
                         cur.execute(
                             """
                             INSERT INTO query_logs
-                            (raw_query, query_embedding, cache_result, latency_ms, user_id, created_at)
+                            (raw_query, query_embedding, cache_result, latency_ms, user_id, command, created_at)
+                            VALUES (%s, %s, %s, %s, %s, %s, %s)
+                            RETURNING id
+                            """,
+                            (
+                                raw_query,
+                                query_embedding,
+                                cache_result,
+                                latency_ms,
+                                user_id,
+                                command,
+                                created_at,
+                            ),
+                        )
+                    else:
+                        cur.execute(
+                            """
+                            INSERT INTO query_logs
+                            (raw_query, query_embedding, cache_result, latency_ms, user_id, command)
                             VALUES (%s, %s, %s, %s, %s, %s)
                             RETURNING id
                             """,
@@ -114,23 +141,7 @@ class QueryLogClient(BaseStorageClient):
                                 cache_result,
                                 latency_ms,
                                 user_id,
-                                created_at,
-                            ),
-                        )
-                    else:
-                        cur.execute(
-                            """
-                            INSERT INTO query_logs
-                            (raw_query, query_embedding, cache_result, latency_ms, user_id)
-                            VALUES (%s, %s, %s, %s, %s)
-                            RETURNING id
-                            """,
-                            (
-                                raw_query,
-                                query_embedding,
-                                cache_result,
-                                latency_ms,
-                                user_id,
+                                command,
                             ),
                         )
 
@@ -354,6 +365,7 @@ class QueryLogClient(BaseStorageClient):
         latency_ms: Optional[int] = None,
         user_id: Optional[str] = None,
         query_embedding: Optional[List[float]] = None,
+        command: Optional[str] = None,
     ) -> int:
         """
         Log query and results in a single transaction.
@@ -374,6 +386,7 @@ class QueryLogClient(BaseStorageClient):
             latency_ms: Query response latency in milliseconds
             user_id: User identifier for analytics
             query_embedding: Optional vector embedding (3072 dimensions)
+            command: Command type ('bypass', 'q', 'qlong', 'debug', 'debuglong', or None)
 
         Returns:
             The query log ID
@@ -389,7 +402,8 @@ class QueryLogClient(BaseStorageClient):
             ...     search_method="bm25",
             ...     results=result_list,
             ...     latency_ms=125,
-            ...     user_id="user123"
+            ...     user_id="user123",
+            ...     command="q"
             ... )
         """
         logger.debug(
@@ -405,6 +419,7 @@ class QueryLogClient(BaseStorageClient):
                 query_embedding=query_embedding,
                 latency_ms=latency_ms,
                 user_id=user_id,
+                command=command,
             )
 
             # Then log the results with the query_log_id
@@ -464,7 +479,7 @@ class QueryLogClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     # Build dynamic query based on filters (exclude embeddings for performance)
                     query = """
-                        SELECT id, raw_query, cache_result, latency_ms, user_id, created_at
+                        SELECT id, raw_query, cache_result, latency_ms, user_id, command, created_at
                         FROM query_logs
                         WHERE created_at >= %s AND created_at <= %s
                     """
@@ -497,7 +512,8 @@ class QueryLogClient(BaseStorageClient):
                                 cache_result=row[2],
                                 latency_ms=row[3],
                                 user_id=row[4],
-                                created_at=row[5],
+                                command=row[5],
+                                created_at=row[6],
                             )
                         )
 
@@ -538,7 +554,7 @@ class QueryLogClient(BaseStorageClient):
                         cur.execute(
                             """
                             SELECT id, raw_query, query_embedding, cache_result,
-                                   latency_ms, user_id, created_at
+                                   latency_ms, user_id, command, created_at
                             FROM query_logs
                             WHERE id = %s
                             """,
@@ -553,12 +569,13 @@ class QueryLogClient(BaseStorageClient):
                                 cache_result=row[3],
                                 latency_ms=row[4],
                                 user_id=row[5],
-                                created_at=row[6],
+                                command=row[6],
+                                created_at=row[7],
                             )
                     else:
                         cur.execute(
                             """
-                            SELECT id, raw_query, cache_result, latency_ms, user_id, created_at
+                            SELECT id, raw_query, cache_result, latency_ms, user_id, command, created_at
                             FROM query_logs
                             WHERE id = %s
                             """,
@@ -573,7 +590,8 @@ class QueryLogClient(BaseStorageClient):
                                 cache_result=row[2],
                                 latency_ms=row[3],
                                 user_id=row[4],
-                                created_at=row[5],
+                                command=row[5],
+                                created_at=row[6],
                             )
 
                     logger.debug(f"Query log {query_id} not found")
@@ -893,7 +911,7 @@ class QueryLogClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     # Build dynamic query based on filters
                     query = """
-                        SELECT id, raw_query, cache_result, latency_ms, user_id, created_at
+                        SELECT id, raw_query, cache_result, latency_ms, user_id, command, created_at
                         FROM query_logs
                         WHERE user_id = %s
                     """
@@ -926,7 +944,8 @@ class QueryLogClient(BaseStorageClient):
                                 cache_result=row[2],
                                 latency_ms=row[3],
                                 user_id=row[4],
-                                created_at=row[5],
+                                command=row[5],
+                                created_at=row[6],
                             )
                         )
 
@@ -974,7 +993,7 @@ class QueryLogClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     # Build dynamic query based on filters
                     query = """
-                        SELECT id, raw_query, cache_result, latency_ms, user_id, created_at
+                        SELECT id, raw_query, cache_result, latency_ms, user_id, command, created_at
                         FROM query_logs
                         WHERE raw_query ILIKE %s
                     """
@@ -1005,7 +1024,8 @@ class QueryLogClient(BaseStorageClient):
                                 cache_result=row[2],
                                 latency_ms=row[3],
                                 user_id=row[4],
-                                created_at=row[5],
+                                command=row[5],
+                                created_at=row[6],
                             )
                         )
 

@@ -1,12 +1,12 @@
 """
 title: RAG Helpdesk Filter
 author: David Wood
-version: 2.0.0
+version: 2.1.0
 date: 2025-02-03
 description: Filter function that augments any model with RAG context via command-based
-             routing. Use !q to enable RAG retrieval, !qlong for HyDE (slower, higher recall),
-             !debug for RAG + debug info, or no command to bypass RAG entirely
-             (fast LLM-only responses).
+             routing. Use !q for RAG retrieval, !qlong for HyDE (slower, higher recall),
+             !debug for RAG + debug info, !debuglong for HyDE + debug info, !help for
+             command help, or no command to bypass RAG entirely (fast LLM-only responses).
 license: MIT
 requirements: requests
 """
@@ -223,7 +223,7 @@ class Filter:
         self._query_log_id = None
         self._search_response_data = None
         self._search_metadata = None      # Debug metadata (dict or None)
-        self._command_mode = None          # Track mode: "bypass", "q", "qlong", "debug"
+        self._command_mode = None          # Track mode: "bypass", "q", "qlong", "debug", "debuglong"
         self._original_query = None        # Original query before command strip
         self._use_hyde_search = False      # Command-scoped HyDE toggle
 
@@ -232,14 +232,16 @@ class Filter:
         Parse command from user query.
 
         Commands (case-insensitive, must be at start of query):
+        - !help -> Display help information
+        - !debuglong <query> -> Enable HyDE RAG retrieval + debug output
         - !qlong <query> -> Enable HyDE RAG retrieval (slower, higher recall)
-        - !q <query> -> Enable RAG retrieval
         - !debug <query> -> Enable RAG + debug output
+        - !q <query> -> Enable RAG retrieval
         - <query> (no command) -> Bypass RAG
 
         Returns:
             tuple[command, cleaned_query]:
-            - command: None, "qlong", "q", or "debug"
+            - command: None, "help", "debuglong", "qlong", "debug", or "q"
             - cleaned_query: Query with command stripped (original if no command)
         """
         if not query or not isinstance(query, str):
@@ -251,17 +253,24 @@ class Filter:
         # Check for commands (case-insensitive)
         query_lower = query_stripped.lower()
 
-        if query_lower == "!qlong" or query_lower.startswith("!qlong "):
+        if query_lower == "!help" or query_lower.startswith("!help "):
+            return ("help", "")
+
+        elif query_lower == "!debuglong" or query_lower.startswith("!debuglong "):
+            cleaned = query_stripped[len("!debuglong"):].strip()
+            return ("debuglong", cleaned if cleaned else query_stripped)
+
+        elif query_lower == "!qlong" or query_lower.startswith("!qlong "):
             cleaned = query_stripped[len("!qlong"):].strip()
             return ("qlong", cleaned if cleaned else query_stripped)
-
-        elif query_lower == "!q" or query_lower.startswith("!q "):
-            cleaned = query_stripped[len("!q"):].strip()
-            return ("q", cleaned if cleaned else query_stripped)
 
         elif query_lower == "!debug" or query_lower.startswith("!debug "):
             cleaned = query_stripped[len("!debug"):].strip()
             return ("debug", cleaned if cleaned else query_stripped)
+
+        elif query_lower == "!q" or query_lower.startswith("!q "):
+            cleaned = query_stripped[len("!q"):].strip()
+            return ("q", cleaned if cleaned else query_stripped)
 
         # No command found
         return (None, query_stripped)
@@ -282,14 +291,115 @@ class Filter:
                 return content
         return None
 
+    def _get_help_text(self) -> str:
+        """
+        Generate help text explaining all available commands.
+
+        Returns formatted markdown with command descriptions and examples.
+        """
+        return """# RAG Helpdesk Assistant - Command Help
+
+## Available Commands
+
+### `!q <your question>`
+**Standard RAG search** - Fast retrieval from the knowledge base using hybrid search (BM25 + vector similarity).
+
+**When to use:** For most questions about UTC IT procedures, systems, or troubleshooting.
+
+**Example:**
+```
+!q How do I reset a student's password?
+```
+
+**Performance:** Fast (~500ms-1s)
+
+---
+
+### `!qlong <your question>`
+**HyDE-enhanced RAG search** - Uses Hypothetical Document Embeddings for higher recall. The system first generates what an ideal answer might look like, then searches for documents similar to that ideal answer.
+
+**When to use:** When standard search doesn't find what you need, or for complex/nuanced questions where you want broader retrieval.
+
+**Example:**
+```
+!qlong What should I do when a faculty member can't access their Banner account after returning from sabbatical?
+```
+
+**Performance:** Slower (~1-3s) due to additional LLM call for document generation
+
+**Simple explanation:** Think of `!q` as searching for documents that match your question's keywords and meaning. `!qlong` first imagines what a perfect answer would say, then finds documents similar to that perfect answer. It's like the difference between searching for "how to fix a flat tire" vs. searching for "remove wheel, patch inner tube, reinflate, reattach wheel" - the second approach might find better results even if the original documents don't use your exact phrasing.
+
+---
+
+### `!debug <your question>`
+**RAG search with full diagnostic information** - Same as `!q`, but appends detailed debug information about the search process, including timing, relevance scores, and which documents were retrieved.
+
+**When to use:** When testing the system, evaluating search quality, or troubleshooting why certain results were returned.
+
+**Example:**
+```
+!debug How do I unlock a MocsID account?
+```
+
+---
+
+### `!debuglong <your question>`
+**HyDE RAG search with full diagnostic information** - Combines `!qlong` and `!debug`. Uses HyDE for enhanced retrieval and appends comprehensive debug information about the search process.
+
+**When to use:** When you need both higher recall (HyDE) and diagnostic information to understand how the search performed.
+
+**Example:**
+```
+!debuglong What should I do when a faculty member can't access their Banner account after returning from sabbatical?
+```
+
+**Performance:** Slower (~1-3s) due to HyDE generation, plus debug output appended
+
+---
+
+### `<your question>` (no command)
+**Direct LLM mode** - Bypasses the knowledge base entirely and uses only the LLM's built-in knowledge.
+
+**When to use:** For general IT questions, clarifications, or follow-up questions that don't need UTC-specific documentation.
+
+**Example:**
+```
+What does DHCP stand for?
+```
+
+**Performance:** Very fast (<100ms, no knowledge base search)
+
+---
+
+### `!help`
+**Display this help message**
+
+---
+
+## Quick Comparison: !q vs !qlong
+
+| Feature | !q | !qlong |
+|---------|-----|--------|
+| **Speed** | Fast (~500ms-1s) | Slower (~1-3s) |
+| **Search Method** | Direct hybrid search | HyDE (hypothetical document first) |
+| **Best For** | Clear, direct questions | Complex, nuanced questions |
+| **Recall** | Good | Higher (casts wider net) |
+| **When to Use** | First choice for most queries | When !q doesn't find what you need |
+
+**Pro tip:** Start with `!q` for most questions. If the results aren't quite right, try `!qlong` for a second pass with broader retrieval.
+
+---
+
+*Need more help? Contact the development team or check the system documentation.*"""
+
     def _extract_debug_metadata(
         self, search_response: Dict[str, Any], context: str, cleaned_query: str
     ) -> Dict[str, Any]:
         """
         Extract comprehensive debug metadata from search response.
 
-        Used by !debug command to capture all relevant information for
-        appending to LLM response.
+        Used by !debug and !debuglong commands to capture all relevant information
+        for appending to LLM response.
         """
         metadata = search_response.get("metadata", {})
         results = search_response.get("results", [])
@@ -298,7 +408,7 @@ class Filter:
         debug_data = {
             "raw_query": self._original_query,
             "cleaned_query": cleaned_query,
-            "command": "debug",
+            "command": self._command_mode,
 
             # Search configuration
             "search_method": search_response.get("method", "unknown"),
@@ -495,6 +605,9 @@ class Filter:
             payload["min_vector_similarity"] = self.valves.MIN_VECTOR_SIMILARITY
         if user_id:
             payload["user_id"] = user_id
+        # Add command for query logging
+        if hasattr(self, '_command_mode') and self._command_mode:
+            payload["command"] = self._command_mode
 
         # DEBUG: Log full request details
         if self.valves.DEBUG_MODE:
@@ -725,9 +838,41 @@ Use the following retrieved documents to help answer the user's question:
         self._original_query = user_query
         command, cleaned_query = self._parse_command(user_query)
         self._command_mode = "bypass" if command is None else command
-        self._use_hyde_search = command == "qlong"
+        self._use_hyde_search = command in ("qlong", "debuglong")
 
         print(f"[RAG Filter] Command Mode: {self._command_mode}")
+
+        # Handle !help command - return help text immediately
+        if command == "help":
+            print("[RAG Filter] Help command detected - returning help text")
+            help_text = self._get_help_text()
+
+            # Create a response with help text as assistant message
+            # This bypasses the LLM entirely
+            body["messages"] = messages + [
+                {
+                    "role": "assistant",
+                    "content": help_text,
+                }
+            ]
+
+            if __event_emitter__:
+                await __event_emitter__(
+                    {
+                        "type": "status",
+                        "data": {
+                            "description": "ℹ️ Displaying command help",
+                            "done": True,
+                        },
+                    }
+                )
+
+            elapsed = int((time.time() - start_time) * 1000)
+            print(f"[RAG Filter] Help command completed in {elapsed}ms")
+            print("[RAG Filter] =====================================")
+
+            # Return body with help text - this will skip LLM call
+            return body
 
         # Handle bypass mode (no command = no RAG)
         if command is None:
@@ -796,13 +941,13 @@ Use the following retrieved documents to help answer the user's question:
                         f"[RAG Filter] Stored query_log_id {query_log_id} for response logging"
                     )
 
-            # Capture comprehensive debug metadata for !debug mode
-            if command == "debug":
+            # Capture comprehensive debug metadata for !debug and !debuglong modes
+            if command in ("debug", "debuglong"):
                 self._search_metadata = self._extract_debug_metadata(
                     search_response, context, user_query
                 )
                 if self.valves.DEBUG_MODE:
-                    print(f"[RAG Filter] Captured debug metadata for !debug mode")
+                    print(f"[RAG Filter] Captured debug metadata for !{command} mode")
 
             print(f"[RAG Filter] SUCCESS: Retrieved {num_docs} documents")
             if self.valves.DEBUG_MODE:
@@ -897,7 +1042,7 @@ Use the following retrieved documents to help answer the user's question:
 
         elapsed = int((time.time() - start_time) * 1000)
         print(f"[RAG Filter] Inlet completed in {elapsed}ms")
-        print(f"[RAG Filter] =====================================")
+        print("[RAG Filter] =====================================")
 
         return body
 
@@ -934,8 +1079,8 @@ Use the following retrieved documents to help answer the user's question:
             elif self.valves.DEBUG_MODE:
                 print("[RAG Filter] LLM response logging disabled")
 
-            # Check if we need to append debug output (!debug mode)
-            if self._search_metadata and self._command_mode == "debug":
+            # Check if we need to append debug output (!debug or !debuglong mode)
+            if self._search_metadata and self._command_mode in ("debug", "debuglong"):
                 self._append_debug_output(body)
 
         finally:
