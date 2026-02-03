@@ -132,6 +132,21 @@ async def lifespan(app: FastAPI):
                 "⚠ Reranker unavailable - hybrid search will use RRF fallback"
             )
 
+        # Initialize HyDE generator
+        logger.info("Initializing HyDE generator...")
+        try:
+            from core.hyde_generator import HyDEGenerator
+
+            hyde_generator = HyDEGenerator()
+            app.state.hyde_generator = hyde_generator
+            logger.info("✓ HyDE generator initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize HyDE generator: {e}", exc_info=True)
+            app.state.hyde_generator = None
+            logger.warning(
+                "⚠ HyDE generator unavailable - /search/hyde will return 503"
+            )
+
         logger.info("=" * 80)
         logger.info("FastAPI application startup complete!")
         logger.info("API Documentation: http://localhost:8000/docs")

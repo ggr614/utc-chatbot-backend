@@ -61,7 +61,7 @@ class SearchResponse(BaseModel):
     query: str = Field(
         ..., description="Original query text", examples=["password reset"]
     )
-    method: Literal["bm25", "vector", "hybrid"] = Field(
+    method: Literal["bm25", "vector", "hybrid", "hyde"] = Field(
         ..., description="Search method used", examples=["bm25"]
     )
     results: List[SearchResultChunk] = Field(

@@ -97,6 +97,12 @@ class Filter:
             default=False, description="Enable debug logging to console"
         )
 
+        # HyDE Settings
+        USE_HYDE_SEARCH: bool = Field(
+            default=False,
+            description="Use HyDE search for better semantic matching (slower, ~1.5-2.5s latency vs ~0.8-1.5s for standard hybrid)",
+        )
+
         # LLM Response Logging
         ENABLE_LLM_RESPONSE_LOGGING: bool = Field(
             default=False,
@@ -129,8 +135,20 @@ class Filter:
     def _search_documents(
         self, query: str, user_id: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Call the RAG Helpdesk API hybrid search endpoint."""
-        url = f"{self.valves.RAG_API_BASE_URL.rstrip('/')}/api/v1/search/hybrid"
+        """Call the RAG Helpdesk API search endpoint (hybrid or hyde)."""
+        # Choose endpoint based on valve setting
+        if self.valves.USE_HYDE_SEARCH:
+            endpoint = "hyde"
+            if self.valves.DEBUG_MODE:
+                print(
+                    "[RAG Filter] Using HyDE search endpoint (hypothetical document generation)"
+                )
+        else:
+            endpoint = "hybrid"
+            if self.valves.DEBUG_MODE:
+                print("[RAG Filter] Using standard hybrid search endpoint")
+
+        url = f"{self.valves.RAG_API_BASE_URL.rstrip('/')}/api/v1/search/{endpoint}"
 
         headers = {
             "Content-Type": "application/json",

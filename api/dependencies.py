@@ -13,8 +13,10 @@ from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
 from core.reranker import CohereReranker
+from core.hyde_generator import HyDEGenerator
 from core.storage_query_log import QueryLogClient
 from core.storage_reranker_log import RerankerLogClient
+from core.storage_hyde_log import HyDELogClient
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -194,6 +196,51 @@ def get_reranker(request: Request) -> Optional[CohereReranker]:
         return None  # Graceful degradation
 
 
+def get_hyde_generator(request: Request) -> HyDEGenerator:
+    """
+    Dependency to access the shared HyDE generator.
+
+    The HyDE generator is initialized once at application startup and stored
+    in app.state for reuse across requests.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        Initialized HyDEGenerator instance
+
+    Raises:
+        HTTPException: 503 Service Unavailable if generator not initialized
+
+    Example:
+        >>> @router.post("/search/hyde")
+        >>> async def search(hyde_gen: Annotated[HyDEGenerator, Depends(get_hyde_generator)]):
+        >>>     doc = await hyde_gen.generate_hypothetical_document("query")
+    """
+    try:
+        hyde_gen = request.app.state.hyde_generator
+
+        # Check if HyDE generator is None (initialization failed)
+        if hyde_gen is None:
+            logger.error(
+                "HyDE generator is None (initialization failed at startup). "
+                "Cannot process HyDE search requests."
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="HyDE generator unavailable",
+            )
+
+        return hyde_gen
+
+    except AttributeError:
+        logger.error("HyDE generator not found in app.state (not initialized)")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="HyDE generator not initialized",
+        )
+
+
 def get_query_log_client(request: Request) -> QueryLogClient:
     """
     Dependency to create a query log client with shared connection pool.
@@ -251,6 +298,39 @@ def get_reranker_log_client(request: Request) -> RerankerLogClient:
     try:
         connection_pool = request.app.state.connection_pool
         return RerankerLogClient(connection_pool=connection_pool)
+    except AttributeError:
+        logger.error("Connection pool not found in app.state (not initialized)")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Connection pool not initialized",
+        )
+
+
+def get_hyde_log_client(request: Request) -> HyDELogClient:
+    """
+    Dependency for HyDELogClient with connection pooling.
+
+    Uses the shared connection pool from app.state for efficient
+    concurrent database access. Used for logging HyDE (Hypothetical
+    Document Embeddings) generation performance and token usage.
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        HyDELogClient: Client for logging HyDE operations
+
+    Raises:
+        HTTPException: 500 Internal Server Error if connection pool not initialized
+
+    Example:
+        >>> @router.post("/endpoint")
+        >>> def endpoint(hyde_log_client: Annotated[HyDELogClient, Depends(get_hyde_log_client)]):
+        >>>     hyde_log_client.log_hyde_generation(...)
+    """
+    try:
+        connection_pool = request.app.state.connection_pool
+        return HyDELogClient(connection_pool=connection_pool)
     except AttributeError:
         logger.error("Connection pool not found in app.state (not initialized)")
         raise HTTPException(

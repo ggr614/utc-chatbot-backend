@@ -117,6 +117,48 @@ class HybridSearchRequest(SearchRequest):
     )
 
 
+class HyDESearchRequest(SearchRequest):
+    """
+    HyDE search request with hypothetical document generation.
+
+    Generates a hypothetical document from the query using an LLM,
+    then performs hybrid search (BM25 + vector) with reranking.
+
+    HyDE (Hypothetical Document Embeddings) improves semantic matching
+    by embedding a generated answer rather than the raw query.
+
+    Workflow:
+    1. Generate hypothetical document via LLM (~500-1000ms, uses model default temperature)
+    2. BM25 search with original query (keywords)
+    3. Vector search with hypothetical document (semantics)
+    4. RRF fusion
+    5. Cohere reranking with original query
+    6. Return top_k results
+
+    Note: Higher latency (~1.5-2.5s) due to LLM generation step.
+    """
+
+    min_bm25_score: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Minimum BM25 score threshold",
+        examples=[1.0],
+    )
+    min_vector_similarity: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Minimum vector similarity threshold (0.0-1.0)",
+        examples=[0.7],
+    )
+    rrf_k: int = Field(
+        default=60,
+        ge=1,
+        description="RRF constant (controls rank-based weighting). Typical value: 60.",
+        examples=[60],
+    )
+
+
 class LogLLMResponseRequest(BaseModel):
     """
     Request model for logging LLM-generated responses.

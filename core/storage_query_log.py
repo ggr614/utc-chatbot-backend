@@ -264,9 +264,9 @@ class QueryLogClient(BaseStorageClient):
         if not results:
             raise ValueError("results cannot be empty")
 
-        if search_method not in ("bm25", "vector", "hybrid"):
+        if search_method not in ("bm25", "vector", "hybrid", "hyde"):
             raise ValueError(
-                f"search_method must be 'bm25', 'vector', or 'hybrid', got '{search_method}'"
+                f"search_method must be 'bm25', 'vector', 'hybrid', or 'hyde', got '{search_method}'"
             )
 
         logger.debug(
