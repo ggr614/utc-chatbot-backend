@@ -1,22 +1,135 @@
 """
 title: RAG Helpdesk Filter
 author: David Wood
-version: 1.1.0
-date: 2025-01-28
-description: Filter function that augments any model with RAG context from the
-             Helpdesk knowledge base. Intercepts user queries, retrieves relevant
-             documents via hybrid search, and injects them into the conversation
-             before the request reaches the LLM.
+version: 2.0.0
+date: 2025-02-03
+description: Filter function that augments any model with RAG context via command-based
+             routing. Use !q to enable RAG retrieval, !qlong for HyDE (slower, higher recall),
+             !debug for RAG + debug info, or no command to bypass RAG entirely
+             (fast LLM-only responses).
 license: MIT
 requirements: requests
 """
 
 from pydantic import BaseModel, Field
-from typing import Optional, List, Dict, Any, Callable, Awaitable
+from typing import Optional, List, Dict, Any, Callable, Awaitable, Tuple
 import requests
 import json
 import time
 import traceback
+
+
+# System Prompts
+SYSTEM_PROMPT_NO_RAG = """# UTC IT Helpdesk Assistant - System Prompt
+
+You are the UTC IT Helpdesk Assistant for Tier 1 support staff at the University of Tennessee at Chattanooga (UTC).
+
+## YOUR AUDIENCE
+
+- **Tier 1 support staff**: May have limited IT exposure. Explain jargon inline when used, e.g., "AD (Active Directory)".
+- **Always remote**: Staff cannot physically touch equipment.
+- **Frame for IT staff**: You're speaking to the employee, not the end user. Never say "you" meaning the customer.
+
+## YOUR ROLE
+
+Provide helpful, concise answers to questions. This could be:
+- General IT knowledge questions
+- Clarification or follow-up questions about previous responses
+- Troubleshooting guidance
+- Explanations of concepts or procedures
+
+Keep responses clear and actionable. When uncertain about UTC-specific procedures, acknowledge that and suggest verifying with documentation or escalating.
+
+## CORE GUIDELINES
+
+1. **Be concise**: Staff may be on calls. Get to the point quickly.
+2. **Actionable first**: Lead with what to do, explain why if needed.
+3. **Explain jargon**: Define technical terms inline on first use, e.g., "MocsID (UTC's single sign-on username)".
+4. **Remote-only**: Never suggest physically handling equipment. Physical access = escalation.
+5. **Acknowledge uncertainty**: When unsure about UTC-specific procedures, say so rather than guessing.
+
+## UTC CONTEXT
+
+- **UTC** = University of Tennessee at Chattanooga
+- **Mocs** = Mockingbirds (mascot), used in system names (MocsNet, MocsID, MocsMail)
+- Common systems: Banner, Canvas, TeamDynamix (TDX), Active Directory (AD), Microsoft 365
+- Customers = students, faculty, staff"""
+
+SYSTEM_PROMPT_RAG = """# UTC IT Helpdesk Assistant - System Prompt
+
+You are the UTC IT Helpdesk Assistant, a knowledge assistant for Tier 1 support staff at the University of Tennessee at Chattanooga (UTC). Our mascot is the Mockingbird, so many systems use "Mocs" branding (MocsNet, MocsID, etc.).
+
+## YOUR AUDIENCE
+
+- **Tier 1 support staff**: Beginners with limited IT exposure. Explain jargon inline, e.g., "AD (Active Directory)".
+- **Always remote**: Staff cannot physically touch equipment. They may have remote desktop/session access only.
+- **Often live with customers**: Students, faculty, or staff may be on the line. Speed matters—actionable info first, elaboration second.
+- **Perspective varies**: Queries may be written in 1st, 2nd, or 3rd person depending on source and preference. Interpret accordingly.
+
+## YOUR GOAL
+
+Your primary goal is NOT necessarily to solve the problem, but to **set the employee up for success**:
+- If the answer is documented → provide the steps
+- If not documented → provide a clear checklist of information to gather and which team to escalate to
+
+## RESPONSE FORMAT
+
+Use this exact structure. Include only the sections that apply.
+
+### Template:
+
+```
+## QUICK ANSWER
+[1-2 sentences maximum. State whether this can be resolved with documented steps OR needs escalation. Give the single most important action or summary.]
+
+## STEPS
+[Numbered list. Only include if the documentation provides a clear procedure. Keep steps concise.]
+
+## IF UNRESOLVED
+**Gather:**
+- [Specific information the employee should collect]
+- [Error messages, screenshots, account details, etc.]
+
+**Escalate to:** [Appropriate team]
+
+## SOURCES
+- [URL from retrieved documentation]
+```
+
+### Rules:
+- **QUICK ANSWER**: Always include. Maximum 2 sentences.
+- **STEPS**: Only include if documentation provides explicit procedure. Do not invent steps.
+- **IF UNRESOLVED**: Include when documentation doesn't fully address the issue, OR when additional info is needed regardless.
+- **SOURCES**: Always include. List every URL from the retrieved documentation you referenced.
+
+## CORE RULES
+
+1. **Documentation-bound**: Only provide solutions explicitly found in the retrieved documentation. Never invent troubleshooting steps.
+2. **Actionable first**: Lead with what to do, explain why later (if at all).
+3. **Concise**: Staff are reading while on calls. Every word must earn its place.
+4. **Jargon with training wheels**: Use proper IT terminology but define it inline on first use, e.g., "Check their MocsID (UTC's single sign-on username)".
+5. **Frame for IT staff**: You are speaking to the employee, not the end user. Never say "you" meaning the customer.
+6. **Remote-only solutions**: Never suggest physically handling equipment. If physical access is required, that's an escalation.
+7. **Source everything**: Always cite the documentation URLs at the bottom.
+
+## EDGE CASES
+
+**Vague query + scattered context**: If the query is unclear AND the retrieved documentation covers multiple unrelated topics, do your best to answer, then provide a better query suggestion:
+
+```
+💡 **Better query:** `[suggested query text]`
+```
+
+**Partially documented**: If documentation covers part of the issue, state what IS documented vs. what requires escalation.
+
+**Not in documentation**: Do not guess. Provide the information-gathering checklist and escalation path.
+
+## UTC CONTEXT
+
+- **UTC** = University of Tennessee at Chattanooga
+- **Mocs** = Mockingbirds (mascot), used in system names (MocsNet, MocsID, MocsMail, etc.)
+- Common systems: Banner, Canvas, TeamDynamix (TDX), Genetec (access control), Active Directory (AD)
+- Customers = students, faculty, staff (never "users" in responses)"""
 
 
 class Filter:
@@ -97,12 +210,6 @@ class Filter:
             default=False, description="Enable debug logging to console"
         )
 
-        # HyDE Settings
-        USE_HYDE_SEARCH: bool = Field(
-            default=False,
-            description="Use HyDE search for better semantic matching (slower, ~1.5-2.5s latency vs ~0.8-1.5s for standard hybrid)",
-        )
-
         # LLM Response Logging
         ENABLE_LLM_RESPONSE_LOGGING: bool = Field(
             default=False,
@@ -115,6 +222,49 @@ class Filter:
         # Instance variables to pass data from inlet to outlet
         self._query_log_id = None
         self._search_response_data = None
+        self._search_metadata = None      # Debug metadata (dict or None)
+        self._command_mode = None          # Track mode: "bypass", "q", "qlong", "debug"
+        self._original_query = None        # Original query before command strip
+        self._use_hyde_search = False      # Command-scoped HyDE toggle
+
+    def _parse_command(self, query: str) -> Tuple[Optional[str], str]:
+        """
+        Parse command from user query.
+
+        Commands (case-insensitive, must be at start of query):
+        - !qlong <query> -> Enable HyDE RAG retrieval (slower, higher recall)
+        - !q <query> -> Enable RAG retrieval
+        - !debug <query> -> Enable RAG + debug output
+        - <query> (no command) -> Bypass RAG
+
+        Returns:
+            tuple[command, cleaned_query]:
+            - command: None, "qlong", "q", or "debug"
+            - cleaned_query: Query with command stripped (original if no command)
+        """
+        if not query or not isinstance(query, str):
+            return (None, query)
+
+        # Trim leading/trailing whitespace
+        query_stripped = query.strip()
+
+        # Check for commands (case-insensitive)
+        query_lower = query_stripped.lower()
+
+        if query_lower == "!qlong" or query_lower.startswith("!qlong "):
+            cleaned = query_stripped[len("!qlong"):].strip()
+            return ("qlong", cleaned if cleaned else query_stripped)
+
+        elif query_lower == "!q" or query_lower.startswith("!q "):
+            cleaned = query_stripped[len("!q"):].strip()
+            return ("q", cleaned if cleaned else query_stripped)
+
+        elif query_lower == "!debug" or query_lower.startswith("!debug "):
+            cleaned = query_stripped[len("!debug"):].strip()
+            return ("debug", cleaned if cleaned else query_stripped)
+
+        # No command found
+        return (None, query_stripped)
 
     def _get_user_query(self, messages: List[Dict[str, Any]]) -> Optional[str]:
         """Extract the latest user message from the conversation."""
@@ -132,12 +282,183 @@ class Filter:
                 return content
         return None
 
+    def _extract_debug_metadata(
+        self, search_response: Dict[str, Any], context: str, cleaned_query: str
+    ) -> Dict[str, Any]:
+        """
+        Extract comprehensive debug metadata from search response.
+
+        Used by !debug command to capture all relevant information for
+        appending to LLM response.
+        """
+        metadata = search_response.get("metadata", {})
+        results = search_response.get("results", [])
+
+        # Basic query info
+        debug_data = {
+            "raw_query": self._original_query,
+            "cleaned_query": cleaned_query,
+            "command": "debug",
+
+            # Search configuration
+            "search_method": search_response.get("method", "unknown"),
+            "top_k": self.valves.TOP_K,
+            "fusion_method": self.valves.FUSION_METHOD,
+            "rrf_k": self.valves.RRF_K if self.valves.FUSION_METHOD == "rrf" else None,
+
+            # Performance metrics
+            "total_latency_ms": search_response.get("latency_ms", 0),
+
+            # Results overview
+            "num_results": len(results),
+            "context_length_chars": len(context),
+            "context_token_estimate": len(context) // 4,  # ~4 chars per token
+            "max_context_tokens": self.valves.MAX_CONTEXT_TOKENS,
+
+            # HyDE-specific (if applicable)
+            "hyde_enabled": self._use_hyde_search,
+            "hypothetical_document": metadata.get("hypothetical_document"),
+            "hyde_latency_ms": metadata.get("hyde_latency_ms"),
+            "hyde_token_usage": metadata.get("hyde_token_usage"),
+
+            # Reranking details
+            "reranked": metadata.get("reranked", False),
+            "reranker_latency_ms": metadata.get("reranker_latency_ms"),
+            "reranker_status": metadata.get("reranker_status", "unknown"),
+
+            # Results for display (top_k only)
+            "results": [
+                {
+                    "rank": r.get("rank"),
+                    "score": round(r.get("score", 0), 4),
+                    "chunk_id": str(r.get("chunk_id", ""))[:8] + "...",  # Truncate UUID
+                    "source_url": r.get("source_url"),
+                    "text_preview": (r.get("text_content", "")[:100] + "...")
+                        if len(r.get("text_content", "")) > 100 else r.get("text_content", ""),
+                    "token_count": r.get("token_count"),
+                }
+                for r in results[:self.valves.TOP_K]
+            ],
+
+            # Additional metadata (BM25 results, vector results, RRF results if available)
+            "bm25_results_count": metadata.get("bm25_results_count"),
+            "vector_results_count": metadata.get("vector_results_count"),
+            "rrf_results_count": metadata.get("rrf_results_count"),
+        }
+
+        return debug_data
+
+    def _format_debug_output(self) -> str:
+        """
+        Format debug metadata into markdown for appending to LLM response.
+
+        Returns markdown string with comprehensive debug information.
+        """
+        if not self._search_metadata:
+            return ""
+
+        md = self._search_metadata
+
+        # Build markdown output
+        output = "\n\n---\n\n## 🔍 Debug Information\n\n"
+
+        # Query Details
+        output += "### Query Details\n"
+        output += f"- **Raw Query**: `{md.get('raw_query', 'N/A')}`\n"
+        output += f"- **Cleaned Query**: `{md.get('cleaned_query', 'N/A')}`\n"
+        output += f"- **Command**: `{md.get('command', 'N/A')}`\n\n"
+
+        # Search Configuration
+        output += "### Search Configuration\n"
+        output += f"- **Method**: {md.get('search_method', 'unknown').upper()}"
+        if md.get('hyde_enabled'):
+            output += " (HyDE - Hypothetical Document Embeddings)"
+        output += "\n"
+        output += f"- **Top K**: {md.get('top_k', 'N/A')}\n"
+        output += f"- **Fusion Method**: {md.get('fusion_method', 'N/A').upper()}\n"
+        if md.get('rrf_k'):
+            output += f"- **RRF Constant**: {md.get('rrf_k')}\n"
+        output += "\n"
+
+        # Performance Metrics
+        output += "### Performance Metrics\n"
+        output += f"- **Total Latency**: {md.get('total_latency_ms', 'N/A')}ms\n"
+
+        if md.get('hyde_enabled') and md.get('hyde_latency_ms'):
+            output += f"- **HyDE Generation**: {md.get('hyde_latency_ms')}ms\n"
+
+        if md.get('reranked') and md.get('reranker_latency_ms'):
+            output += f"- **Reranking**: {md.get('reranker_latency_ms')}ms\n"
+
+        output += "\n"
+
+        # HyDE Generation Details (if applicable)
+        if md.get('hyde_enabled') and md.get('hypothetical_document'):
+            output += "### HyDE Generation\n"
+            output += "- **Status**: Success\n"
+            output += "- **Hypothetical Document**:\n"
+            hypo_doc = md.get('hypothetical_document', '')
+            # Truncate if too long
+            if len(hypo_doc) > 300:
+                hypo_doc = hypo_doc[:300] + "..."
+            output += f"  > {hypo_doc}\n\n"
+
+            if md.get('hyde_token_usage'):
+                tokens = md.get('hyde_token_usage', {})
+                output += f"- **Token Usage**: {tokens.get('prompt_tokens', '?')} prompt + "
+                output += f"{tokens.get('completion_tokens', '?')} completion = "
+                output += f"{tokens.get('total_tokens', '?')} total\n\n"
+
+        # Retrieval Results Count
+        if md.get('bm25_results_count') or md.get('vector_results_count'):
+            output += "### Retrieval Pipeline\n"
+            if md.get('bm25_results_count'):
+                output += f"- **BM25 Results**: {md.get('bm25_results_count')} candidates\n"
+            if md.get('vector_results_count'):
+                output += f"- **Vector Results**: {md.get('vector_results_count')} candidates\n"
+            if md.get('rrf_results_count'):
+                output += f"- **RRF Fusion**: {md.get('rrf_results_count')} combined results\n"
+            output += "\n"
+
+        # Reranking Details
+        if md.get('reranked'):
+            output += "### Reranking\n"
+            output += f"- **Status**: {md.get('reranker_status', 'unknown').upper()}\n"
+            if md.get('reranker_latency_ms'):
+                output += f"- **Latency**: {md.get('reranker_latency_ms')}ms\n"
+            output += "\n"
+
+        # Final Results (injected into context)
+        results = md.get('results', [])
+        if results:
+            output += "### Final Results (Injected into Context)\n\n"
+            for result in results:
+                output += f"**{result.get('rank')}. Relevance: {result.get('score')}**\n"
+                output += f"- **Chunk ID**: `{result.get('chunk_id')}`\n"
+                if result.get('source_url'):
+                    output += f"- **Source**: {result.get('source_url')}\n"
+                output += f"- **Tokens**: {result.get('token_count', 'N/A')}\n"
+                if result.get('text_preview'):
+                    output += f"- **Preview**: {result.get('text_preview')}\n"
+                output += "\n"
+
+        # Context Injection Stats
+        output += "### Context Injection\n"
+        output += f"- **Documents Injected**: {md.get('num_results', 0)}\n"
+        output += f"- **Context Length**: {md.get('context_length_chars', 0):,} characters\n"
+        output += f"- **Estimated Tokens**: ~{md.get('context_token_estimate', 0)} tokens "
+        output += f"(max: {md.get('max_context_tokens', 0)})\n"
+
+        output += "\n---\n"
+
+        return output
+
     def _search_documents(
-        self, query: str, user_id: Optional[str] = None
+        self, query: str, user_id: Optional[str] = None, use_hyde: bool = False
     ) -> Dict[str, Any]:
         """Call the RAG Helpdesk API search endpoint (hybrid or hyde)."""
-        # Choose endpoint based on valve setting
-        if self.valves.USE_HYDE_SEARCH:
+        # Choose endpoint based on command-scoped HyDE toggle
+        if use_hyde:
             endpoint = "hyde"
             if self.valves.DEBUG_MODE:
                 print(
@@ -269,35 +590,58 @@ class Filter:
 
         return "\n\n---\n\n".join(context_parts)
 
-    def _inject_context_into_messages(
-        self, messages: List[Dict[str, Any]], context: str
+    def _inject_no_rag_system_prompt(
+        self, messages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Inject RAG context into the message list via system prompt."""
-
-        rag_instruction = f"""You have access to a knowledge base of IT helpdesk support articles. 
-Use the following retrieved documents to help answer the user's question:
-
-<knowledge_base>
-{context}
-</knowledge_base>
-
-INSTRUCTIONS:
-- If the answer is found in the documents above, use that information to respond accurately.
-- If the documents don't contain relevant information, say so and provide general guidance if appropriate.
-- When citing information from the documents, reference the source URL if available.
-- Be concise but thorough in your response."""
+        """Inject no-RAG system prompt for bypass mode."""
 
         new_messages = []
         system_found = False
 
         for msg in messages:
             if msg.get("role") == "system":
-                # Append RAG context to existing system prompt
-                original_content = msg.get("content", "")
+                # Replace existing system prompt with no-RAG prompt
                 new_messages.append(
                     {
                         "role": "system",
-                        "content": f"{original_content}\n\n{rag_instruction}",
+                        "content": SYSTEM_PROMPT_NO_RAG,
+                    }
+                )
+                system_found = True
+            else:
+                new_messages.append(msg.copy())
+
+        # If no system message exists, insert one at the beginning
+        if not system_found:
+            new_messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT_NO_RAG})
+
+        return new_messages
+
+    def _inject_context_into_messages(
+        self, messages: List[Dict[str, Any]], context: str
+    ) -> List[Dict[str, Any]]:
+        """Inject RAG context into the message list via system prompt."""
+
+        # Build the full instruction with context
+        rag_instruction = f"""{SYSTEM_PROMPT_RAG}
+
+You have access to a knowledge base of IT helpdesk support articles.
+Use the following retrieved documents to help answer the user's question:
+
+<knowledge_base>
+{context}
+</knowledge_base>"""
+
+        new_messages = []
+        system_found = False
+
+        for msg in messages:
+            if msg.get("role") == "system":
+                # Replace existing system prompt with RAG prompt
+                new_messages.append(
+                    {
+                        "role": "system",
+                        "content": rag_instruction,
                     }
                 )
                 system_found = True
@@ -334,6 +678,7 @@ INSTRUCTIONS:
             Modified request body with RAG context injected
         """
         start_time = time.time()
+        self._use_hyde_search = False
 
         # Always log when inlet is triggered (even without debug mode)
         print(f"[RAG Filter] ========== INLET TRIGGERED ==========")
@@ -376,13 +721,48 @@ INSTRUCTIONS:
             f"[RAG Filter] Query: {user_query[:100]}{'...' if len(user_query) > 100 else ''}"
         )
 
+        # Parse command from query
+        self._original_query = user_query
+        command, cleaned_query = self._parse_command(user_query)
+        self._command_mode = "bypass" if command is None else command
+        self._use_hyde_search = command == "qlong"
+
+        print(f"[RAG Filter] Command Mode: {self._command_mode}")
+
+        # Handle bypass mode (no command = no RAG)
+        if command is None:
+            print("[RAG Filter] No command detected - bypassing RAG retrieval")
+            if __event_emitter__:
+                await __event_emitter__(
+                    {
+                        "type": "status",
+                        "data": {
+                            "description": "💬 Using LLM knowledge only (no RAG)",
+                            "done": True,
+                        },
+                    }
+                )
+            # Inject no-RAG system prompt for general helpdesk assistance
+            body["messages"] = self._inject_no_rag_system_prompt(messages)
+            print("[RAG Filter] Injected no-RAG system prompt")
+            return body
+
+        # Use cleaned query for RAG search (command stripped)
+        user_query = cleaned_query
+        print(f"[RAG Filter] Cleaned Query: {user_query[:100]}{'...' if len(user_query) > 100 else ''}")
+
         # Emit status update
         if __event_emitter__:
+            status_description = (
+                "⏳ Running long-form HyDE search..."
+                if self._use_hyde_search
+                else "🔍 Searching knowledge base..."
+            )
             await __event_emitter__(
                 {
                     "type": "status",
                     "data": {
-                        "description": "🔍 Searching knowledge base...",
+                        "description": status_description,
                         "done": False,
                     },
                 }
@@ -396,7 +776,9 @@ INSTRUCTIONS:
 
         try:
             user_id = __user__.get("id") if __user__ else None
-            search_response = self._search_documents(user_query, user_id)
+            search_response = self._search_documents(
+                user_query, user_id, use_hyde=self._use_hyde_search
+            )
             context = self._format_context(search_response)
             num_docs = len(search_response.get("results", []))
 
@@ -413,6 +795,14 @@ INSTRUCTIONS:
                     print(
                         f"[RAG Filter] Stored query_log_id {query_log_id} for response logging"
                     )
+
+            # Capture comprehensive debug metadata for !debug mode
+            if command == "debug":
+                self._search_metadata = self._extract_debug_metadata(
+                    search_response, context, user_query
+                )
+                if self.valves.DEBUG_MODE:
+                    print(f"[RAG Filter] Captured debug metadata for !debug mode")
 
             print(f"[RAG Filter] SUCCESS: Retrieved {num_docs} documents")
             if self.valves.DEBUG_MODE:
@@ -531,26 +921,42 @@ INSTRUCTIONS:
         Returns:
             Response body (unchanged)
         """
-        # Check if LLM response logging is enabled
-        if not self.valves.ENABLE_LLM_RESPONSE_LOGGING:
-            if self.valves.DEBUG_MODE:
-                print("[RAG Filter] LLM response logging disabled, skipping outlet")
-            return body
+        try:
+            # Check if LLM response logging is enabled
+            if self.valves.ENABLE_LLM_RESPONSE_LOGGING:
+                # Extract query_log_id from instance variable (set in inlet)
+                query_log_id = self._query_log_id
+                if query_log_id:
+                    # Extract LLM response text from body
+                    self._log_llm_response(body, query_log_id)
+                elif self.valves.DEBUG_MODE:
+                    print("[RAG Filter] No query_log_id found, skipping response logging")
+            elif self.valves.DEBUG_MODE:
+                print("[RAG Filter] LLM response logging disabled")
 
-        # Extract query_log_id from instance variable (set in inlet)
-        query_log_id = self._query_log_id
-        if not query_log_id:
-            if self.valves.DEBUG_MODE:
-                print("[RAG Filter] No query_log_id found, skipping response logging")
-            return body
+            # Check if we need to append debug output (!debug mode)
+            if self._search_metadata and self._command_mode == "debug":
+                self._append_debug_output(body)
 
-        # Extract LLM response text from body
+        finally:
+            # Clean up instance variables after logging
+            self._query_log_id = None
+            self._search_response_data = None
+            self._search_metadata = None
+            self._command_mode = None
+            self._original_query = None
+            self._use_hyde_search = False
+
+        return body
+
+    def _log_llm_response(self, body: Dict[str, Any], query_log_id: int) -> None:
+        """Log LLM response to backend for analytics."""
         try:
             messages = body.get("messages", [])
             if not messages:
                 if self.valves.DEBUG_MODE:
                     print("[RAG Filter] No messages in response body")
-                return body
+                return
 
             last_message = messages[-1]
             if last_message.get("role") != "assistant":
@@ -558,13 +964,13 @@ INSTRUCTIONS:
                     print(
                         f"[RAG Filter] Last message not from assistant: {last_message.get('role')}"
                     )
-                return body
+                return
 
             response_text = last_message.get("content", "")
             if not response_text:
                 if self.valves.DEBUG_MODE:
                     print("[RAG Filter] Empty response text")
-                return body
+                return
 
             # Handle multimodal content (list of parts)
             if isinstance(response_text, list):
@@ -578,7 +984,7 @@ INSTRUCTIONS:
             if not response_text.strip():
                 if self.valves.DEBUG_MODE:
                     print("[RAG Filter] Response text is empty after extraction")
-                return body
+                return
 
             print(f"[RAG Filter] Logging LLM response for query_log_id {query_log_id}")
             print(f"[RAG Filter] Response length: {len(response_text)} chars")
@@ -668,9 +1074,39 @@ INSTRUCTIONS:
             if self.valves.DEBUG_MODE:
                 print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")
 
-        finally:
-            # Clean up instance variables after logging
-            self._query_log_id = None
-            self._search_response_data = None
+    def _append_debug_output(self, body: Dict[str, Any]) -> None:
+        """Append debug information to the LLM response."""
+        try:
+            print("[RAG Filter] Appending debug output to LLM response")
 
-        return body
+            # Get last message (LLM response)
+            messages = body.get("messages", [])
+            if not messages or messages[-1].get("role") != "assistant":
+                if self.valves.DEBUG_MODE:
+                    print("[RAG Filter] Cannot append debug output - no assistant message found")
+                return
+
+            last_message = messages[-1]
+            content = last_message.get("content", "")
+
+            # Handle multimodal content (list of text/image parts)
+            if isinstance(content, list):
+                # Find text content part and append debug info
+                for part in content:
+                    if part.get("type") == "text":
+                        original_text = part.get("text", "")
+                        debug_output = self._format_debug_output()
+                        part["text"] = original_text + debug_output
+                        print(f"[RAG Filter] Debug output appended ({len(debug_output)} chars)")
+                        break
+            else:
+                # Simple string content
+                debug_output = self._format_debug_output()
+                last_message["content"] = content + debug_output
+                print(f"[RAG Filter] Debug output appended ({len(debug_output)} chars)")
+
+        except Exception as e:
+            # Don't fail outlet on debug formatting errors
+            print(f"[RAG Filter] Failed to append debug output: {type(e).__name__}: {str(e)}")
+            if self.valves.DEBUG_MODE:
+                print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")
