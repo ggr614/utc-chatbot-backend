@@ -462,5 +462,9 @@ class OpenAIVectorStorage(VectorStorageClient):
         Args:
             connection_pool: Optional DatabaseConnectionPool instance for API mode
         """
-        super().__init__(table_name="embeddings_openai", embedding_dim=3072, connection_pool=connection_pool)
+        super().__init__(
+            table_name="embeddings_openai",
+            embedding_dim=3072,
+            connection_pool=connection_pool,
+        )
         logger.info("OpenAIVectorStorage client initialized")

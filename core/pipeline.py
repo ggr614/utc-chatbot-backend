@@ -456,7 +456,8 @@ class RAGPipeline:
                     if chunk_ids:
                         chunk_id_set = set(chunk_ids)
                         chunks_to_embed = [
-                            chunk for chunk in all_chunks_in_db
+                            chunk
+                            for chunk in all_chunks_in_db
                             if chunk.chunk_id in chunk_id_set
                         ]
                         logger.info(
@@ -466,7 +467,9 @@ class RAGPipeline:
                         chunks_to_embed = all_chunks_in_db
 
                     # Generate embeddings using the stored chunks with correct IDs
-                    logger.info(f"Generating embeddings for {len(chunks_to_embed)} chunks")
+                    logger.info(
+                        f"Generating embeddings for {len(chunks_to_embed)} chunks"
+                    )
                     all_embeddings = self.run_embedding(chunks_to_embed)
 
                     stats["embedding"]["embedding_count"] = len(all_embeddings)

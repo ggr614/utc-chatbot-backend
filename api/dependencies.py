@@ -14,6 +14,7 @@ from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
 from core.reranker import CohereReranker
 from core.storage_query_log import QueryLogClient
+from core.storage_reranker_log import RerankerLogClient
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -22,7 +23,7 @@ logger = get_logger(__name__)
 async def verify_api_key(
     x_api_key: Annotated[
         str, Header(description="API authentication key", alias="X-API-Key")
-    ]
+    ],
 ) -> str:
     """
     Dependency to verify API key from X-API-Key header.
@@ -217,6 +218,39 @@ def get_query_log_client(request: Request) -> QueryLogClient:
     try:
         connection_pool = request.app.state.connection_pool
         return QueryLogClient(connection_pool=connection_pool)
+    except AttributeError:
+        logger.error("Connection pool not found in app.state (not initialized)")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Connection pool not initialized",
+        )
+
+
+def get_reranker_log_client(request: Request) -> RerankerLogClient:
+    """
+    Dependency for RerankerLogClient with connection pooling.
+
+    Uses the shared connection pool from app.state for efficient
+    concurrent database access. Used for logging reranker performance
+    (initial RRF rankings vs final Cohere reranked results).
+
+    Args:
+        request: FastAPI Request object
+
+    Returns:
+        RerankerLogClient: Client for logging reranker operations
+
+    Raises:
+        HTTPException: 500 Internal Server Error if connection pool not initialized
+
+    Example:
+        >>> @router.post("/endpoint")
+        >>> def endpoint(reranker_log_client: Annotated[RerankerLogClient, Depends(get_reranker_log_client)]):
+        >>>     reranker_log_client.log_reranking(...)
+    """
+    try:
+        connection_pool = request.app.state.connection_pool
+        return RerankerLogClient(connection_pool=connection_pool)
     except AttributeError:
         logger.error("Connection pool not found in app.state (not initialized)")
         raise HTTPException(

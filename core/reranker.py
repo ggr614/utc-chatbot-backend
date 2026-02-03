@@ -111,6 +111,7 @@ class CohereReranker:
             self.region_name = region_name or settings.REGION_NAME
             self.max_retries = max_retries
             self.timeout = timeout
+            self._last_rerank_latency_ms = 0  # Track last reranking latency
 
             logger.debug(
                 f"Configuration: model_id={self.model_id}, "
@@ -130,7 +131,9 @@ class CohereReranker:
                 )
 
                 logger.info("CohereReranker initialized successfully")
-                logger.debug(f"Using model: {self.model_id} in region {self.region_name}")
+                logger.debug(
+                    f"Using model: {self.model_id} in region {self.region_name}"
+                )
 
             except ImportError as e:
                 raise RuntimeError(
@@ -146,6 +149,16 @@ class CohereReranker:
         except Exception as e:
             logger.error(f"Failed to initialize CohereReranker: {str(e)}")
             raise
+
+    @property
+    def last_rerank_latency_ms(self) -> int:
+        """
+        Get the latency of the last reranking operation in milliseconds.
+
+        Returns:
+            int: Latency in milliseconds (0 if no reranking has been performed)
+        """
+        return self._last_rerank_latency_ms
 
     def rerank(
         self,
@@ -210,6 +223,9 @@ class CohereReranker:
 
         logger.info(f"Reranking {len(results)} results for query: '{query[:50]}...'")
 
+        # Track reranking latency
+        start_time = time.time()
+
         # Extract text content from chunks
         documents = []
         for r in results:
@@ -236,9 +252,14 @@ class CohereReranker:
         # Parse and map results back to original structure
         reranked_results = self._parse_response(response_body, results)
 
+        # Calculate and store reranking latency
+        latency_ms = int((time.time() - start_time) * 1000)
+        self._last_rerank_latency_ms = latency_ms
+
         logger.info(
             f"Reranking completed: {len(reranked_results)} results, "
-            f"top score: {reranked_results[0]['combined_score']:.3f}"
+            f"top score: {reranked_results[0]['combined_score']:.3f}, "
+            f"latency: {latency_ms}ms"
         )
 
         return reranked_results
@@ -274,7 +295,9 @@ class CohereReranker:
 
                     # Parse response
                     response_body = json.loads(response["body"].read())
-                    logger.debug(f"Received {len(response_body.get('results', []))} results from API")
+                    logger.debug(
+                        f"Received {len(response_body.get('results', []))} results from API"
+                    )
                     return response_body
 
             except ClientError as e:
@@ -323,9 +346,7 @@ class CohereReranker:
                     time.sleep(wait_time)
                     continue
                 else:
-                    raise RuntimeError(
-                        f"Cohere reranking failed: {str(e)}"
-                    ) from e
+                    raise RuntimeError(f"Cohere reranking failed: {str(e)}") from e
 
         # Should not reach here
         raise RuntimeError("Exhausted retry attempts without successful response")
@@ -350,7 +371,9 @@ class CohereReranker:
             rerank_results = response_body.get("results", [])
 
             if not rerank_results:
-                logger.warning("No results returned from Cohere API, returning original results")
+                logger.warning(
+                    "No results returned from Cohere API, returning original results"
+                )
                 return original_results
 
             # Map Cohere results back to original structure
@@ -365,7 +388,9 @@ class CohereReranker:
                     continue
 
                 if index < 0 or index >= len(original_results):
-                    logger.warning(f"Index out of range: {index} (max: {len(original_results)-1})")
+                    logger.warning(
+                        f"Index out of range: {index} (max: {len(original_results) - 1})"
+                    )
                     continue
 
                 # Get original result

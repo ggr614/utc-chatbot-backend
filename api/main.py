@@ -128,7 +128,9 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.error(f"Failed to initialize reranker: {e}", exc_info=True)
             app.state.reranker = None
-            logger.warning("⚠ Reranker unavailable - hybrid search will use RRF fallback")
+            logger.warning(
+                "⚠ Reranker unavailable - hybrid search will use RRF fallback"
+            )
 
         logger.info("=" * 80)
         logger.info("FastAPI application startup complete!")

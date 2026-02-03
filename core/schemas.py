@@ -257,9 +257,7 @@ class QueryResult(BaseModel):
     )
 
     # Result metadata
-    rank: int = Field(
-        ..., description="Result position (1-indexed)", ge=1
-    )
+    rank: int = Field(..., description="Result position (1-indexed)", ge=1)
 
     score: float = Field(
         ..., description="Relevance score (BM25 score, similarity, or hybrid score)"
@@ -371,4 +369,111 @@ class LLMResponse(BaseModel):
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc),
         description="When the response was logged",
+    )
+
+
+# ============================================================================
+# Reranker Logging Schemas
+# ============================================================================
+
+
+class RerankerLog(BaseModel):
+    """
+    Schema for reranker operation logging.
+
+    Tracks aggregate metadata about a reranking operation.
+    Links 1:1 with query_logs table.
+    """
+
+    id: int | None = Field(
+        default=None, description="Auto-generated BIGSERIAL primary key"
+    )
+
+    query_log_id: int = Field(
+        ..., description="Reference to query_logs.id (1:1 relationship)"
+    )
+
+    reranker_status: str = Field(
+        ..., description="Reranking status: 'success', 'failed', 'skipped'"
+    )
+
+    model_name: str | None = Field(
+        default=None, description="Reranker model ID (e.g., 'cohere.rerank-v3-5:0')"
+    )
+
+    reranker_latency_ms: int | None = Field(
+        default=None, description="Reranking API latency in milliseconds"
+    )
+
+    num_candidates: int = Field(
+        ..., description="Number of RRF results sent to reranker"
+    )
+
+    num_reranked: int | None = Field(
+        default=None, description="Number of results returned from reranker"
+    )
+
+    fallback_method: str | None = Field(
+        default=None, description="Fallback method if reranking failed (e.g., 'rrf')"
+    )
+
+    error_message: str | None = Field(
+        default=None, description="Error message if reranking failed"
+    )
+
+    avg_rank_change: float | None = Field(
+        default=None, description="Average rank movement across all results"
+    )
+
+    top_k_stability_score: float | None = Field(
+        default=None, description="% of top-k results that stayed in top-k"
+    )
+
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When reranking was logged",
+    )
+
+
+class RerankerResult(BaseModel):
+    """
+    Schema for individual reranked result.
+
+    Tracks a single result's ranking before (RRF) and after (Cohere reranking).
+    """
+
+    id: int | None = Field(
+        default=None, description="Auto-generated BIGSERIAL primary key"
+    )
+
+    query_log_id: int = Field(..., description="Reference to query_logs.id")
+
+    chunk_id: UUID = Field(..., description="Reference to article_chunks.id")
+
+    parent_article_id: UUID = Field(..., description="Reference to articles.id")
+
+    rrf_rank: int = Field(
+        ..., description="Initial rank from RRF fusion (1-indexed)", ge=1
+    )
+
+    rrf_score: float = Field(..., description="Initial RRF score", ge=0.0)
+
+    reranked_rank: int = Field(
+        ..., description="Final rank after Cohere reranking (1-indexed)", ge=1
+    )
+
+    reranked_score: float = Field(
+        ..., description="Final Cohere relevance score (0-1)", ge=0.0, le=1.0
+    )
+
+    rank_change: int = Field(
+        ...,
+        description="Rank movement (rrf_rank - reranked_rank, positive = moved up)",
+    )
+
+    model_name: str = Field(..., description="Reranker model ID")
+
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        description="When result was logged",
     )

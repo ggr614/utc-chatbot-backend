@@ -5,6 +5,7 @@ Revises: af41a58144ab
 Create Date: 2026-01-29 14:12:43.561334
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -12,8 +13,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '46eb84522090'
-down_revision: Union[str, Sequence[str], None] = 'af41a58144ab'
+revision: str = "46eb84522090"
+down_revision: Union[str, Sequence[str], None] = "af41a58144ab"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -47,23 +48,12 @@ def upgrade() -> None:
 
     # Create indexes
     op.create_index(
-        'idx_llm_responses_query_log',
-        'llm_responses',
-        ['query_log_id'],
-        unique=True
+        "idx_llm_responses_query_log", "llm_responses", ["query_log_id"], unique=True
     )
 
-    op.create_index(
-        'idx_llm_responses_created_at',
-        'llm_responses',
-        ['created_at']
-    )
+    op.create_index("idx_llm_responses_created_at", "llm_responses", ["created_at"])
 
-    op.create_index(
-        'idx_llm_responses_model',
-        'llm_responses',
-        ['model_name']
-    )
+    op.create_index("idx_llm_responses_model", "llm_responses", ["model_name"])
 
     # GIN indexes for JSONB columns (for JSON queries)
     op.execute("""
@@ -79,4 +69,4 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop llm_responses table."""
-    op.drop_table('llm_responses')
+    op.drop_table("llm_responses")

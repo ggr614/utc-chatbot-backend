@@ -201,6 +201,7 @@ def hybrid_search(
             reranking_metadata = {
                 "reranked": True,
                 "num_candidates_reranked": len(combined_results),
+                "reranker_latency_ms": reranker.last_rerank_latency_ms,
             }
         except Exception as e:
             logger.error(f"Reranking failed: {str(e)}", exc_info=True)
@@ -215,6 +216,9 @@ def hybrid_search(
 
     # Return top_k final results
     final_results = reranked_results[:top_k]
+
+    # Store RRF results in metadata for reranker logging
+    reranking_metadata["rrf_results_before_reranking"] = combined_results
 
     logger.info(
         f"Hybrid search completed: {len(final_results)} results returned "

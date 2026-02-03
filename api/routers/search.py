@@ -19,6 +19,7 @@ from api.dependencies import (
     get_vector_retriever,
     get_reranker,
     get_query_log_client,
+    get_reranker_log_client,
 )
 from api.models.requests import (
     BM25SearchRequest,
@@ -31,6 +32,7 @@ from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
 from core.reranker import CohereReranker
 from core.storage_query_log import QueryLogClient
+from core.storage_reranker_log import RerankerLogClient
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -306,12 +308,13 @@ def search_vector(
     tags=["Search"],
 )
 def search_hybrid(
-    request: HybridSearchRequest,
+    search_request: HybridSearchRequest,
     api_key: Annotated[str, Depends(verify_api_key)],
     bm25_retriever: Annotated[BM25Retriever, Depends(get_bm25_retriever)],
     vector_retriever: Annotated[VectorRetriever, Depends(get_vector_retriever)],
     reranker: Annotated[Optional[CohereReranker], Depends(get_reranker)],
     query_log_client: Annotated[QueryLogClient, Depends(get_query_log_client)],
+    reranker_log_client: Annotated[RerankerLogClient, Depends(get_reranker_log_client)],
 ) -> SearchResponse:
     """
     Perform hybrid search with neural reranking.
@@ -349,21 +352,21 @@ def search_hybrid(
     start_time = time.time()
 
     logger.info(
-        f"Hybrid search with reranking: query='{request.query[:50]}', top_k={request.top_k}, "
-        f"rrf_k={request.rrf_k}, user_id={request.user_id}"
+        f"Hybrid search with reranking: query='{search_request.query[:50]}', top_k={search_request.top_k}, "
+        f"rrf_k={search_request.rrf_k}, user_id={search_request.user_id}"
     )
 
     try:
         # Perform hybrid search with reranking
         results, reranking_metadata = hybrid_search(
-            query=request.query,
+            query=search_request.query,
             bm25_retriever=bm25_retriever,
             vector_retriever=vector_retriever,
             reranker=reranker,
-            top_k=request.top_k,
-            rrf_k=request.rrf_k,
-            min_bm25_score=request.min_bm25_score,
-            min_vector_similarity=request.min_vector_similarity,
+            top_k=search_request.top_k,
+            rrf_k=search_request.rrf_k,
+            min_bm25_score=search_request.min_bm25_score,
+            min_vector_similarity=search_request.min_vector_similarity,
         )
 
         # Convert hybrid results to SearchResultChunk
@@ -404,26 +407,58 @@ def search_hybrid(
         query_log_id_for_response = None
         try:
             query_log_id_for_response = query_log_client.log_query_with_results(
-                raw_query=request.query,
+                raw_query=search_request.query,
                 cache_result="miss",
                 search_method="hybrid",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=request.user_id,
+                user_id=search_request.user_id,
                 query_embedding=None,
             )
+
+            # Log reranking data if query was logged successfully
+            if query_log_id_for_response:
+                # Extract RRF results from metadata
+                rrf_results = reranking_metadata.get("rrf_results_before_reranking", [])
+
+                # Log for both success and failure cases
+                if reranking_metadata.get("reranked", False):
+                    # Success case - reranking completed successfully
+                    reranker_log_client.log_reranking(
+                        query_log_id=query_log_id_for_response,
+                        rrf_results=rrf_results,
+                        reranked_results=results,
+                        model_name="cohere.rerank-v3-5:0",
+                        reranker_latency_ms=reranking_metadata.get(
+                            "reranker_latency_ms", 0
+                        ),
+                        reranker_status="success",
+                    )
+                elif reranking_metadata.get("reranking_failed", False):
+                    # Failure case - fallback to RRF
+                    reranker_log_client.log_reranking(
+                        query_log_id=query_log_id_for_response,
+                        rrf_results=rrf_results,
+                        reranked_results=rrf_results,  # Same as RRF (no change)
+                        model_name="cohere.rerank-v3-5:0",
+                        reranker_latency_ms=reranking_metadata.get(
+                            "reranker_latency_ms", 0
+                        ),
+                        reranker_status="failed",
+                        error_message=reranking_metadata.get("error"),
+                    )
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
 
         # Build metadata with RRF and reranking info
         metadata = {
-            "rrf_k": request.rrf_k,
+            "rrf_k": search_request.rrf_k,
             **reranking_metadata,
         }
 
         # Build response
         return SearchResponse(
-            query=request.query,
+            query=search_request.query,
             method="hybrid",
             results=result_chunks,
             total_results=len(results),

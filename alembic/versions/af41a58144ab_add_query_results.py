@@ -5,6 +5,7 @@ Revises: f6c4e9a6ae4d
 Create Date: 2026-01-29 10:20:41.222013
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -12,8 +13,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'af41a58144ab'
-down_revision: Union[str, Sequence[str], None] = 'f6c4e9a6ae4d'
+revision: str = "af41a58144ab"
+down_revision: Union[str, Sequence[str], None] = "f6c4e9a6ae4d"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -44,42 +45,26 @@ def upgrade() -> None:
 
     # Create indexes for analytics queries
     op.create_index(
-        'idx_query_results_query_log',
-        'query_results',
-        ['query_log_id', 'rank']
+        "idx_query_results_query_log", "query_results", ["query_log_id", "rank"]
     )
 
     op.create_index(
-        'idx_query_results_article',
-        'query_results',
-        ['parent_article_id', 'rank']
+        "idx_query_results_article", "query_results", ["parent_article_id", "rank"]
     )
 
-    op.create_index(
-        'idx_query_results_method',
-        'query_results',
-        ['search_method']
-    )
+    op.create_index("idx_query_results_method", "query_results", ["search_method"])
+
+    op.create_index("idx_query_results_chunk", "query_results", ["chunk_id"])
+
+    op.create_index("idx_query_results_created_at", "query_results", ["created_at"])
 
     op.create_index(
-        'idx_query_results_chunk',
-        'query_results',
-        ['chunk_id']
-    )
-
-    op.create_index(
-        'idx_query_results_created_at',
-        'query_results',
-        ['created_at']
-    )
-
-    op.create_index(
-        'idx_query_results_article_rank',
-        'query_results',
-        ['parent_article_id', 'rank', 'search_method']
+        "idx_query_results_article_rank",
+        "query_results",
+        ["parent_article_id", "rank", "search_method"],
     )
 
 
 def downgrade() -> None:
     """Drop query_results table."""
-    op.drop_table('query_results')
+    op.drop_table("query_results")

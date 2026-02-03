@@ -98,7 +98,11 @@ class TestCohereReranker:
     @patch("core.reranker.get_aws_reranker_settings")
     @patch("boto3.client")
     def test_initialization_success(
-        self, mock_boto_client, mock_get_settings, mock_aws_settings, mock_bedrock_client
+        self,
+        mock_boto_client,
+        mock_get_settings,
+        mock_aws_settings,
+        mock_bedrock_client,
     ):
         """Test successful reranker initialization."""
         mock_get_settings.return_value = mock_aws_settings
@@ -146,7 +150,9 @@ class TestCohereReranker:
         mock_boto_client.return_value = mock_bedrock_client
 
         reranker = CohereReranker()
-        results = reranker.rerank(query="password reset help", results=sample_fused_results)
+        results = reranker.rerank(
+            query="password reset help", results=sample_fused_results
+        )
 
         # Verify results structure
         assert len(results) == 3
@@ -181,7 +187,11 @@ class TestCohereReranker:
     @patch("core.reranker.get_aws_reranker_settings")
     @patch("boto3.client")
     def test_rerank_empty_results(
-        self, mock_boto_client, mock_get_settings, mock_aws_settings, mock_bedrock_client
+        self,
+        mock_boto_client,
+        mock_get_settings,
+        mock_aws_settings,
+        mock_bedrock_client,
     ):
         """Test reranking with empty results list."""
         mock_get_settings.return_value = mock_aws_settings
@@ -218,7 +228,11 @@ class TestCohereReranker:
     @patch("core.reranker.get_aws_reranker_settings")
     @patch("boto3.client")
     def test_rerank_invalid_results_structure(
-        self, mock_boto_client, mock_get_settings, mock_aws_settings, mock_bedrock_client
+        self,
+        mock_boto_client,
+        mock_get_settings,
+        mock_aws_settings,
+        mock_bedrock_client,
     ):
         """Test reranking with invalid results structure."""
         mock_get_settings.return_value = mock_aws_settings
@@ -238,7 +252,12 @@ class TestCohereReranker:
     @patch("boto3.client")
     @patch("time.sleep")  # Mock sleep to speed up tests
     def test_rerank_retry_on_throttling(
-        self, mock_sleep, mock_boto_client, mock_get_settings, mock_aws_settings, sample_fused_results
+        self,
+        mock_sleep,
+        mock_boto_client,
+        mock_get_settings,
+        mock_aws_settings,
+        sample_fused_results,
     ):
         """Test retry logic on throttling errors."""
         from botocore.exceptions import ClientError
@@ -248,8 +267,14 @@ class TestCohereReranker:
         client = Mock()
         # Fail twice with throttling, succeed on third attempt
         client.invoke_model.side_effect = [
-            ClientError({"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}}, "invoke_model"),
-            ClientError({"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}}, "invoke_model"),
+            ClientError(
+                {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
+                "invoke_model",
+            ),
+            ClientError(
+                {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
+                "invoke_model",
+            ),
             {
                 "body": Mock(
                     read=Mock(
@@ -277,7 +302,11 @@ class TestCohereReranker:
     @patch("core.reranker.get_aws_reranker_settings")
     @patch("boto3.client")
     def test_rerank_persistent_failure(
-        self, mock_boto_client, mock_get_settings, mock_aws_settings, sample_fused_results
+        self,
+        mock_boto_client,
+        mock_get_settings,
+        mock_aws_settings,
+        sample_fused_results,
     ):
         """Test failure after all retries exhausted."""
         from botocore.exceptions import ClientError
@@ -293,7 +322,9 @@ class TestCohereReranker:
 
         reranker = CohereReranker(max_retries=2)
 
-        with pytest.raises(RuntimeError, match="Cohere reranking failed after 2 attempts"):
+        with pytest.raises(
+            RuntimeError, match="Cohere reranking failed after 2 attempts"
+        ):
             reranker.rerank(query="test", results=sample_fused_results)
 
         assert client.invoke_model.call_count == 2
@@ -301,7 +332,11 @@ class TestCohereReranker:
     @patch("core.reranker.get_aws_reranker_settings")
     @patch("boto3.client")
     def test_rerank_non_retryable_error(
-        self, mock_boto_client, mock_get_settings, mock_aws_settings, sample_fused_results
+        self,
+        mock_boto_client,
+        mock_get_settings,
+        mock_aws_settings,
+        sample_fused_results,
     ):
         """Test non-retryable errors fail immediately."""
         from botocore.exceptions import ClientError
@@ -326,7 +361,11 @@ class TestCohereReranker:
     @patch("core.reranker.get_aws_reranker_settings")
     @patch("boto3.client")
     def test_rerank_limits_to_1000_documents(
-        self, mock_boto_client, mock_get_settings, mock_aws_settings, mock_bedrock_client
+        self,
+        mock_boto_client,
+        mock_get_settings,
+        mock_aws_settings,
+        mock_bedrock_client,
     ):
         """Test that reranker truncates to 1000 documents."""
         mock_get_settings.return_value = mock_aws_settings
@@ -402,7 +441,11 @@ class TestCohereReranker:
     @patch("core.reranker.get_aws_reranker_settings")
     @patch("boto3.client")
     def test_rerank_malformed_response(
-        self, mock_boto_client, mock_get_settings, mock_aws_settings, sample_fused_results
+        self,
+        mock_boto_client,
+        mock_get_settings,
+        mock_aws_settings,
+        sample_fused_results,
     ):
         """Test handling of malformed API response."""
         mock_get_settings.return_value = mock_aws_settings

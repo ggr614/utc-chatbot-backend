@@ -20,7 +20,9 @@ class SearchResultChunk(BaseModel):
     and source article information.
     """
 
-    rank: int = Field(..., description="Result ranking position (1-indexed)", examples=[1])
+    rank: int = Field(
+        ..., description="Result ranking position (1-indexed)", examples=[1]
+    )
     score: float = Field(
         ...,
         description="Relevance score (BM25 score, similarity, or combined hybrid score)",
@@ -40,7 +42,9 @@ class SearchResultChunk(BaseModel):
         ..., description="Number of tokens in chunk", examples=[150]
     )
     source_url: HttpUrl = Field(
-        ..., description="Source article URL", examples=["https://help.example.com/article/123"]
+        ...,
+        description="Source article URL",
+        examples=["https://help.example.com/article/123"],
     )
     last_modified_date: datetime = Field(
         ..., description="Article last modified timestamp"

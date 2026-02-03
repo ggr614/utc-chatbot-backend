@@ -523,9 +523,7 @@ INSTRUCTIONS:
         query_log_id = self._query_log_id
         if not query_log_id:
             if self.valves.DEBUG_MODE:
-                print(
-                    "[RAG Filter] No query_log_id found, skipping response logging"
-                )
+                print("[RAG Filter] No query_log_id found, skipping response logging")
             return body
 
         # Extract LLM response text from body
@@ -564,9 +562,7 @@ INSTRUCTIONS:
                     print("[RAG Filter] Response text is empty after extraction")
                 return body
 
-            print(
-                f"[RAG Filter] Logging LLM response for query_log_id {query_log_id}"
-            )
+            print(f"[RAG Filter] Logging LLM response for query_log_id {query_log_id}")
             print(f"[RAG Filter] Response length: {len(response_text)} chars")
 
             # Extract search data for citations from instance variable
@@ -610,9 +606,7 @@ INSTRUCTIONS:
             if self.valves.DEBUG_MODE:
                 print("[RAG Filter] ========== LLM RESPONSE LOGGING ==========")
                 print(f"[RAG Filter] URL: {url}")
-                print(
-                    f"[RAG Filter] Payload: {json.dumps(payload, indent=2)[:500]}..."
-                )
+                print(f"[RAG Filter] Payload: {json.dumps(payload, indent=2)[:500]}...")
 
             # Log response (best-effort, non-blocking)
             try:
