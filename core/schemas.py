@@ -21,6 +21,9 @@ class TdxArticle(BaseModel):
     raw_ingestion_date: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+    status_name: str | None = Field(
+        default=None, description="Article status from TDX API (e.g., 'Approved', 'Draft', 'Archived')"
+    )
 
 
 # Chunk

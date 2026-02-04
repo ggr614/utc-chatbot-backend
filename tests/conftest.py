@@ -18,6 +18,7 @@ def sample_article_data():
         "Body": "<p>Test content</p>",
         "ModifiedDate": "2024-01-01T00:00:00Z",
         "CategoryName": "IT Help",
+        "StatusName": "Approved",
     }
 
 
@@ -32,6 +33,7 @@ def sample_article_model():
         ),
         content_html="<p>Test content</p>",
         last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+        status_name="Approved",
     )
 
 
@@ -54,6 +56,7 @@ def multiple_articles_data():
             "Body": "<p>First content</p>",
             "ModifiedDate": "2024-01-01T00:00:00Z",
             "CategoryName": "IT Help",
+            "StatusName": "Approved",
         },
         {
             "ID": 456,
@@ -61,6 +64,7 @@ def multiple_articles_data():
             "Body": "<p>Second content</p>",
             "ModifiedDate": "2024-01-02T00:00:00Z",
             "CategoryName": "Documentation",
+            "StatusName": "Approved",
         },
         {
             "ID": 789,
@@ -68,6 +72,7 @@ def multiple_articles_data():
             "Body": "<p>Phishing alert</p>",
             "ModifiedDate": "2024-01-03T00:00:00Z",
             "CategoryName": "Recent Phishing Emails",
+            "StatusName": "Approved",
         },
     ]
 
@@ -81,18 +86,27 @@ def articles_with_missing_fields():
             "Subject": "Test",
             "Body": "Content",
             "ModifiedDate": "2024-01-01T00:00:00Z",
+            "StatusName": "Approved",
         },
         {
             "ID": 123,
             "Subject": None,
             "Body": "Content",
             "ModifiedDate": "2024-01-01T00:00:00Z",
+            "StatusName": "Approved",
         },
         {
             "ID": 456,
             "Subject": "Test",
             "Body": None,
             "ModifiedDate": "2024-01-01T00:00:00Z",
+            "StatusName": "Approved",
         },
-        {"ID": 789, "Subject": "Test", "Body": "Content", "ModifiedDate": None},
+        {
+            "ID": 789,
+            "Subject": "Test",
+            "Body": "Content",
+            "ModifiedDate": None,
+            "StatusName": "Approved",
+        },
     ]

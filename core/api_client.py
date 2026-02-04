@@ -211,10 +211,17 @@ class TDXClient:
                 for article in articles_data:
                     article_id = article.get("ID")
                     category_name = article.get("CategoryName")
+                    status_name = article.get("StatusName")
 
                     # Filter out phishing category early to reduce API calls
                     if category_name == "Recent Phishing Emails":
                         logger.debug(f"Filtering out phishing article {article_id}")
+                        filtered_count += 1
+                        continue
+
+                    # Filter out non-approved articles early to reduce API calls
+                    if status_name != "Approved":
+                        logger.debug(f"Filtering out non-approved article {article_id} (status: {status_name})")
                         filtered_count += 1
                         continue
 
@@ -225,7 +232,7 @@ class TDXClient:
 
                 logger.info(
                     f"Successfully retrieved {len(article_ids)} article IDs "
-                    f"({filtered_count} phishing articles filtered)"
+                    f"({filtered_count} filtered - phishing and non-approved articles)"
                 )
                 return article_ids
             else:

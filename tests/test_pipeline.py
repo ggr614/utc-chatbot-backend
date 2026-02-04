@@ -192,6 +192,7 @@ class TestRAGPipeline:
             url=HttpUrl("https://example.com/123"),
             content_html="<p>Test content</p>",
             last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            status_name="Approved",
         )
 
         # Mock text processor
@@ -374,6 +375,11 @@ class TestRAGPipeline:
 
     def test_run_full_pipeline(self, pipeline_openai):
         """Test running the full pipeline."""
+        # Mock cleanup
+        pipeline_openai.article_processor.cleanup_non_approved_articles = Mock(
+            return_value=0
+        )
+
         # Mock ingestion
         mock_ingestion_stats = {
             "new_count": 10,

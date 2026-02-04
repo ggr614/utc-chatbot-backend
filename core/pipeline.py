@@ -405,6 +405,7 @@ class RAGPipeline:
         logger.info("=" * 80)
 
         stats = {
+            "cleanup": {"deleted_count": 0},
             "ingestion": {},
             "processing": {"processed_count": 0, "chunk_count": 0},
             "embedding": {"embedding_count": 0},
@@ -416,6 +417,21 @@ class RAGPipeline:
 
         try:
             with PerformanceLogger(logger, "Full RAG pipeline"):
+                # Phase 0: Cleanup non-approved articles (automatic)
+                if not self.skip_ingestion:
+                    logger.info("\n" + "=" * 80)
+                    logger.info("PHASE 0: CLEANUP NON-APPROVED ARTICLES")
+                    logger.info("=" * 80)
+                    try:
+                        cleaned_count = self.article_processor.cleanup_non_approved_articles()
+                        stats["cleanup"]["deleted_count"] = cleaned_count
+                    except Exception as e:
+                        logger.error(f"Cleanup phase failed: {str(e)}")
+                        logger.warning("Continuing with pipeline despite cleanup failure")
+                        stats["cleanup"]["error"] = str(e)
+                else:
+                    logger.info("PHASE 0: CLEANUP - SKIPPED (ingestion disabled)")
+
                 # Phase 1: Ingestion
                 if not self.skip_ingestion:
                     logger.info("\n" + "=" * 80)
@@ -501,6 +517,10 @@ class RAGPipeline:
                 logger.info("=" * 80)
                 logger.info(f"Duration: {stats['duration_seconds']:.2f} seconds")
 
+                if stats["cleanup"]["deleted_count"] > 0:
+                    logger.info(
+                        f"Cleanup: {stats['cleanup']['deleted_count']} non-approved articles removed"
+                    )
                 if stats.get("ingestion"):
                     logger.info(
                         f"Ingestion: {stats['ingestion'].get('new_count', 0)} new, "

@@ -159,6 +159,17 @@ class ArticleProcessor:
                     )
                     continue
 
+                # Safety check: filter out non-approved articles (already filtered at API level)
+                # This is a redundant check in case the API filter is bypassed
+                status_name = article.get("StatusName")
+                if status_name != "Approved":
+                    filtered_count += 1
+                    logger.warning(
+                        f"Unexpected non-approved article {article.get('ID')} (status: {status_name}) - "
+                        f"should have been filtered at API level"
+                    )
+                    continue
+
                 # Transform raw data into structured format
                 article_id = article.get("ID")
                 if article_id is None:
@@ -197,6 +208,7 @@ class ArticleProcessor:
                         url=HttpUrl(url),
                         content_html=content_html,
                         last_modified_date=last_modified_date,
+                        status_name=status_name,
                     )
                 )
                 logger.debug(f"Successfully processed article {article_id}: {title}")
@@ -290,3 +302,66 @@ class ArticleProcessor:
             logger.warning(f"Articles deleted from API: {sorted(list(deleted_ids))}")
 
         return list(deleted_ids)
+
+    def identify_non_approved_articles(self) -> List[int]:
+        """
+        Identify articles that are not approved in TDX but exist in database.
+
+        Returns:
+            List of TDX article IDs to be removed
+        """
+        logger.info("Checking for non-approved articles in database")
+
+        # Fetch all articles from TDX API (with status)
+        logger.debug("Fetching all articles from TDX API")
+        all_articles = self.tdx_client.retrieve_all_articles()
+        articles_list = all_articles[0]  # retrieve_all_articles returns (articles, errors)
+        logger.debug(f"Fetched {len(articles_list)} articles from API")
+
+        # Find non-approved TDX article IDs
+        non_approved_tdx_ids = [
+            article.get("ID")
+            for article in articles_list
+            if article.get("StatusName") != "Approved"
+        ]
+
+        if not non_approved_tdx_ids:
+            logger.info("No non-approved articles found in TDX API")
+            return []
+
+        logger.debug(f"Found {len(non_approved_tdx_ids)} non-approved articles in TDX")
+
+        # Check which non-approved articles exist in DB
+        existing_articles = self.db_client.get_articles_by_tdx_ids(non_approved_tdx_ids)
+        existing_tdx_ids = [article["tdx_article_id"] for article in existing_articles]
+
+        if existing_tdx_ids:
+            logger.info(
+                f"Found {len(existing_tdx_ids)} non-approved articles in database "
+                f"that need cleanup"
+            )
+            logger.debug(f"Article IDs to remove: {existing_tdx_ids}")
+        else:
+            logger.info("No non-approved articles found in database")
+
+        return existing_tdx_ids
+
+    def cleanup_non_approved_articles(self) -> int:
+        """
+        Remove articles from database that are not approved in TDX.
+
+        Returns:
+            Number of articles deleted
+        """
+        logger.info("=== Starting cleanup of non-approved articles ===")
+
+        non_approved_ids = self.identify_non_approved_articles()
+
+        if not non_approved_ids:
+            logger.info("No cleanup needed - all database articles are approved")
+            return 0
+
+        deleted_count = self.db_client.delete_articles_by_tdx_ids(non_approved_ids)
+
+        logger.info(f"=== Cleanup complete: {deleted_count} articles removed ===")
+        return deleted_count

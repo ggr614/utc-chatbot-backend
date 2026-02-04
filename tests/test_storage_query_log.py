@@ -222,8 +222,8 @@ class TestQueryLogClient:
 
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [
-            (1, "How to reset password?", "hit", 50, "user1", start_time),
-            (2, "What is MFA?", "miss", 200, "user2", end_time),
+            (1, "How to reset password?", "hit", 50, "user1", None, start_time),
+            (2, "What is MFA?", "miss", 200, "user2", None, end_time),
         ]
 
         with patch.object(client, "get_connection") as mock_get_conn:
@@ -248,7 +248,7 @@ class TestQueryLogClient:
 
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [
-            (1, "Test query", "hit", 50, "user1", start_time)
+            (1, "Test query", "hit", 50, "user1", None, start_time)
         ]
 
         with patch.object(client, "get_connection") as mock_get_conn:
@@ -280,6 +280,7 @@ class TestQueryLogClient:
             "hit",
             100,
             "user1",
+            None,
             timestamp,
         )
 
@@ -310,6 +311,7 @@ class TestQueryLogClient:
             "hit",
             100,
             "user1",
+            None,
             timestamp,
         )
 
@@ -550,8 +552,8 @@ class TestQueryLogClient:
 
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [
-            (1, "Query 1", "hit", 50, "user123", timestamp),
-            (2, "Query 2", "miss", 150, "user123", timestamp),
+            (1, "Query 1", "hit", 50, "user123", None, timestamp),
+            (2, "Query 2", "miss", 150, "user123", None, timestamp),
         ]
 
         with patch.object(client, "get_connection") as mock_get_conn:
@@ -598,8 +600,8 @@ class TestQueryLogClient:
 
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [
-            (1, "How to reset password?", "hit", 100, "user1", timestamp),
-            (2, "Reset my password please", "miss", 150, "user2", timestamp),
+            (1, "How to reset password?", "hit", 100, "user1", None, timestamp),
+            (2, "Reset my password please", "miss", 150, "user2", None, timestamp),
         ]
 
         with patch.object(client, "get_connection") as mock_get_conn:
