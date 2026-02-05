@@ -170,6 +170,20 @@ class ArticleProcessor:
                     )
                     continue
 
+                # Extract metadata fields from TDX API
+                category_name = article.get("CategoryName")
+                is_public = article.get("IsPublic")
+                summary = article.get("Summary")
+                tags_raw = article.get("Tags")
+
+                # Handle tags - API may return list or comma-separated string
+                if isinstance(tags_raw, list):
+                    tags = tags_raw
+                elif isinstance(tags_raw, str):
+                    tags = [t.strip() for t in tags_raw.split(",") if t.strip()]
+                else:
+                    tags = None
+
                 # Transform raw data into structured format
                 article_id = article.get("ID")
                 if article_id is None:
@@ -209,6 +223,10 @@ class ArticleProcessor:
                         content_html=content_html,
                         last_modified_date=last_modified_date,
                         status_name=status_name,
+                        category_name=category_name,
+                        is_public=is_public,
+                        summary=summary,
+                        tags=tags,
                     )
                 )
                 logger.debug(f"Successfully processed article {article_id}: {title}")

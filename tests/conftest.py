@@ -19,6 +19,9 @@ def sample_article_data():
         "ModifiedDate": "2024-01-01T00:00:00Z",
         "CategoryName": "IT Help",
         "StatusName": "Approved",
+        "IsPublic": True,
+        "Summary": "This is a test article about IT help",
+        "Tags": ["password", "account", "reset"],
     }
 
 
@@ -34,6 +37,10 @@ def sample_article_model():
         content_html="<p>Test content</p>",
         last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
         status_name="Approved",
+        category_name="IT Help",
+        is_public=True,
+        summary="This is a test article about IT help",
+        tags=["password", "account", "reset"],
     )
 
 
@@ -57,6 +64,9 @@ def multiple_articles_data():
             "ModifiedDate": "2024-01-01T00:00:00Z",
             "CategoryName": "IT Help",
             "StatusName": "Approved",
+            "IsPublic": True,
+            "Summary": "First article summary",
+            "Tags": ["help", "support"],
         },
         {
             "ID": 456,
@@ -65,6 +75,9 @@ def multiple_articles_data():
             "ModifiedDate": "2024-01-02T00:00:00Z",
             "CategoryName": "Documentation",
             "StatusName": "Approved",
+            "IsPublic": False,
+            "Summary": "Second article summary",
+            "Tags": ["docs", "guide"],
         },
         {
             "ID": 789,
@@ -73,6 +86,9 @@ def multiple_articles_data():
             "ModifiedDate": "2024-01-03T00:00:00Z",
             "CategoryName": "Recent Phishing Emails",
             "StatusName": "Approved",
+            "IsPublic": True,
+            "Summary": "Phishing alert",
+            "Tags": ["security", "phishing"],
         },
     ]
 

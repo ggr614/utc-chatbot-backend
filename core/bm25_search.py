@@ -18,7 +18,7 @@ import re
 
 from rank_bm25 import BM25Okapi
 
-from core.storage_raw import PostgresClient
+from core.storage_chunk import PostgresClient
 from core.schemas import TextChunk
 from utils.logger import get_logger, PerformanceLogger
 
@@ -143,46 +143,101 @@ class BM25Retriever:
         tokens = re.findall(r"\b[a-z0-9]+\b", text.lower())
         return tokens
 
-    def _get_chunks(self, refresh: bool = False) -> List[TextChunk]:
+    def _get_chunks(
+        self,
+        refresh: bool = False,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
+    ) -> List[TextChunk]:
         """
-        Get all chunks from database with optional caching.
+        Get chunks from database with optional filtering and caching.
+
+        Caching strategy: Only cache the default corpus (status_names=["Approved"], no other filters).
+        Filtered queries bypass the cache to avoid cache explosion.
 
         Args:
             refresh: Force refresh from database even if cached
+            status_names: Filter by article status
+            category_names: Filter by article category
+            is_public: Filter by article visibility
+            tags: Filter by article tags (ANY match)
 
         Returns:
-            List of TextChunk objects
+            List of TextChunk objects with optional article_tags field
         """
-        if self.use_cache and not refresh and self._chunks_cache is not None:
+        # Check if using non-default filters
+        has_filters = (
+            (status_names is not None and status_names != ["Approved"])
+            or category_names is not None
+            or is_public is not None
+            or tags is not None
+        )
+
+        # Use cache only for default corpus (no filters or default status filter)
+        if (
+            self.use_cache
+            and not refresh
+            and not has_filters
+            and self._chunks_cache is not None
+        ):
             logger.debug(f"Using cached chunks ({len(self._chunks_cache)} chunks)")
             return self._chunks_cache
 
-        logger.debug("Fetching chunks from database")
-        with PerformanceLogger(logger, "Fetch all chunks"):
-            chunks = self.db_client.get_all_chunks()
+        # Fetch chunks from database
+        logger.debug(
+            f"Fetching chunks from database with filters: "
+            f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags}"
+        )
 
-        if self.use_cache:
+        with PerformanceLogger(logger, "Fetch chunks"):
+            # Use filtered query if any filters are provided
+            if has_filters or status_names is not None:
+                chunks = self.db_client.get_all_chunks_filtered(
+                    status_names=status_names,
+                    category_names=category_names,
+                    is_public=is_public,
+                    tags=tags,
+                )
+            else:
+                # No filters - use standard query (for backward compatibility)
+                chunks = self.db_client.get_all_chunks()
+
+        # Only cache default corpus (no custom filters)
+        if self.use_cache and not has_filters:
             self._chunks_cache = chunks
-            logger.debug(f"Cached {len(chunks)} chunks")
+            logger.debug(f"Cached {len(chunks)} chunks (default corpus)")
+        else:
+            logger.debug(f"Not caching filtered corpus ({len(chunks)} chunks)")
 
-        logger.info(f"Retrieved {len(chunks)} chunks from database")
+        logger.info(
+            f"Retrieved {len(chunks)} chunks from database "
+            f"(filters: status={status_names}, category={category_names}, "
+            f"is_public={is_public}, tags={tags})"
+        )
         return chunks
 
     def _build_bm25_model(
-        self, chunks: List[TextChunk], refresh: bool = False
+        self, chunks: List[TextChunk], refresh: bool = False, use_cache: bool = True
     ) -> BM25Okapi:
         """
-        Build or retrieve cached BM25 model.
+        Build or retrieve cached BM25 model with tag search support.
+
+        For chunks with article_tags, tags are appended to text content for tokenization.
+        This makes tags searchable in BM25 queries.
 
         Args:
             chunks: List of text chunks to index
             refresh: Force rebuild even if cached
+            use_cache: Whether to use cached model (False for filtered queries)
 
         Returns:
             BM25Okapi model
         """
         if (
-            self.use_cache
+            use_cache
+            and self.use_cache
             and not refresh
             and self._bm25_model is not None
             and self._tokenized_corpus is not None
@@ -193,20 +248,31 @@ class BM25Retriever:
         logger.info(f"Building BM25 model for {len(chunks)} chunks")
 
         with PerformanceLogger(logger, "Build BM25 model"):
-            # Tokenize all chunks
-            self._tokenized_corpus = [
-                self.tokenize(chunk.text_content) for chunk in chunks
-            ]
+            # Tokenize all chunks, including tags if present
+            self._tokenized_corpus = []
+            for chunk in chunks:
+                # Start with chunk text content
+                text = chunk.text_content
+
+                # Append tags if present (makes tags searchable in BM25)
+                if chunk.article_tags:
+                    tag_text = " ".join(chunk.article_tags)
+                    text = f"{text} {tag_text}"
+                    logger.debug(
+                        f"Appended {len(chunk.article_tags)} tags to chunk {chunk.chunk_id}"
+                    )
+
+                # Tokenize combined text
+                tokens = self.tokenize(text)
+                self._tokenized_corpus.append(tokens)
 
             # Build BM25 model with custom parameters
-            # Note: rank-bm25 uses BM25Okapi which doesn't expose k1 and b in constructor
-            # We'll use the default BM25Okapi and note that for custom params,
-            # you'd need to subclass or use a different approach
             self._bm25_model = BM25Okapi(self._tokenized_corpus, k1=self.k1, b=self.b)
 
         logger.info(
             f"BM25 model built with {len(chunks)} documents, "
-            f"avg_doc_length={self._bm25_model.avgdl:.1f}"
+            f"avg_doc_length={self._bm25_model.avgdl:.1f} "
+            f"(tags included in tokenization)"
         )
 
         return self._bm25_model
@@ -217,15 +283,28 @@ class BM25Retriever:
         top_k: int = 10,
         min_score: Optional[float] = None,
         refresh_corpus: bool = False,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
     ) -> List[BM25SearchResult]:
         """
-        Search for relevant chunks using BM25 ranking.
+        Search for relevant chunks using BM25 ranking with optional article metadata filtering.
+
+        Tags from articles are included in the searchable corpus, so queries can match on tag keywords.
+
+        Filters are applied using AND logic. Within list filters (status_names, category_names, tags),
+        OR logic is used (ANY match). For tags, articles must have at least one of the provided tags.
 
         Args:
             query: Search query string
             top_k: Number of top results to return (default: 10)
             min_score: Minimum BM25 score threshold (default: None, no filtering)
             refresh_corpus: Force refresh corpus statistics from database
+            status_names: Filter by article status (e.g., ['Approved', 'Published'])
+            category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+            is_public: Filter by article visibility (True for public, False for private)
+            tags: Filter by article tags (ANY match using array overlap operator)
 
         Returns:
             List of BM25SearchResult objects, ranked by relevance
@@ -239,18 +318,39 @@ class BM25Retriever:
         if top_k <= 0:
             raise ValueError(f"top_k must be positive, got {top_k}")
 
-        logger.info(f"Searching for: '{query}' (top_k={top_k})")
+        logger.info(
+            f"Searching for: '{query}' (top_k={top_k}, filters: "
+            f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags})"
+        )
 
         with PerformanceLogger(logger, f"BM25 search for '{query}'"):
-            # Get chunks
-            chunks = self._get_chunks(refresh=refresh_corpus)
+            # Get chunks with filtering
+            chunks = self._get_chunks(
+                refresh=refresh_corpus,
+                status_names=status_names,
+                category_names=category_names,
+                is_public=is_public,
+                tags=tags,
+            )
 
             if not chunks:
-                logger.warning("No chunks found in database")
+                logger.warning("No chunks found in database (after filtering)")
                 return []
 
-            # Build/retrieve BM25 model
-            bm25 = self._build_bm25_model(chunks, refresh=refresh_corpus)
+            # Determine if we should use cache for BM25 model
+            # Only cache for default corpus (no custom filters)
+            has_filters = (
+                (status_names is not None and status_names != ["Approved"])
+                or category_names is not None
+                or is_public is not None
+                or tags is not None
+            )
+            use_cache = not has_filters
+
+            # Build/retrieve BM25 model (with tags included in tokenization)
+            bm25 = self._build_bm25_model(
+                chunks, refresh=refresh_corpus, use_cache=use_cache
+            )
 
             # Tokenize query
             query_tokens = self.tokenize(query)
@@ -301,9 +401,13 @@ class BM25Retriever:
         queries: List[str],
         top_k: int = 10,
         min_score: Optional[float] = None,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
     ) -> Dict[str, List[BM25SearchResult]]:
         """
-        Perform batch search for multiple queries efficiently.
+        Perform batch search for multiple queries efficiently with optional filtering.
 
         Builds BM25 model once and reuses for all queries.
 
@@ -311,6 +415,10 @@ class BM25Retriever:
             queries: List of query strings
             top_k: Number of top results per query (default: 10)
             min_score: Minimum BM25 score threshold (default: None)
+            status_names: Filter by article status (e.g., ['Approved', 'Published'])
+            category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+            is_public: Filter by article visibility (True for public, False for private)
+            tags: Filter by article tags (ANY match using array overlap operator)
 
         Returns:
             Dictionary mapping query -> list of search results
@@ -319,15 +427,32 @@ class BM25Retriever:
             logger.warning("No queries provided for batch search")
             return {}
 
-        logger.info(f"Performing batch search for {len(queries)} queries")
+        logger.info(
+            f"Performing batch search for {len(queries)} queries with filters: "
+            f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags}"
+        )
 
-        # Pre-build BM25 model once
-        chunks = self._get_chunks()
+        # Pre-build BM25 model once with filtering
+        chunks = self._get_chunks(
+            status_names=status_names,
+            category_names=category_names,
+            is_public=is_public,
+            tags=tags,
+        )
         if not chunks:
-            logger.warning("No chunks found in database")
+            logger.warning("No chunks found in database (after filtering)")
             return {query: [] for query in queries}
 
-        bm25 = self._build_bm25_model(chunks)
+        # Determine cache usage
+        has_filters = (
+            (status_names is not None and status_names != ["Approved"])
+            or category_names is not None
+            or is_public is not None
+            or tags is not None
+        )
+        use_cache = not has_filters
+
+        bm25 = self._build_bm25_model(chunks, use_cache=use_cache)
 
         results = {}
         with PerformanceLogger(logger, f"Batch search for {len(queries)} queries"):
@@ -338,6 +463,10 @@ class BM25Retriever:
                         top_k=top_k,
                         min_score=min_score,
                         refresh_corpus=False,  # Reuse cached model
+                        status_names=status_names,
+                        category_names=category_names,
+                        is_public=is_public,
+                        tags=tags,
                     )
                 except Exception as e:
                     logger.error(f"Error searching for '{query}': {str(e)}")

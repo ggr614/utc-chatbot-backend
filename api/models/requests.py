@@ -3,12 +3,13 @@ Pydantic request models for search API endpoints.
 
 Provides validation for:
 - BM25 keyword search requests
+- BM25 validation requests (keyword query validation)
 - Vector semantic search requests
 - Hybrid search requests (combining BM25 and vector)
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class SearchRequest(BaseModel):
@@ -68,7 +69,40 @@ class SearchRequest(BaseModel):
         return v
 
 
-class BM25SearchRequest(SearchRequest):
+class ArticleFilterParams(BaseModel):
+    """
+    Common article metadata filters for all search methods.
+
+    Filters are applied using AND logic. Within list filters (status_names, category_names, tags),
+    OR logic is used (ANY match). For tags, articles must have at least one of the provided tags.
+
+    By default, only 'Approved' articles are searched to ensure quality results.
+    Override by explicitly setting status_names to null or other values.
+    """
+
+    status_names: Optional[List[str]] = Field(
+        default=["Approved"],
+        description="Filter by article status (defaults to ['Approved']). Set to null to search all statuses.",
+        examples=[["Approved", "Published"], ["Approved"]],
+    )
+    category_names: Optional[List[str]] = Field(
+        default=None,
+        description="Filter by article category (e.g., ['IT Help', 'Documentation'])",
+        examples=[["IT Help", "Network"], ["Documentation"]],
+    )
+    is_public: Optional[bool] = Field(
+        default=None,
+        description="Filter by article visibility (true for public, false for private)",
+        examples=[True],
+    )
+    tags: Optional[List[str]] = Field(
+        default=None,
+        description="Filter by article tags (ANY match, e.g., ['vpn', 'network'])",
+        examples=[["vpn", "network", "remote-access"]],
+    )
+
+
+class BM25SearchRequest(SearchRequest, ArticleFilterParams):
     """
     BM25 sparse keyword retrieval request.
 
@@ -83,7 +117,53 @@ class BM25SearchRequest(SearchRequest):
     )
 
 
-class VectorSearchRequest(SearchRequest):
+class BM25ValidationRequest(BaseModel):
+    """
+    BM25 validation request for keyword query validation.
+
+    Returns ALL BM25 scores (or up to top_k if specified) with minimal
+    response format (IDs and scores only). Intended for keyword validation
+    and score analysis.
+    """
+
+    query: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+        description="Search query text for validation",
+        examples=["password reset"],
+    )
+    top_k: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=10000,
+        description="Optional limit on number of results (default: return all)",
+        examples=[100],
+    )
+    min_score: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description="Minimum BM25 score threshold",
+        examples=[1.0],
+    )
+    user_id: Optional[str] = Field(
+        default=None,
+        max_length=255,
+        description="Optional user identifier for analytics",
+        examples=["user123"],
+    )
+
+    @field_validator("query")
+    @classmethod
+    def validate_query(cls, v: str) -> str:
+        """Validate that query is not empty or whitespace only."""
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("Query cannot be empty or whitespace only")
+        return stripped
+
+
+class VectorSearchRequest(SearchRequest, ArticleFilterParams):
     """
     Vector dense semantic retrieval request.
 
@@ -100,7 +180,7 @@ class VectorSearchRequest(SearchRequest):
     )
 
 
-class HybridSearchRequest(SearchRequest):
+class HybridSearchRequest(SearchRequest, ArticleFilterParams):
     """
     Hybrid search request with RRF fusion and Cohere reranking.
 
@@ -136,7 +216,7 @@ class HybridSearchRequest(SearchRequest):
     )
 
 
-class HyDESearchRequest(SearchRequest):
+class HyDESearchRequest(SearchRequest, ArticleFilterParams):
     """
     HyDE search request with hypothetical document generation.
 

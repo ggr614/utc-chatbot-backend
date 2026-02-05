@@ -103,15 +103,22 @@ def hybrid_search(
     rrf_k: int = 60,
     min_bm25_score: Optional[float] = None,
     min_vector_similarity: Optional[float] = None,
+    status_names: Optional[List[str]] = None,
+    category_names: Optional[List[str]] = None,
+    is_public: Optional[bool] = None,
+    tags: Optional[List[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
-    Perform hybrid search with Cohere reranking.
+    Perform hybrid search with Cohere reranking and optional article metadata filtering.
 
     Workflow:
-    1. Fetch 2×top_k results from BM25 and vector search
+    1. Fetch 2×top_k results from BM25 and vector search (with filtering)
     2. Apply Reciprocal Rank Fusion (RRF) to combine and deduplicate
     3. Rerank fused results using Cohere Rerank v3.5 via AWS Bedrock
     4. Return top_k reranked results with metadata
+
+    Filters are applied consistently to both BM25 and vector search. Within list filters
+    (status_names, category_names, tags), OR logic is used (ANY match).
 
     Args:
         query: Search query string
@@ -122,6 +129,10 @@ def hybrid_search(
         rrf_k: RRF constant (default: 60, controls rank-based weighting)
         min_bm25_score: Minimum BM25 score threshold (filters BM25 results)
         min_vector_similarity: Minimum vector similarity threshold (filters vector results)
+        status_names: Filter by article status (e.g., ['Approved', 'Published'])
+        category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+        is_public: Filter by article visibility (True for public, False for private)
+        tags: Filter by article tags (ANY match using array overlap operator)
 
     Returns:
         Tuple of (results, metadata):
@@ -137,23 +148,34 @@ def hybrid_search(
         ...     bm25_retriever=bm25,
         ...     vector_retriever=vector,
         ...     reranker=reranker,
-        ...     top_k=10
+        ...     top_k=10,
+        ...     status_names=["Approved"],
+        ...     tags=["vpn", "network"]
         ... )
         >>> print(f"Reranked: {metadata['reranked']}")
         >>> for result in results:
         ...     print(f"{result['rank']}: {result['combined_score']:.3f}")
     """
-    logger.info(f"Hybrid search with reranking: query='{query}', top_k={top_k}")
+    logger.info(
+        f"Hybrid search with reranking: query='{query}', top_k={top_k}, filters: "
+        f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags}"
+    )
 
     # Fetch more results from each method to improve fusion quality
     # Request 2× top_k, capped at 100 max
     fetch_k = min(top_k * 2, 100)
 
     try:
-        # Perform BM25 search
+        # Perform BM25 search with filtering
         logger.debug(f"Fetching BM25 results (top_k={fetch_k})...")
         bm25_results = bm25_retriever.search(
-            query=query, top_k=fetch_k, min_score=min_bm25_score
+            query=query,
+            top_k=fetch_k,
+            min_score=min_bm25_score,
+            status_names=status_names,
+            category_names=category_names,
+            is_public=is_public,
+            tags=tags,
         )
         logger.info(f"BM25 search returned {len(bm25_results)} results")
 
@@ -162,10 +184,16 @@ def hybrid_search(
         raise RuntimeError(f"BM25 search failed: {e}") from e
 
     try:
-        # Perform vector search
+        # Perform vector search with filtering
         logger.debug(f"Fetching vector results (top_k={fetch_k})...")
         vector_results = vector_retriever.search(
-            query=query, top_k=fetch_k, min_similarity=min_vector_similarity
+            query=query,
+            top_k=fetch_k,
+            min_similarity=min_vector_similarity,
+            status_names=status_names,
+            category_names=category_names,
+            is_public=is_public,
+            tags=tags,
         )
         logger.info(f"Vector search returned {len(vector_results)} results")
 

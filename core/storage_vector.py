@@ -380,15 +380,29 @@ class VectorStorageClient(BaseStorageClient):
             raise
 
     def search_similar_vectors(
-        self, query_vector: List[float], limit: int = 10, min_similarity: float = 0.0
+        self,
+        query_vector: List[float],
+        limit: int = 10,
+        min_similarity: float = 0.0,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
     ) -> List[Dict]:
         """
-        Search for similar vectors using cosine similarity.
+        Search for similar vectors using cosine similarity with optional article metadata filtering.
+
+        Filters are applied using AND logic. Within list filters (status_names, category_names, tags),
+        OR logic is used (ANY match). For tags, articles must have at least one of the provided tags.
 
         Args:
             query_vector: The query embedding vector
             limit: Maximum number of results to return
             min_similarity: Minimum similarity threshold (0.0 to 1.0)
+            status_names: Filter by article status (e.g., ['Approved', 'Published'])
+            category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+            is_public: Filter by article visibility (True for public, False for private)
+            tags: Filter by article tags (ANY match using array overlap operator)
 
         Returns:
             List of dictionaries with chunk data (from article_chunks) and similarity scores
@@ -403,30 +417,55 @@ class VectorStorageClient(BaseStorageClient):
                 f"expected {self.embedding_dim}, got {len(query_vector)}"
             )
 
-        logger.debug(f"Searching for {limit} similar vectors in {self.table_name}")
+        logger.debug(
+            f"Searching for {limit} similar vectors in {self.table_name} with filters: "
+            f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags}"
+        )
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    # Use cosine similarity (1 - cosine distance) and join with article_chunks
-                    cur.execute(
-                        f"""
+                    # Build WHERE clause conditions
+                    where_conditions = ["1 - (e.embedding <=> %s::vector) >= %s"]
+                    params = [query_vector, query_vector, min_similarity]
+
+                    if status_names is not None:
+                        where_conditions.append("a.status_name = ANY(%s)")
+                        params.append(status_names)
+
+                    if category_names is not None:
+                        where_conditions.append("a.category_name = ANY(%s)")
+                        params.append(category_names)
+
+                    if is_public is not None:
+                        where_conditions.append("a.is_public = %s")
+                        params.append(is_public)
+
+                    if tags is not None:
+                        # Use PostgreSQL array overlap operator (&&)
+                        where_conditions.append("a.tags && %s")
+                        params.append(tags)
+
+                    # Add order by and limit parameters
+                    params.extend([query_vector, limit])
+
+                    # Build full query with article JOIN
+                    where_clause = " AND ".join(where_conditions)
+
+                    query = f"""
                         SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
                                c.text_content, c.token_count, c.url, e.created_at,
                                1 - (e.embedding <=> %s::vector) AS similarity
                         FROM {self.table_name} e
                         JOIN article_chunks c ON e.chunk_id = c.id
-                        WHERE 1 - (e.embedding <=> %s::vector) >= %s
+                        JOIN articles a ON c.parent_article_id = a.id
+                        WHERE {where_clause}
                         ORDER BY e.embedding <=> %s::vector
                         LIMIT %s
-                        """,  # type: ignore
-                        (
-                            query_vector,
-                            query_vector,
-                            min_similarity,
-                            query_vector,
-                            limit,
-                        ),
-                    )
+                    """
+
+                    logger.debug(f"Executing query with {len(params)} parameters")
+
+                    cur.execute(query, params)  # type: ignore
                     rows = cur.fetchall()
                     results = []
                     for row in rows:
@@ -442,7 +481,11 @@ class VectorStorageClient(BaseStorageClient):
                                 "similarity": float(row[7]),
                             }
                         )
-                    logger.info(f"Found {len(results)} similar vectors")
+                    logger.info(
+                        f"Found {len(results)} similar vectors "
+                        f"(filters: status={status_names}, category={category_names}, "
+                        f"is_public={is_public}, tags={tags})"
+                    )
                     return results
         except Exception as e:
             logger.error(f"Failed to search similar vectors: {str(e)}")

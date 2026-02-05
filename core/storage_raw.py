@@ -74,8 +74,12 @@ class PostgresClient(BaseStorageClient):
                             try:
                                 cur.execute(
                                     """
-                                    INSERT INTO articles (tdx_article_id, title, url, content_html, last_modified_date, raw_ingestion_date)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                    INSERT INTO articles (
+                                        tdx_article_id, title, url, content_html,
+                                        last_modified_date, raw_ingestion_date,
+                                        status_name, category_name, is_public, summary, tags
+                                    )
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     RETURNING id
                                     """,
                                     (
@@ -85,6 +89,11 @@ class PostgresClient(BaseStorageClient):
                                         article.content_html,
                                         article.last_modified_date,
                                         article.raw_ingestion_date,
+                                        article.status_name,
+                                        article.category_name,
+                                        article.is_public,
+                                        article.summary,
+                                        article.tags,
                                     ),
                                 )
                                 # Get the auto-generated UUID
@@ -140,7 +149,12 @@ class PostgresClient(BaseStorageClient):
                                         url = %s,
                                         content_html = %s,
                                         last_modified_date = %s,
-                                        raw_ingestion_date = %s
+                                        raw_ingestion_date = %s,
+                                        status_name = %s,
+                                        category_name = %s,
+                                        is_public = %s,
+                                        summary = %s,
+                                        tags = %s
                                     WHERE tdx_article_id = %s
                                     RETURNING id
                                     """,
@@ -150,6 +164,11 @@ class PostgresClient(BaseStorageClient):
                                         article.content_html,
                                         article.last_modified_date,
                                         article.raw_ingestion_date,
+                                        article.status_name,
+                                        article.category_name,
+                                        article.is_public,
+                                        article.summary,
+                                        article.tags,
                                         article.tdx_article_id,
                                     ),
                                 )
@@ -188,7 +207,10 @@ class PostgresClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, tdx_article_id, title, url, content_html, last_modified_date
+                        SELECT
+                            id, tdx_article_id, title, url, content_html,
+                            last_modified_date, status_name, category_name,
+                            is_public, summary, tags
                         FROM articles
                         ORDER BY id
                         """
@@ -204,6 +226,11 @@ class PostgresClient(BaseStorageClient):
                                 url=row[3],
                                 content_html=row[4],
                                 last_modified_date=row[5],
+                                status_name=row[6],
+                                category_name=row[7],
+                                is_public=row[8],
+                                summary=row[9],
+                                tags=row[10],
                             )
                         )
                     logger.info(f"Retrieved {len(articles)} articles from database")
@@ -235,7 +262,10 @@ class PostgresClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, tdx_article_id, title, url, content_html, last_modified_date
+                        SELECT
+                            id, tdx_article_id, title, url, content_html,
+                            last_modified_date, status_name, category_name,
+                            is_public, summary, tags
                         FROM articles
                         WHERE id = ANY(%s)
                         ORDER BY id
@@ -253,6 +283,11 @@ class PostgresClient(BaseStorageClient):
                                 url=row[3],
                                 content_html=row[4],
                                 last_modified_date=row[5],
+                                status_name=row[6],
+                                category_name=row[7],
+                                is_public=row[8],
+                                summary=row[9],
+                                tags=row[10],
                             )
                         )
                     logger.info(f"Retrieved {len(articles)} articles from database")
