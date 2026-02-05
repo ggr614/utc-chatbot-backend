@@ -560,7 +560,7 @@ class QueryLogClient(BaseStorageClient):
                         cur.execute(
                             """
                             SELECT id, raw_query, query_embedding, cache_result,
-                                   latency_ms, user_id, command, created_at
+                                   latency_ms, email, command, created_at
                             FROM query_logs
                             WHERE id = %s
                             """,
@@ -574,14 +574,14 @@ class QueryLogClient(BaseStorageClient):
                                 query_embedding=row[2],
                                 cache_result=row[3],
                                 latency_ms=row[4],
-                                user_id=row[5],
+                                email=row[5],
                                 command=row[6],
                                 created_at=row[7],
                             )
                     else:
                         cur.execute(
                             """
-                            SELECT id, raw_query, cache_result, latency_ms, user_id, command, created_at
+                            SELECT id, raw_query, cache_result, latency_ms, email, command, created_at
                             FROM query_logs
                             WHERE id = %s
                             """,
@@ -595,7 +595,7 @@ class QueryLogClient(BaseStorageClient):
                                 query_embedding=None,
                                 cache_result=row[2],
                                 latency_ms=row[3],
-                                user_id=row[4],
+                                email=row[4],
                                 command=row[5],
                                 created_at=row[6],
                             )
@@ -999,7 +999,7 @@ class QueryLogClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     # Build dynamic query based on filters
                     query = """
-                        SELECT id, raw_query, cache_result, latency_ms, user_id, command, created_at
+                        SELECT id, raw_query, cache_result, latency_ms, email, command, created_at
                         FROM query_logs
                         WHERE raw_query ILIKE %s
                     """
@@ -1029,7 +1029,7 @@ class QueryLogClient(BaseStorageClient):
                                 query_embedding=None,  # Excluded for performance
                                 cache_result=row[2],
                                 latency_ms=row[3],
-                                user_id=row[4],
+                                email=row[4],
                                 command=row[5],
                                 created_at=row[6],
                             )
