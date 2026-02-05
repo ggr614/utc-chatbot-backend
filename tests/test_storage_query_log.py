@@ -83,7 +83,7 @@ class TestQueryLogClient:
                 raw_query="How do I reset my password?",
                 cache_result="hit",
                 latency_ms=125,
-                user_id="user456",
+                email="user456@example.com",
             )
 
             assert log_id == 12345
@@ -166,13 +166,13 @@ class TestQueryLogClient:
                 raw_query="How to reset password?",
                 cache_result="hit",
                 latency_ms=50,
-                user_id="user1",
+                email="user1@example.com",
             ),
             QueryLog(
                 raw_query="What is MFA?",
                 cache_result="miss",
                 latency_ms=200,
-                user_id="user2",
+                email="user2@example.com",
             ),
         ]
 
@@ -259,14 +259,14 @@ class TestQueryLogClient:
             mock_get_conn.return_value = mock_conn
 
             queries = client.get_queries_by_time_range(
-                start_time, end_time, cache_result="hit", user_id="user1", limit=100
+                start_time, end_time, cache_result="hit", email="user1@example.com", limit=100
             )
 
             assert len(queries) == 1
             # Verify filters were applied in query
             call_args = mock_cursor.execute.call_args[0]
             assert "cache_result = %s" in call_args[0]
-            assert "user_id = %s" in call_args[0]
+            assert "email = %s" in call_args[0]
             assert "LIMIT %s" in call_args[0]
 
     def test_get_query_by_id_without_embedding(self, client):
@@ -416,14 +416,14 @@ class TestQueryLogClient:
             mock_get_conn.return_value = mock_conn
 
             stats = client.get_query_latency_stats(
-                start_time, end_time, cache_result="hit", user_id="user123"
+                start_time, end_time, cache_result="hit", email="user123@example.com"
             )
 
             assert stats.avg_latency_ms == 60.0
             # Verify filters were applied
             call_args = mock_cursor.execute.call_args[0]
             assert "cache_result = %s" in call_args[0]
-            assert "user_id = %s" in call_args[0]
+            assert "email = %s" in call_args[0]
 
     def test_get_popular_queries(self, client):
         """Test getting popular queries."""
@@ -538,13 +538,13 @@ class TestQueryLogClient:
             mock_get_conn.return_value = mock_conn
 
             stats = client.get_query_cache_performance(
-                start_time, end_time, user_id="user123"
+                start_time, end_time, email="user123@example.com"
             )
 
             assert stats.hit_rate == 90.0
             # Verify user filter was applied
             call_args = mock_cursor.execute.call_args[0]
-            assert "user_id = %s" in call_args[0]
+            assert "email = %s" in call_args[0]
 
     def test_get_queries_by_user(self, client):
         """Test retrieving queries for specific user."""
@@ -552,8 +552,8 @@ class TestQueryLogClient:
 
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [
-            (1, "Query 1", "hit", 50, "user123", None, timestamp),
-            (2, "Query 2", "miss", 150, "user123", None, timestamp),
+            (1, "Query 1", "hit", 50, "user123@example.com", None, timestamp),
+            (2, "Query 2", "miss", 150, "user123@example.com", None, timestamp),
         ]
 
         with patch.object(client, "get_connection") as mock_get_conn:
@@ -563,10 +563,10 @@ class TestQueryLogClient:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_get_conn.return_value = mock_conn
 
-            queries = client.get_queries_by_user("user123")
+            queries = client.get_queries_by_email("user123@example.com")
 
             assert len(queries) == 2
-            assert all(q.user_id == "user123" for q in queries)
+            assert all(q.email == "user123@example.com" for q in queries)
 
     def test_get_queries_by_user_with_time_range(self, client):
         """Test user queries with time range filter."""
@@ -583,8 +583,8 @@ class TestQueryLogClient:
             mock_conn.cursor.return_value.__enter__.return_value = mock_cursor
             mock_get_conn.return_value = mock_conn
 
-            queries = client.get_queries_by_user(
-                "user123", start_time=start_time, end_time=end_time, limit=50
+            queries = client.get_queries_by_email(
+                "user123@example.com", start_time=start_time, end_time=end_time, limit=50
             )
 
             assert len(queries) == 0

@@ -49,7 +49,7 @@ class QueryLogClient(BaseStorageClient):
         cache_result: str,
         query_embedding: Optional[List[float]] = None,
         latency_ms: Optional[int] = None,
-        user_id: Optional[str] = None,
+        email: Optional[str] = None,
         command: Optional[str] = None,
         created_at: Optional[datetime] = None,
     ) -> int:
@@ -61,7 +61,7 @@ class QueryLogClient(BaseStorageClient):
             cache_result: Cache result type ('hit', 'miss', etc.)
             query_embedding: Optional vector embedding (3072 dimensions)
             latency_ms: Response latency in milliseconds
-            user_id: User identifier for analytics
+            email: User email address for analytics
             command: Command type ('bypass', 'q', 'qlong', 'debug', 'debuglong', or None)
             created_at: Query timestamp (defaults to NOW())
 
@@ -80,7 +80,7 @@ class QueryLogClient(BaseStorageClient):
             ...     raw_query="How do I reset my password?",
             ...     cache_result='hit',
             ...     latency_ms=125,
-            ...     user_id='user456',
+            ...     email='user@example.com',
             ...     command='q'
             ... )
         """
@@ -119,7 +119,7 @@ class QueryLogClient(BaseStorageClient):
                         cur.execute(
                             """
                             INSERT INTO query_logs
-                            (raw_query, query_embedding, cache_result, latency_ms, user_id, command, created_at)
+                            (raw_query, query_embedding, cache_result, latency_ms, email, command, created_at)
                             VALUES (%s, %s, %s, %s, %s, %s, %s)
                             RETURNING id
                             """,
@@ -128,7 +128,7 @@ class QueryLogClient(BaseStorageClient):
                                 query_embedding,
                                 cache_result,
                                 latency_ms,
-                                user_id,
+                                email,
                                 command,
                                 created_at,
                             ),
@@ -137,7 +137,7 @@ class QueryLogClient(BaseStorageClient):
                         cur.execute(
                             """
                             INSERT INTO query_logs
-                            (raw_query, query_embedding, cache_result, latency_ms, user_id, command)
+                            (raw_query, query_embedding, cache_result, latency_ms, email, command)
                             VALUES (%s, %s, %s, %s, %s, %s)
                             RETURNING id
                             """,
@@ -146,7 +146,7 @@ class QueryLogClient(BaseStorageClient):
                                 query_embedding,
                                 cache_result,
                                 latency_ms,
-                                user_id,
+                                email,
                                 command,
                             ),
                         )
@@ -210,7 +210,7 @@ class QueryLogClient(BaseStorageClient):
                                     """
                                     INSERT INTO query_logs
                                     (raw_query, query_embedding, cache_result,
-                                     latency_ms, user_id, created_at)
+                                     latency_ms, email, created_at)
                                     VALUES (%s, %s, %s, %s, %s, %s)
                                     RETURNING id
                                     """,
@@ -219,7 +219,7 @@ class QueryLogClient(BaseStorageClient):
                                         log.query_embedding,
                                         log.cache_result,
                                         log.latency_ms,
-                                        log.user_id,
+                                        log.email,
                                         log.created_at,
                                     ),
                                 )
@@ -369,7 +369,7 @@ class QueryLogClient(BaseStorageClient):
         search_method: str,
         results: List[Dict[str, Any]],
         latency_ms: Optional[int] = None,
-        user_id: Optional[str] = None,
+        email: Optional[str] = None,
         query_embedding: Optional[List[float]] = None,
         command: Optional[str] = None,
     ) -> int:
@@ -390,7 +390,7 @@ class QueryLogClient(BaseStorageClient):
                 - chunk_id (UUID): Chunk identifier
                 - parent_article_id (UUID): Article identifier
             latency_ms: Query response latency in milliseconds
-            user_id: User identifier for analytics
+            email: User email address for analytics
             query_embedding: Optional vector embedding (3072 dimensions)
             command: Command type ('bypass', 'q', 'qlong', 'debug', 'debuglong', or None)
 
@@ -408,7 +408,7 @@ class QueryLogClient(BaseStorageClient):
             ...     search_method="bm25",
             ...     results=result_list,
             ...     latency_ms=125,
-            ...     user_id="user123",
+            ...     email="user@example.com",
             ...     command="q"
             ... )
         """
@@ -424,7 +424,7 @@ class QueryLogClient(BaseStorageClient):
                 cache_result=cache_result,
                 query_embedding=query_embedding,
                 latency_ms=latency_ms,
-                user_id=user_id,
+                email=email,
                 command=command,
             )
 
@@ -450,7 +450,7 @@ class QueryLogClient(BaseStorageClient):
         start_time: datetime,
         end_time: datetime,
         cache_result: Optional[str] = None,
-        user_id: Optional[str] = None,
+        email: Optional[str] = None,
         limit: Optional[int] = None,
     ) -> List[QueryLog]:
         """
@@ -460,7 +460,7 @@ class QueryLogClient(BaseStorageClient):
             start_time: Beginning of time range (inclusive)
             end_time: End of time range (inclusive)
             cache_result: Filter by cache result type (optional)
-            user_id: Filter by user ID (optional)
+            email: Filter by user email (optional)
             limit: Maximum number of records to return (optional)
 
         Returns:
@@ -477,7 +477,7 @@ class QueryLogClient(BaseStorageClient):
         """
         logger.debug(
             f"Fetching queries for time range: {start_time} to {end_time} "
-            f"(cache_result={cache_result}, user={user_id})"
+            f"(cache_result={cache_result}, email={email})"
         )
 
         try:
@@ -485,7 +485,7 @@ class QueryLogClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     # Build dynamic query based on filters (exclude embeddings for performance)
                     query = """
-                        SELECT id, raw_query, cache_result, latency_ms, user_id, command, created_at
+                        SELECT id, raw_query, cache_result, latency_ms, email, command, created_at
                         FROM query_logs
                         WHERE created_at >= %s AND created_at <= %s
                     """
@@ -495,9 +495,9 @@ class QueryLogClient(BaseStorageClient):
                         query += " AND cache_result = %s"
                         params.append(cache_result)
 
-                    if user_id:
-                        query += " AND user_id = %s"
-                        params.append(user_id)
+                    if email:
+                        query += " AND email = %s"
+                        params.append(email)
 
                     query += " ORDER BY created_at DESC"
 
@@ -517,7 +517,7 @@ class QueryLogClient(BaseStorageClient):
                                 query_embedding=None,  # Excluded for performance
                                 cache_result=row[2],
                                 latency_ms=row[3],
-                                user_id=row[4],
+                                email=row[4],
                                 command=row[5],
                                 created_at=row[6],
                             )
@@ -612,7 +612,7 @@ class QueryLogClient(BaseStorageClient):
         start_time: datetime,
         end_time: datetime,
         cache_result: Optional[str] = None,
-        user_id: Optional[str] = None,
+        email: Optional[str] = None,
     ) -> QueryLatencyStats:
         """
         Calculate latency statistics for queries.
@@ -623,7 +623,7 @@ class QueryLogClient(BaseStorageClient):
             start_time: Beginning of time range (inclusive)
             end_time: End of time range (inclusive)
             cache_result: Filter by cache result type (optional)
-            user_id: Filter by user ID (optional)
+            email: Filter by user email (optional)
 
         Returns:
             QueryLatencyStats object with aggregated statistics
@@ -638,7 +638,7 @@ class QueryLogClient(BaseStorageClient):
         """
         logger.debug(
             f"Calculating query latency stats for {start_time} to {end_time} "
-            f"(cache_result={cache_result}, user={user_id})"
+            f"(cache_result={cache_result}, email={email})"
         )
 
         try:
@@ -665,9 +665,9 @@ class QueryLogClient(BaseStorageClient):
                         query += " AND cache_result = %s"
                         params.append(cache_result)
 
-                    if user_id:
-                        query += " AND user_id = %s"
-                        params.append(user_id)
+                    if email:
+                        query += " AND email = %s"
+                        params.append(email)
 
                     cur.execute(query, tuple(params))
                     row = cur.fetchone()
@@ -788,7 +788,7 @@ class QueryLogClient(BaseStorageClient):
         self,
         start_time: datetime,
         end_time: datetime,
-        user_id: Optional[str] = None,
+        email: Optional[str] = None,
     ) -> QueryCacheStats:
         """
         Calculate cache performance statistics for queries.
@@ -796,7 +796,7 @@ class QueryLogClient(BaseStorageClient):
         Args:
             start_time: Beginning of time range (inclusive)
             end_time: End of time range (inclusive)
-            user_id: Filter by user ID (optional)
+            email: Filter by user email (optional)
 
         Returns:
             QueryCacheStats object with aggregated statistics
@@ -809,13 +809,13 @@ class QueryLogClient(BaseStorageClient):
             >>> print(f"Cache hit rate: {stats.hit_rate:.2f}%")
         """
         logger.debug(
-            f"Calculating query cache performance for {start_time} to {end_time} (user={user_id})"
+            f"Calculating query cache performance for {start_time} to {end_time} (email={email})"
         )
 
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    if user_id:
+                    if email:
                         cur.execute(
                             """
                             SELECT
@@ -825,9 +825,9 @@ class QueryLogClient(BaseStorageClient):
                             FROM query_logs
                             WHERE created_at >= %s
                               AND created_at <= %s
-                              AND user_id = %s
+                              AND email = %s
                             """,
-                            (start_time, end_time, user_id),
+                            (start_time, end_time, email),
                         )
                     else:
                         cur.execute(
@@ -882,18 +882,18 @@ class QueryLogClient(BaseStorageClient):
             logger.error(f"Failed to calculate query cache performance: {str(e)}")
             raise
 
-    def get_queries_by_user(
+    def get_queries_by_email(
         self,
-        user_id: str,
+        email: str,
         start_time: Optional[datetime] = None,
         end_time: Optional[datetime] = None,
         limit: Optional[int] = None,
     ) -> List[QueryLog]:
         """
-        Retrieve all queries for a specific user.
+        Retrieve all queries for a specific user email.
 
         Args:
-            user_id: User identifier
+            email: User email address
             start_time: Optional start of time range
             end_time: Optional end of time range
             limit: Maximum number of records to return (optional)
@@ -905,10 +905,10 @@ class QueryLogClient(BaseStorageClient):
             ConnectionError: If database operation fails
 
         Example:
-            >>> queries = client.get_queries_by_user("user123", limit=100)
+            >>> queries = client.get_queries_by_email("user@example.com", limit=100)
         """
         logger.debug(
-            f"Fetching queries for user {user_id} "
+            f"Fetching queries for email {email} "
             f"(time_range={start_time} to {end_time}, limit={limit})"
         )
 
@@ -917,11 +917,11 @@ class QueryLogClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     # Build dynamic query based on filters
                     query = """
-                        SELECT id, raw_query, cache_result, latency_ms, user_id, command, created_at
+                        SELECT id, raw_query, cache_result, latency_ms, email, command, created_at
                         FROM query_logs
-                        WHERE user_id = %s
+                        WHERE email = %s
                     """
-                    params: List = [user_id]
+                    params: List = [email]
 
                     if start_time:
                         query += " AND created_at >= %s"
@@ -949,17 +949,17 @@ class QueryLogClient(BaseStorageClient):
                                 query_embedding=None,  # Excluded for performance
                                 cache_result=row[2],
                                 latency_ms=row[3],
-                                user_id=row[4],
+                                email=row[4],
                                 command=row[5],
                                 created_at=row[6],
                             )
                         )
 
-                    logger.info(f"Retrieved {len(logs)} queries for user {user_id}")
+                    logger.info(f"Retrieved {len(logs)} queries for email {email}")
                     return logs
 
         except Exception as e:
-            logger.error(f"Failed to fetch queries for user {user_id}: {str(e)}")
+            logger.error(f"Failed to fetch queries for email {email}: {str(e)}")
             raise
 
     def search_queries_by_text(

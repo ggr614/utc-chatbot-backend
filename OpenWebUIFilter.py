@@ -570,7 +570,7 @@ What does DHCP stand for?
         return output
 
     def _search_documents(
-        self, query: str, user_id: Optional[str] = None, use_hyde: bool = False
+        self, query: str, email: Optional[str] = None, use_hyde: bool = False
     ) -> Dict[str, Any]:
         """Call the RAG Helpdesk API search endpoint (hybrid or hyde)."""
         # Choose endpoint based on command-scoped HyDE toggle
@@ -609,8 +609,8 @@ What does DHCP stand for?
             payload["min_bm25_score"] = self.valves.MIN_BM25_SCORE
         if self.valves.MIN_VECTOR_SIMILARITY is not None:
             payload["min_vector_similarity"] = self.valves.MIN_VECTOR_SIMILARITY
-        if user_id:
-            payload["user_id"] = user_id
+        if email:
+            payload["email"] = email
         # Add command for query logging
         if hasattr(self, "_command_mode") and self._command_mode:
             payload["command"] = self._command_mode
@@ -928,9 +928,9 @@ Use the following retrieved documents to help answer the user's question:
         error_detail = None
 
         try:
-            user_id = __user__.get("id") if __user__ else None
+            email = __user__.get("email") if __user__ else None
             search_response = self._search_documents(
-                user_query, user_id, use_hyde=self._use_hyde_search
+                user_query, email, use_hyde=self._use_hyde_search
             )
             context = self._format_context(search_response)
             num_docs = len(search_response.get("results", []))

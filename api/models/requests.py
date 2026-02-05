@@ -33,11 +33,11 @@ class SearchRequest(BaseModel):
         description="Number of results to return",
         examples=[10],
     )
-    user_id: Optional[str] = Field(
+    email: Optional[str] = Field(
         default=None,
         max_length=255,
-        description="Optional user identifier for analytics",
-        examples=["user123"],
+        description="Optional user email address for analytics",
+        examples=["user@example.com"],
     )
     command: Optional[str] = Field(
         default=None,
@@ -144,11 +144,11 @@ class BM25ValidationRequest(BaseModel):
         description="Minimum BM25 score threshold",
         examples=[1.0],
     )
-    user_id: Optional[str] = Field(
+    email: Optional[str] = Field(
         default=None,
         max_length=255,
-        description="Optional user identifier for analytics",
-        examples=["user123"],
+        description="Optional user email address for analytics",
+        examples=["user@example.com"],
     )
 
     @field_validator("query")

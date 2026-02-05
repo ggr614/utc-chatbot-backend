@@ -209,8 +209,10 @@ class QueryLog(BaseModel):
     )
 
     # User tracking
-    user_id: str | None = Field(
-        default=None, description="User identifier for analytics."
+    email: str | None = Field(
+        default=None,
+        max_length=255,
+        description="User email address for analytics (from Open WebUI).",
     )
 
     # Command tracking

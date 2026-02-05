@@ -82,7 +82,7 @@ def search_bm25(
     - `query`: Search query text (1-1000 chars)
     - `top_k`: Number of results to return (1-100, default 10)
     - `min_score`: Optional minimum BM25 score threshold
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - Ranked results with BM25 scores
@@ -93,7 +93,7 @@ def search_bm25(
 
     logger.info(
         f"BM25 search: query='{request.query[:50]}', top_k={request.top_k}, "
-        f"min_score={request.min_score}, user_id={request.user_id}"
+        f"min_score={request.min_score}, email={request.email}"
     )
 
     try:
@@ -150,7 +150,7 @@ def search_bm25(
                 search_method="bm25",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=request.user_id,
+                email=request.email,
                 query_embedding=None,
                 command=request.command,
             )
@@ -215,7 +215,7 @@ def search_bm25_validate(
     - `query`: Search query text (1-1000 chars)
     - `top_k`: Optional limit on results (1-10,000, default: return all)
     - `min_score`: Optional minimum BM25 score threshold
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - All ranked results with IDs and scores only
@@ -230,7 +230,7 @@ def search_bm25_validate(
     logger.info(
         f"BM25 validation search: query='{request.query[:50]}', "
         f"top_k={request.top_k}, min_score={request.min_score}, "
-        f"user_id={request.user_id}"
+        f"email={request.email}"
     )
 
     try:
@@ -287,7 +287,7 @@ def search_bm25_validate(
                 search_method="bm25_validate",
                 results=results_for_log,
                 latency_ms=latency_ms,
-                user_id=request.user_id,
+                email=request.email,
                 query_embedding=None,
                 command=None,
             )
@@ -352,7 +352,7 @@ def search_vector(
     - `query`: Search query text (1-1000 chars)
     - `top_k`: Number of results to return (1-100, default 10)
     - `min_similarity`: Optional minimum similarity threshold (0.0-1.0)
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - Ranked results with similarity scores (0-1)
@@ -365,7 +365,7 @@ def search_vector(
 
     logger.info(
         f"Vector search: query='{request.query[:50]}', top_k={request.top_k}, "
-        f"min_similarity={request.min_similarity}, user_id={request.user_id}"
+        f"min_similarity={request.min_similarity}, email={request.email}"
     )
 
     try:
@@ -422,7 +422,7 @@ def search_vector(
                 search_method="vector",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=request.user_id,
+                email=request.email,
                 query_embedding=None,  # Could store embedding here if needed
                 command=request.command,
             )
@@ -505,7 +505,7 @@ def search_hybrid(
     - `rrf_k`: RRF constant (default 60, controls rank-based weighting)
     - `min_bm25_score`: Optional BM25 score threshold
     - `min_vector_similarity`: Optional vector similarity threshold
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - Ranked results with Cohere relevance scores (0-1)
@@ -516,7 +516,7 @@ def search_hybrid(
 
     logger.info(
         f"Hybrid search with reranking: query='{search_request.query[:50]}', top_k={search_request.top_k}, "
-        f"rrf_k={search_request.rrf_k}, user_id={search_request.user_id}"
+        f"rrf_k={search_request.rrf_k}, email={search_request.email}"
     )
 
     try:
@@ -579,7 +579,7 @@ def search_hybrid(
                 search_method="hybrid",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=search_request.user_id,
+                email=search_request.email,
                 query_embedding=None,
                 command=search_request.command,
             )
@@ -708,7 +708,7 @@ async def search_hyde(
     - `rrf_k`: RRF constant (default 60)
     - `min_bm25_score`: Optional BM25 score threshold
     - `min_vector_similarity`: Optional vector similarity threshold
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - Ranked results with Cohere relevance scores (0-1)
@@ -719,7 +719,7 @@ async def search_hyde(
 
     logger.info(
         f"HyDE search: query='{search_request.query[:50]}', top_k={search_request.top_k}, "
-        f"rrf_k={search_request.rrf_k}, user_id={search_request.user_id}"
+        f"rrf_k={search_request.rrf_k}, email={search_request.email}"
     )
 
     # Track HyDE-specific metadata
@@ -881,7 +881,7 @@ async def search_hyde(
                 search_method="hyde",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=search_request.user_id,
+                email=search_request.email,
                 query_embedding=None,
                 command=search_request.command,
             )
