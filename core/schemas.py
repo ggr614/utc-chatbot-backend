@@ -22,10 +22,12 @@ class TdxArticle(BaseModel):
         default_factory=lambda: datetime.now(timezone.utc)
     )
     status_name: str | None = Field(
-        default=None, description="Article status from TDX API (e.g., 'Approved', 'Draft', 'Archived')"
+        default=None,
+        description="Article status from TDX API (e.g., 'Approved', 'Draft', 'Archived')",
     )
     category_name: str | None = Field(
-        default=None, description="Article category from TDX API (e.g., 'IT Help', 'Documentation')"
+        default=None,
+        description="Article category from TDX API (e.g., 'IT Help', 'Documentation')",
     )
     is_public: bool | None = Field(
         default=None, description="Whether article is publicly visible in TDX"
@@ -70,8 +72,7 @@ class TextChunk(BaseModel):
 
     # Article metadata (optional, populated during filtered queries)
     article_tags: List[str] | None = Field(
-        default=None,
-        description="Tags from parent article (used for BM25 tag search)"
+        default=None, description="Tags from parent article (used for BM25 tag search)"
     )
 
 

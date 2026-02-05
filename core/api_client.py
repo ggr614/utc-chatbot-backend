@@ -221,7 +221,9 @@ class TDXClient:
 
                     # Filter out non-approved articles early to reduce API calls
                     if status_name != "Approved":
-                        logger.debug(f"Filtering out non-approved article {article_id} (status: {status_name})")
+                        logger.debug(
+                            f"Filtering out non-approved article {article_id} (status: {status_name})"
+                        )
                         filtered_count += 1
                         continue
 

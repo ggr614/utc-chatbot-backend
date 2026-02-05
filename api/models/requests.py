@@ -63,9 +63,7 @@ class SearchRequest(BaseModel):
             return v
         valid_commands = {"bypass", "q", "qlong", "debug", "debuglong"}
         if v not in valid_commands:
-            raise ValueError(
-                f"Command must be one of {valid_commands}, got '{v}'"
-            )
+            raise ValueError(f"Command must be one of {valid_commands}, got '{v}'")
         return v
 
 

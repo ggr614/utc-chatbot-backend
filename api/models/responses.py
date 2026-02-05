@@ -85,7 +85,12 @@ class SearchResponse(BaseModel):
             "For hyde: hyde_latency_ms (int), hypothetical_document (str), token_usage (dict)."
         ),
         examples=[
-            {"rrf_k": 60, "reranked": True, "reranker_status": "success", "reranker_latency_ms": 245}
+            {
+                "rrf_k": 60,
+                "reranked": True,
+                "reranker_status": "success",
+                "reranker_latency_ms": 245,
+            }
         ],
     )
     query_log_id: Optional[int] = Field(
@@ -106,9 +111,7 @@ class BM25ValidationResult(BaseModel):
     rank: int = Field(
         ..., description="Result ranking position (1-indexed)", examples=[1]
     )
-    score: float = Field(
-        ..., description="BM25 relevance score", examples=[5.5]
-    )
+    score: float = Field(..., description="BM25 relevance score", examples=[5.5])
     chunk_id: UUID = Field(..., description="Unique chunk identifier")
     parent_article_id: UUID = Field(..., description="Source article UUID")
     chunk_sequence: int = Field(

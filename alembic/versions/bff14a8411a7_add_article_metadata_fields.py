@@ -5,6 +5,7 @@ Revises: 6edea7230754
 Create Date: 2026-02-05 10:45:25.942553
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -12,8 +13,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'bff14a8411a7'
-down_revision: Union[str, Sequence[str], None] = '6edea7230754'
+revision: str = "bff14a8411a7"
+down_revision: Union[str, Sequence[str], None] = "6edea7230754"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -33,9 +34,9 @@ def upgrade() -> None:
 
     # Create indexes for query optimization
     # B-tree indexes for scalar fields (fast filtering)
-    op.create_index('idx_articles_status_name', 'articles', ['status_name'])
-    op.create_index('idx_articles_category_name', 'articles', ['category_name'])
-    op.create_index('idx_articles_is_public', 'articles', ['is_public'])
+    op.create_index("idx_articles_status_name", "articles", ["status_name"])
+    op.create_index("idx_articles_category_name", "articles", ["category_name"])
+    op.create_index("idx_articles_is_public", "articles", ["is_public"])
 
     # GIN index for array field (supports array containment queries)
     op.execute("""
@@ -48,9 +49,9 @@ def downgrade() -> None:
 
     # Drop indexes first (prevent foreign key constraint errors)
     op.execute("DROP INDEX IF EXISTS idx_articles_tags")
-    op.drop_index('idx_articles_is_public', table_name='articles')
-    op.drop_index('idx_articles_category_name', table_name='articles')
-    op.drop_index('idx_articles_status_name', table_name='articles')
+    op.drop_index("idx_articles_is_public", table_name="articles")
+    op.drop_index("idx_articles_category_name", table_name="articles")
+    op.drop_index("idx_articles_status_name", table_name="articles")
 
     # Drop columns (data will be lost!)
     op.execute("""

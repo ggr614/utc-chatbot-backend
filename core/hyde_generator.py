@@ -18,6 +18,7 @@ from core.config import get_chat_settings
 import asyncio
 import html
 import logging
+
 logger = logging.getLogger(__name__)
 
 # HyDE system prompt for generating hypothetical documents
@@ -70,7 +71,9 @@ class HyDEGenerator:
 
             self.deployment_name = settings.DEPLOYMENT_NAME
             self.max_tokens = settings.MAX_TOKENS
-            self.max_completion_tokens = min(settings.COMPLETION_TOKENS, 500)  # HyDE docs are concise
+            self.max_completion_tokens = min(
+                settings.COMPLETION_TOKENS, 500
+            )  # HyDE docs are concise
 
             # Initialize async client
             try:
@@ -206,7 +209,7 @@ class HyDEGenerator:
 
                 # Extract token usage if available
                 token_usage = None
-                if hasattr(response, 'usage') and response.usage:
+                if hasattr(response, "usage") and response.usage:
                     try:
                         token_usage = {
                             "prompt_tokens": response.usage.prompt_tokens,
@@ -234,7 +237,7 @@ class HyDEGenerator:
                     f"Rate limit hit (attempt {attempt + 1}/{max_retries}): {str(e)}"
                 )
                 if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
+                    wait_time = retry_delay * (2**attempt)  # Exponential backoff
                     logger.info(f"Retrying in {wait_time} seconds...")
                     await asyncio.sleep(wait_time)
                     continue
@@ -249,7 +252,7 @@ class HyDEGenerator:
                     f"API timeout (attempt {attempt + 1}/{max_retries}): {str(e)}"
                 )
                 if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)
+                    wait_time = retry_delay * (2**attempt)
                     logger.info(f"Retrying in {wait_time} seconds...")
                     await asyncio.sleep(wait_time)
                     continue
@@ -271,7 +274,7 @@ class HyDEGenerator:
                     f"API error (attempt {attempt + 1}/{max_retries}): {str(e)}"
                 )
                 if attempt < max_retries - 1:
-                    wait_time = retry_delay * (2 ** attempt)
+                    wait_time = retry_delay * (2**attempt)
                     logger.info(f"Retrying in {wait_time} seconds...")
                     await asyncio.sleep(wait_time)
                     continue
@@ -282,7 +285,9 @@ class HyDEGenerator:
 
             except Exception as e:
                 last_exception = e
-                logger.error(f"Unexpected error during generation: {str(e)}", exc_info=True)
+                logger.error(
+                    f"Unexpected error during generation: {str(e)}", exc_info=True
+                )
                 raise RuntimeError(
                     f"Unexpected error generating hypothetical document: {str(e)}"
                 ) from e

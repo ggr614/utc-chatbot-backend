@@ -243,7 +243,9 @@ def search_bm25_validate(
             query=request.query,
             top_k=effective_top_k,
             min_score=request.min_score,
-            status_names=["Approved"],  # BM25 validation doesn't inherit ArticleFilterParams, default to Approved
+            status_names=[
+                "Approved"
+            ],  # BM25 validation doesn't inherit ArticleFilterParams, default to Approved
         )
 
         # Convert to minimal response format (IDs and scores only)
@@ -733,8 +735,13 @@ async def search_hyde(
         hypothetical_doc = None
         token_usage = None
         try:
-            logger.debug(f"Generating hypothetical document for query: '{search_request.query[:50]}'")
-            hypothetical_doc, token_usage = await hyde_generator.generate_hypothetical_document(
+            logger.debug(
+                f"Generating hypothetical document for query: '{search_request.query[:50]}'"
+            )
+            (
+                hypothetical_doc,
+                token_usage,
+            ) = await hyde_generator.generate_hypothetical_document(
                 query=search_request.query,
             )
             hyde_latency_ms = int((time.time() - hyde_start) * 1000)
@@ -783,7 +790,9 @@ async def search_hyde(
             tags=search_request.tags,
         )
         embedding_latency_ms = int((time.time() - embedding_start) * 1000)
-        logger.debug(f"Vector search returned {len(vector_results)} results in {embedding_latency_ms}ms")
+        logger.debug(
+            f"Vector search returned {len(vector_results)} results in {embedding_latency_ms}ms"
+        )
 
         # Step 4: Apply RRF fusion
         logger.debug("Applying RRF fusion")
@@ -813,7 +822,9 @@ async def search_hyde(
                     results=fused_results,
                 )
                 reranking_metadata["reranked"] = True
-                reranking_metadata["reranker_latency_ms"] = reranker.last_rerank_latency_ms
+                reranking_metadata["reranker_latency_ms"] = (
+                    reranker.last_rerank_latency_ms
+                )
                 final_results = reranked_results[: search_request.top_k]
                 logger.info(
                     f"Reranking completed in {reranker.last_rerank_latency_ms}ms, "
@@ -912,16 +923,26 @@ async def search_hyde(
                     hyde_log_client.log_hyde_generation(
                         query_log_id=query_log_id_for_response,
                         hypothetical_document=hypothetical_doc,
-                        generation_status="success" if not hyde_metadata["hyde_failed"] else "failed_fallback",
+                        generation_status="success"
+                        if not hyde_metadata["hyde_failed"]
+                        else "failed_fallback",
                         model_name=hyde_generator.deployment_name,
                         generation_latency_ms=hyde_metadata["hyde_latency_ms"],
                         embedding_latency_ms=embedding_latency_ms,
-                        prompt_tokens=token_usage.get("prompt_tokens") if token_usage else None,
-                        completion_tokens=token_usage.get("completion_tokens") if token_usage else None,
-                        total_tokens=token_usage.get("total_tokens") if token_usage else None,
+                        prompt_tokens=token_usage.get("prompt_tokens")
+                        if token_usage
+                        else None,
+                        completion_tokens=token_usage.get("completion_tokens")
+                        if token_usage
+                        else None,
+                        total_tokens=token_usage.get("total_tokens")
+                        if token_usage
+                        else None,
                         error_message=hyde_metadata.get("hyde_error"),
                     )
-                    logger.debug(f"HyDE generation logged for query_log_id {query_log_id_for_response}")
+                    logger.debug(
+                        f"HyDE generation logged for query_log_id {query_log_id_for_response}"
+                    )
                 except Exception as hyde_log_error:
                     # Don't fail the request if HyDE logging fails
                     logger.error(f"HyDE logging failed: {hyde_log_error}")
@@ -964,5 +985,6 @@ async def search_hyde(
         # Unexpected errors
         logger.error(f"HyDE search error: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="HyDE search failed"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="HyDE search failed",
         )

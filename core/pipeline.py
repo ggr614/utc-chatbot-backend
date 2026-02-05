@@ -423,11 +423,15 @@ class RAGPipeline:
                     logger.info("PHASE 0: CLEANUP NON-APPROVED ARTICLES")
                     logger.info("=" * 80)
                     try:
-                        cleaned_count = self.article_processor.cleanup_non_approved_articles()
+                        cleaned_count = (
+                            self.article_processor.cleanup_non_approved_articles()
+                        )
                         stats["cleanup"]["deleted_count"] = cleaned_count
                     except Exception as e:
                         logger.error(f"Cleanup phase failed: {str(e)}")
-                        logger.warning("Continuing with pipeline despite cleanup failure")
+                        logger.warning(
+                            "Continuing with pipeline despite cleanup failure"
+                        )
                         stats["cleanup"]["error"] = str(e)
                 else:
                     logger.info("PHASE 0: CLEANUP - SKIPPED (ingestion disabled)")

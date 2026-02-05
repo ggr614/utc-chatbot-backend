@@ -95,7 +95,13 @@ class QueryLogClient(BaseStorageClient):
                 f"query_embedding must have 3072 dimensions, got {len(query_embedding)}"
             )
 
-        if command is not None and command not in ("bypass", "q", "qlong", "debug", "debuglong"):
+        if command is not None and command not in (
+            "bypass",
+            "q",
+            "qlong",
+            "debug",
+            "debuglong",
+        ):
             raise ValueError(
                 f"command must be 'bypass', 'q', 'qlong', 'debug', 'debuglong', or None, got '{command}'"
             )

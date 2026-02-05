@@ -112,9 +112,7 @@ class HyDELogClient(BaseStorageClient):
             raise ValueError(f"prompt_tokens must be >= 0, got {prompt_tokens}")
 
         if completion_tokens is not None and completion_tokens < 0:
-            raise ValueError(
-                f"completion_tokens must be >= 0, got {completion_tokens}"
-            )
+            raise ValueError(f"completion_tokens must be >= 0, got {completion_tokens}")
 
         if total_tokens is not None and total_tokens < 0:
             raise ValueError(f"total_tokens must be >= 0, got {total_tokens}")

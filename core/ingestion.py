@@ -333,7 +333,9 @@ class ArticleProcessor:
         # Fetch all articles from TDX API (with status)
         logger.debug("Fetching all articles from TDX API")
         all_articles = self.tdx_client.retrieve_all_articles()
-        articles_list = all_articles[0]  # retrieve_all_articles returns (articles, errors)
+        articles_list = all_articles[
+            0
+        ]  # retrieve_all_articles returns (articles, errors)
         logger.debug(f"Fetched {len(articles_list)} articles from API")
 
         # Find non-approved TDX article IDs
