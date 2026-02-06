@@ -737,12 +737,21 @@ What does DHCP stand for?
         return new_messages
 
     def _inject_context_into_messages(
-        self, messages: List[Dict[str, Any]], context: str
+        self, messages: List[Dict[str, Any]], context: str, system_prompt: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """Inject RAG context into the message list via system prompt."""
+        """Inject RAG context into the message list via system prompt.
+
+        Args:
+            messages: The conversation message list
+            context: Formatted document context string
+            system_prompt: Optional system prompt from API. If None, falls back to SYSTEM_PROMPT_RAG.
+        """
+
+        # Use API-provided prompt if available, otherwise fall back to hardcoded
+        base_prompt = system_prompt if system_prompt else SYSTEM_PROMPT_RAG
 
         # Build the full instruction with context
-        rag_instruction = f"""{SYSTEM_PROMPT_RAG}
+        rag_instruction = f"""{base_prompt}
 
 You have access to a knowledge base of IT helpdesk support articles.
 Use the following retrieved documents to help answer the user's question:
@@ -926,6 +935,7 @@ Use the following retrieved documents to help answer the user's question:
         num_docs = 0
         error_msg = None
         error_detail = None
+        resolved_system_prompt = None  # Will hold API-provided system prompt
 
         try:
             email = __user__.get("email") if __user__ else None
@@ -934,6 +944,19 @@ Use the following retrieved documents to help answer the user's question:
             )
             context = self._format_context(search_response)
             num_docs = len(search_response.get("results", []))
+
+            # Extract system prompt from API metadata (NEW)
+            api_system_prompts = search_response.get("metadata", {}).get("system_prompts", {})
+            if api_system_prompts and search_response.get("results"):
+                # Use the prompt from the top-ranked article
+                top_article_id = str(search_response["results"][0].get("parent_article_id", ""))
+                resolved_system_prompt = api_system_prompts.get(top_article_id)
+                if resolved_system_prompt:
+                    print(f"[RAG Filter] Using API system prompt from article {top_article_id[:8]}... ({len(resolved_system_prompt)} chars)")
+                else:
+                    print("[RAG Filter] Top article not in system_prompts dict, using hardcoded fallback")
+            elif self.valves.DEBUG_MODE:
+                print("[RAG Filter] No system_prompts in API metadata, using hardcoded fallback")
 
             # Capture query_log_id for LLM response logging in outlet
             query_log_id = search_response.get("query_log_id")
@@ -1022,7 +1045,9 @@ Use the following retrieved documents to help answer the user's question:
 
         # Inject context if we have any
         if context:
-            body["messages"] = self._inject_context_into_messages(messages, context)
+            body["messages"] = self._inject_context_into_messages(
+                messages, context, system_prompt=resolved_system_prompt
+            )
 
             if __event_emitter__:
                 await __event_emitter__(

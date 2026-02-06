@@ -130,6 +130,15 @@ def search_bm25(
             f"BM25 search completed: {len(results)} results, {latency_ms}ms latency"
         )
 
+        # Extract system prompts from results (NEW)
+        system_prompts = {}
+        for r in results:
+            article_id = str(r.chunk.parent_article_id)
+            if article_id not in system_prompts and hasattr(r, 'system_prompt') and r.system_prompt:
+                system_prompts[article_id] = r.system_prompt
+
+        logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
+
         # Prepare results for logging (extract minimal data)
         results_for_logging = [
             {
@@ -158,16 +167,20 @@ def search_bm25(
             logger.error(f"Query and result logging failed: {e}")
             # Don't propagate logging errors to client
 
-        # Build response
+        # Build response with system prompts in metadata (NEW)
+        metadata = {}
+        if request.min_score is not None:
+            metadata["min_score"] = request.min_score
+        if system_prompts:
+            metadata["system_prompts"] = system_prompts
+
         return SearchResponse(
             query=request.query,
             method="bm25",
             results=result_chunks,
             total_results=len(results),
             latency_ms=latency_ms,
-            metadata={"min_score": request.min_score}
-            if request.min_score is not None
-            else {},
+            metadata=metadata,
             query_log_id=query_log_id_for_response,
         )
 
@@ -402,6 +415,15 @@ def search_vector(
             f"Vector search completed: {len(results)} results, {latency_ms}ms latency"
         )
 
+        # Extract system prompts from results (NEW)
+        system_prompts = {}
+        for r in results:
+            article_id = str(r.chunk.parent_article_id)
+            if article_id not in system_prompts and hasattr(r, 'system_prompt') and r.system_prompt:
+                system_prompts[article_id] = r.system_prompt
+
+        logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
+
         # Prepare results for logging (extract minimal data)
         results_for_logging = [
             {
@@ -429,16 +451,20 @@ def search_vector(
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
 
-        # Build response
+        # Build response with system prompts in metadata (NEW)
+        metadata = {}
+        if request.min_similarity is not None:
+            metadata["min_similarity"] = request.min_similarity
+        if system_prompts:
+            metadata["system_prompts"] = system_prompts
+
         return SearchResponse(
             query=request.query,
             method="vector",
             results=result_chunks,
             total_results=len(results),
             latency_ms=latency_ms,
-            metadata={"min_similarity": request.min_similarity}
-            if request.min_similarity is not None
-            else {},
+            metadata=metadata,
             query_log_id=query_log_id_for_response,
         )
 
@@ -559,6 +585,15 @@ def search_hybrid(
             f"reranked={reranking_metadata.get('reranked', False)}"
         )
 
+        # Extract system prompts from results (NEW)
+        system_prompts = {}
+        for r in results:
+            article_id = str(r["chunk"].parent_article_id)
+            if article_id not in system_prompts and "system_prompt" in r and r["system_prompt"]:
+                system_prompts[article_id] = r["system_prompt"]
+
+        logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
+
         # Prepare results for logging (extract minimal data)
         results_for_logging = [
             {
@@ -618,11 +653,13 @@ def search_hybrid(
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
 
-        # Build metadata with RRF and reranking info
+        # Build metadata with RRF and reranking info (NEW: include system_prompts)
         metadata = {
             "rrf_k": search_request.rrf_k,
             **reranking_metadata,
         }
+        if system_prompts:
+            metadata["system_prompts"] = system_prompts
 
         # Build response
         return SearchResponse(
@@ -861,6 +898,15 @@ async def search_hyde(
             f"reranked={reranking_metadata.get('reranked', False)}"
         )
 
+        # Extract system prompts from results (NEW)
+        system_prompts = {}
+        for r in final_results:
+            article_id = str(r["chunk"].parent_article_id)
+            if article_id not in system_prompts and "system_prompt" in r and r["system_prompt"]:
+                system_prompts[article_id] = r["system_prompt"]
+
+        logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
+
         # Prepare results for logging (extract minimal data)
         results_for_logging = [
             {
@@ -950,12 +996,14 @@ async def search_hyde(
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
 
-        # Build metadata with HyDE, RRF, and reranking info
+        # Build metadata with HyDE, RRF, and reranking info (NEW: include system_prompts)
         metadata = {
             "rrf_k": search_request.rrf_k,
             **hyde_metadata,
             **reranking_metadata,
         }
+        if system_prompts:
+            metadata["system_prompts"] = system_prompts
 
         # Build response
         return SearchResponse(

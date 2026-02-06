@@ -403,6 +403,10 @@ class CohereReranker:
                     "chunk": original["chunk"],  # Keep original chunk
                 }
 
+                # Preserve system_prompt from original result
+                if "system_prompt" in original:
+                    reranked_result["system_prompt"] = original["system_prompt"]
+
                 # Store original scores in metadata for debugging
                 if "metadata" not in reranked_result:
                     reranked_result["metadata"] = {}

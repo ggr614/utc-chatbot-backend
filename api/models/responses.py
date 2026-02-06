@@ -78,6 +78,7 @@ class SearchResponse(BaseModel):
         default_factory=dict,
         description=(
             "Additional method-specific metadata. "
+            "For all methods: system_prompts (dict[article_id, prompt_text]) - maps article IDs to their resolved system prompts. "
             "For hybrid/hyde endpoints: rrf_k (int), reranked (bool), "
             "reranker_status ('success'|'failed'|'unavailable'), "
             "reranker_latency_ms (int), num_candidates_reranked (int), "
@@ -86,6 +87,10 @@ class SearchResponse(BaseModel):
         ),
         examples=[
             {
+                "system_prompts": {
+                    "uuid-article-1": "You are a VPN specialist...",
+                    "uuid-article-2": "You are a helpful IT helpdesk assistant..."
+                },
                 "rrf_k": 60,
                 "reranked": True,
                 "reranker_status": "success",

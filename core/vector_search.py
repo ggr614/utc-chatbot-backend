@@ -32,11 +32,13 @@ class VectorSearchResult:
         chunk: The TextChunk object
         similarity: Cosine similarity score (0-1, higher is more similar)
         rank: Position in the ranked results (1-indexed)
+        system_prompt: Optional system prompt resolved from article tags
     """
 
     chunk: TextChunk
     similarity: float
     rank: int
+    system_prompt: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary with metadata."""
@@ -103,6 +105,7 @@ class VectorRetriever:
         category_names: Optional[List[str]] = None,
         is_public: Optional[bool] = None,
         tags: Optional[List[str]] = None,
+        include_system_prompts: bool = True,
     ) -> List[VectorSearchResult]:
         """
         Search for semantically similar chunks using vector similarity with optional article metadata filtering.
@@ -118,9 +121,10 @@ class VectorRetriever:
             category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
             is_public: Filter by article visibility (True for public, False for private)
             tags: Filter by article tags (ANY match using array overlap operator)
+            include_system_prompts: Include system prompts resolved from article tags (default: True)
 
         Returns:
-            List of VectorSearchResult objects, ranked by similarity
+            List of VectorSearchResult objects, ranked by similarity, with optional system_prompt field
 
         Raises:
             ValueError: If query is empty or top_k is invalid
@@ -171,6 +175,7 @@ class VectorRetriever:
                     category_names=category_names,
                     is_public=is_public,
                     tags=tags,
+                    include_system_prompts=include_system_prompts,
                 )
             except Exception as e:
                 logger.error(f"Vector search failed: {str(e)}")
@@ -194,7 +199,8 @@ class VectorRetriever:
                     ),  # Use created_at as last_modified
                 )
                 similarity = result_dict["similarity"]
-                results.append((similarity, chunk))
+                system_prompt = result_dict.get("system_prompt")
+                results.append((similarity, chunk, system_prompt))
 
             # Sort by similarity (descending) and take top_k
             results.sort(reverse=True, key=lambda x: x[0])
@@ -206,8 +212,9 @@ class VectorRetriever:
                     chunk=chunk,
                     similarity=similarity,
                     rank=rank,
+                    system_prompt=system_prompt,
                 )
-                for rank, (similarity, chunk) in enumerate(results, start=1)
+                for rank, (similarity, chunk, system_prompt) in enumerate(results, start=1)
             ]
 
         logger.info(

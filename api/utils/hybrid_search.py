@@ -53,6 +53,7 @@ def reciprocal_rank_fusion(
     # Build chunk_id → RRF score mapping
     rrf_scores: Dict[str, float] = {}
     chunk_map: Dict[str, TextChunk] = {}
+    prompt_map: Dict[str, Optional[str]] = {}  # Track system prompts
 
     # Add BM25 contributions
     for result in bm25_results:
@@ -60,6 +61,9 @@ def reciprocal_rank_fusion(
         rrf_contribution = 1.0 / (k + result.rank)
         rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + rrf_contribution
         chunk_map[chunk_id] = result.chunk
+        # Store system prompt (prefer first occurrence)
+        if chunk_id not in prompt_map and hasattr(result, 'system_prompt'):
+            prompt_map[chunk_id] = result.system_prompt
         logger.debug(
             f"BM25 contribution for chunk {chunk_id[:8]}: "
             f"rank={result.rank}, rrf={rrf_contribution:.4f}"
@@ -71,6 +75,9 @@ def reciprocal_rank_fusion(
         rrf_contribution = 1.0 / (k + result.rank)
         rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + rrf_contribution
         chunk_map[chunk_id] = result.chunk
+        # Store system prompt if not already set
+        if chunk_id not in prompt_map and hasattr(result, 'system_prompt'):
+            prompt_map[chunk_id] = result.system_prompt
         logger.debug(
             f"Vector contribution for chunk {chunk_id[:8]}: "
             f"rank={result.rank}, rrf={rrf_contribution:.4f}"
@@ -82,9 +89,15 @@ def reciprocal_rank_fusion(
     # Build result list with re-ranked positions
     results = []
     for rank, (chunk_id, score) in enumerate(sorted_chunks, start=1):
-        results.append(
-            {"rank": rank, "combined_score": score, "chunk": chunk_map[chunk_id]}
-        )
+        result_dict = {
+            "rank": rank,
+            "combined_score": score,
+            "chunk": chunk_map[chunk_id]
+        }
+        # Add system_prompt if available
+        if chunk_id in prompt_map:
+            result_dict["system_prompt"] = prompt_map[chunk_id]
+        results.append(result_dict)
 
     logger.info(
         f"RRF fusion combined {len(bm25_results)} BM25 + {len(vector_results)} vector "

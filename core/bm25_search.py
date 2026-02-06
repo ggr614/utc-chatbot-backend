@@ -34,11 +34,13 @@ class BM25SearchResult:
         chunk: The TextChunk object
         score: BM25 relevance score
         rank: Position in the ranked results (1-indexed)
+        system_prompt: Optional system prompt resolved from article tags
     """
 
     chunk: TextChunk
     score: float
     rank: int
+    system_prompt: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary with metadata."""
@@ -287,6 +289,7 @@ class BM25Retriever:
         category_names: Optional[List[str]] = None,
         is_public: Optional[bool] = None,
         tags: Optional[List[str]] = None,
+        include_system_prompts: bool = True,
     ) -> List[BM25SearchResult]:
         """
         Search for relevant chunks using BM25 ranking with optional article metadata filtering.
@@ -305,9 +308,10 @@ class BM25Retriever:
             category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
             is_public: Filter by article visibility (True for public, False for private)
             tags: Filter by article tags (ANY match using array overlap operator)
+            include_system_prompts: Include system prompts resolved from article tags (default: True)
 
         Returns:
-            List of BM25SearchResult objects, ranked by relevance
+            List of BM25SearchResult objects, ranked by relevance, with optional system_prompt field
 
         Raises:
             ValueError: If query is empty or top_k is invalid
@@ -383,6 +387,27 @@ class BM25Retriever:
                 )
                 for rank, (score, idx) in enumerate(top_results, start=1)
             ]
+
+            # Fetch system prompts if requested (post-processing batch fetch)
+            if include_system_prompts and results:
+                from core.storage_prompt import PromptStorageClient
+
+                try:
+                    article_ids = list({str(r.chunk.parent_article_id) for r in results})
+                    logger.debug(f"Fetching system prompts for {len(article_ids)} articles")
+
+                    prompt_client = PromptStorageClient()
+                    prompts = prompt_client.get_prompts_for_article_ids(article_ids)
+
+                    # Attach prompts to results
+                    for result in results:
+                        article_id = str(result.chunk.parent_article_id)
+                        result.system_prompt = prompts.get(article_id)
+
+                    logger.debug(f"Attached system prompts to {len(results)} results")
+                except Exception as e:
+                    logger.warning(f"Failed to fetch system prompts: {e}. Continuing without prompts.")
+                    # Continue without prompts (graceful degradation)
 
         logger.info(
             f"Found {len(results)} results (filtered from {len(score_idx_pairs)} candidates)"
