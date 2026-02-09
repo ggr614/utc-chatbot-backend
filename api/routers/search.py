@@ -134,7 +134,11 @@ def search_bm25(
         system_prompts = {}
         for r in results:
             article_id = str(r.chunk.parent_article_id)
-            if article_id not in system_prompts and hasattr(r, 'system_prompt') and r.system_prompt:
+            if (
+                article_id not in system_prompts
+                and hasattr(r, "system_prompt")
+                and r.system_prompt
+            ):
                 system_prompts[article_id] = r.system_prompt
 
         logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
@@ -419,7 +423,11 @@ def search_vector(
         system_prompts = {}
         for r in results:
             article_id = str(r.chunk.parent_article_id)
-            if article_id not in system_prompts and hasattr(r, 'system_prompt') and r.system_prompt:
+            if (
+                article_id not in system_prompts
+                and hasattr(r, "system_prompt")
+                and r.system_prompt
+            ):
                 system_prompts[article_id] = r.system_prompt
 
         logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
@@ -589,7 +597,11 @@ def search_hybrid(
         system_prompts = {}
         for r in results:
             article_id = str(r["chunk"].parent_article_id)
-            if article_id not in system_prompts and "system_prompt" in r and r["system_prompt"]:
+            if (
+                article_id not in system_prompts
+                and "system_prompt" in r
+                and r["system_prompt"]
+            ):
                 system_prompts[article_id] = r["system_prompt"]
 
         logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
@@ -902,7 +914,11 @@ async def search_hyde(
         system_prompts = {}
         for r in final_results:
             article_id = str(r["chunk"].parent_article_id)
-            if article_id not in system_prompts and "system_prompt" in r and r["system_prompt"]:
+            if (
+                article_id not in system_prompts
+                and "system_prompt" in r
+                and r["system_prompt"]
+            ):
                 system_prompts[article_id] = r["system_prompt"]
 
         logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")

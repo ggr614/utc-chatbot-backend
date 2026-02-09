@@ -214,7 +214,9 @@ class VectorRetriever:
                     rank=rank,
                     system_prompt=system_prompt,
                 )
-                for rank, (similarity, chunk, system_prompt) in enumerate(results, start=1)
+                for rank, (similarity, chunk, system_prompt) in enumerate(
+                    results, start=1
+                )
             ]
 
         logger.info(

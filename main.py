@@ -154,6 +154,13 @@ Examples:
         metavar="ID",
         help="Specific article IDs to process (default: process all)",
     )
+    pipeline_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        metavar="N",
+        help="Number of chunks to embed per API call (default: 100)",
+    )
 
     return parser
 
@@ -344,7 +351,10 @@ def command_pipeline(args: argparse.Namespace) -> int:
             skip_embedding=args.skip_embedding,
         ) as pipeline:
             # Run the full pipeline
-            stats = pipeline.run_full_pipeline(article_ids=args.article_ids)
+            stats = pipeline.run_full_pipeline(
+                article_ids=args.article_ids,
+                batch_size=args.batch_size,
+            )
 
             logger.info("\n" + "=" * 80)
             logger.info("PIPELINE EXECUTION COMPLETE")

@@ -43,21 +43,20 @@ class PromptStorageClient(BaseStorageClient):
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT system_prompt FROM tag_system_prompts WHERE tag_name = %s",
-                    (tag_name,)
+                    (tag_name,),
                 )
                 row = cur.fetchone()
 
                 if row:
-                    logger.debug(f"Found prompt for tag '{tag_name}' ({len(row[0])} chars)")
+                    logger.debug(
+                        f"Found prompt for tag '{tag_name}' ({len(row[0])} chars)"
+                    )
                     return row[0]
                 else:
                     logger.debug(f"No prompt found for tag '{tag_name}'")
                     return None
 
-    def get_prompts_for_article_ids(
-        self,
-        article_ids: List[str]
-    ) -> Dict[str, str]:
+    def get_prompts_for_article_ids(self, article_ids: List[str]) -> Dict[str, str]:
         """
         Batch fetch system prompts for multiple articles.
 
@@ -87,7 +86,8 @@ class PromptStorageClient(BaseStorageClient):
             with conn.cursor() as cur:
                 # For each article, find the highest-priority matching tag prompt,
                 # falling back to __default__ if no tags match
-                cur.execute("""
+                cur.execute(
+                    """
                     SELECT
                         a.id AS article_id,
                         COALESCE(
@@ -101,7 +101,9 @@ class PromptStorageClient(BaseStorageClient):
                         ) AS system_prompt
                     FROM articles a
                     WHERE a.id = ANY(%s)
-                """, (article_ids,))
+                """,
+                    (article_ids,),
+                )
 
                 results = {str(row[0]): row[1] for row in cur.fetchall()}
 
@@ -112,7 +114,9 @@ class PromptStorageClient(BaseStorageClient):
                     default_prompt = self.get_default_prompt()
                     for article_id in article_ids:
                         if article_id not in results:
-                            logger.debug(f"No prompt found for article {article_id}, using default")
+                            logger.debug(
+                                f"No prompt found for article {article_id}, using default"
+                            )
                             results[article_id] = default_prompt
 
                 return results
@@ -150,7 +154,7 @@ class PromptStorageClient(BaseStorageClient):
         tag_name: str,
         system_prompt: str,
         priority: int = 0,
-        description: Optional[str] = None
+        description: Optional[str] = None,
     ) -> str:
         """
         Create a new tag-based system prompt.
@@ -179,11 +183,14 @@ class PromptStorageClient(BaseStorageClient):
 
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(
+                    """
                     INSERT INTO tag_system_prompts (tag_name, system_prompt, priority, description)
                     VALUES (%s, %s, %s, %s)
                     RETURNING id
-                """, (tag_name, system_prompt, priority, description))
+                """,
+                    (tag_name, system_prompt, priority, description),
+                )
 
                 prompt_id = cur.fetchone()[0]
                 logger.info(f"Created prompt {prompt_id} for tag '{tag_name}'")
@@ -194,7 +201,7 @@ class PromptStorageClient(BaseStorageClient):
         tag_name: str,
         system_prompt: Optional[str] = None,
         priority: Optional[int] = None,
-        description: Optional[str] = None
+        description: Optional[str] = None,
     ) -> bool:
         """
         Update an existing prompt.
@@ -244,7 +251,7 @@ class PromptStorageClient(BaseStorageClient):
             with conn.cursor() as cur:
                 query = f"""
                     UPDATE tag_system_prompts
-                    SET {', '.join(updates)}
+                    SET {", ".join(updates)}
                     WHERE tag_name = %s
                 """
                 cur.execute(query, params)
@@ -285,8 +292,7 @@ class PromptStorageClient(BaseStorageClient):
         with self.get_connection() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM tag_system_prompts WHERE tag_name = %s",
-                    (tag_name,)
+                    "DELETE FROM tag_system_prompts WHERE tag_name = %s", (tag_name,)
                 )
 
                 deleted = cur.rowcount > 0
@@ -329,7 +335,7 @@ class PromptStorageClient(BaseStorageClient):
                         "priority": row[2],
                         "description": row[3],
                         "created_at": row[4],
-                        "updated_at": row[5]
+                        "updated_at": row[5],
                     }
                     for row in cur.fetchall()
                 ]

@@ -89,7 +89,7 @@ class SearchResponse(BaseModel):
             {
                 "system_prompts": {
                     "uuid-article-1": "You are a VPN specialist...",
-                    "uuid-article-2": "You are a helpful IT helpdesk assistant..."
+                    "uuid-article-2": "You are a helpful IT helpdesk assistant...",
                 },
                 "rrf_k": 60,
                 "reranked": True,

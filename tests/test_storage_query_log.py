@@ -259,7 +259,11 @@ class TestQueryLogClient:
             mock_get_conn.return_value = mock_conn
 
             queries = client.get_queries_by_time_range(
-                start_time, end_time, cache_result="hit", email="user1@example.com", limit=100
+                start_time,
+                end_time,
+                cache_result="hit",
+                email="user1@example.com",
+                limit=100,
             )
 
             assert len(queries) == 1
@@ -584,7 +588,10 @@ class TestQueryLogClient:
             mock_get_conn.return_value = mock_conn
 
             queries = client.get_queries_by_email(
-                "user123@example.com", start_time=start_time, end_time=end_time, limit=50
+                "user123@example.com",
+                start_time=start_time,
+                end_time=end_time,
+                limit=50,
             )
 
             assert len(queries) == 0

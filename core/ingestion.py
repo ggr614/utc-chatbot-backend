@@ -132,7 +132,7 @@ class ArticleProcessor:
         Apply business rules to filter and transform raw articles.
 
         Business rules:
-        - Safety check for "Recent Phishing Emails" category (already filtered at API level)
+        - Safety check for excluded categories (already filtered at API level)
         - Construct public URL from article ID
         - Validate and structure data using Pydantic
 
@@ -149,12 +149,14 @@ class ArticleProcessor:
 
         for article in articles:
             try:
-                # Safety check: filter out phishing category (already filtered at API level)
+                # Safety check: filter out excluded categories (already filtered at API level)
                 # This is a redundant check in case the API filter is bypassed
-                if article.get("CategoryName") == "Recent Phishing Emails":
+                category_name = article.get("CategoryName")
+                if category_name in TDXClient.EXCLUDED_CATEGORIES:
                     filtered_count += 1
                     logger.warning(
-                        f"Unexpected phishing article {article.get('ID')} - "
+                        f"Unexpected excluded-category article {article.get('ID')} "
+                        f"(category: {category_name}) - "
                         f"should have been filtered at API level"
                     )
                     continue
@@ -171,7 +173,6 @@ class ArticleProcessor:
                     continue
 
                 # Extract metadata fields from TDX API
-                category_name = article.get("CategoryName")
                 is_public = article.get("IsPublic")
                 summary = article.get("Summary")
                 tags_raw = article.get("Tags")
@@ -352,7 +353,7 @@ class ArticleProcessor:
         logger.debug(f"Found {len(non_approved_tdx_ids)} non-approved articles in TDX")
 
         # Check which non-approved articles exist in DB
-        existing_articles = self.db_client.get_articles_by_tdx_ids(non_approved_tdx_ids)
+        existing_articles = self.db_client.get_articles_by_tdx_ids(non_approved_tdx_ids)  # type: ignore
         existing_tdx_ids = [article["tdx_article_id"] for article in existing_articles]
 
         if existing_tdx_ids:

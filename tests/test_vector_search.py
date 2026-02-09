@@ -73,6 +73,7 @@ def mock_vector_store(sample_chunks):
         category_names=None,
         is_public=None,
         tags=None,
+        include_system_prompts=True,
     ):
         # Return sample chunks as dicts with mock cosine similarities
         results = [
@@ -348,6 +349,7 @@ class TestVectorRetriever:
             category_names=None,
             is_public=None,
             tags=None,
+            include_system_prompts=True,
         ):
             results = [
                 {
@@ -422,6 +424,7 @@ class TestVectorRetriever:
             category_names=None,
             is_public=None,
             tags=None,
+            include_system_prompts=True,
         ):
             results = [
                 {

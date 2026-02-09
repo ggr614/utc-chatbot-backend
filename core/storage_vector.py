@@ -498,7 +498,9 @@ class VectorStorageClient(BaseStorageClient):
                             LIMIT %s
                         """
 
-                    logger.debug(f"Executing query with {len(params)} parameters (include_system_prompts={include_system_prompts})")
+                    logger.debug(
+                        f"Executing query with {len(params)} parameters (include_system_prompts={include_system_prompts})"
+                    )
 
                     cur.execute(query, params)  # type: ignore
                     rows = cur.fetchall()

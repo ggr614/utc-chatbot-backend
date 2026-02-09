@@ -62,7 +62,7 @@ def reciprocal_rank_fusion(
         rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + rrf_contribution
         chunk_map[chunk_id] = result.chunk
         # Store system prompt (prefer first occurrence)
-        if chunk_id not in prompt_map and hasattr(result, 'system_prompt'):
+        if chunk_id not in prompt_map and hasattr(result, "system_prompt"):
             prompt_map[chunk_id] = result.system_prompt
         logger.debug(
             f"BM25 contribution for chunk {chunk_id[:8]}: "
@@ -76,7 +76,7 @@ def reciprocal_rank_fusion(
         rrf_scores[chunk_id] = rrf_scores.get(chunk_id, 0.0) + rrf_contribution
         chunk_map[chunk_id] = result.chunk
         # Store system prompt if not already set
-        if chunk_id not in prompt_map and hasattr(result, 'system_prompt'):
+        if chunk_id not in prompt_map and hasattr(result, "system_prompt"):
             prompt_map[chunk_id] = result.system_prompt
         logger.debug(
             f"Vector contribution for chunk {chunk_id[:8]}: "
@@ -92,7 +92,7 @@ def reciprocal_rank_fusion(
         result_dict = {
             "rank": rank,
             "combined_score": score,
-            "chunk": chunk_map[chunk_id]
+            "chunk": chunk_map[chunk_id],
         }
         # Add system_prompt if available
         if chunk_id in prompt_map:

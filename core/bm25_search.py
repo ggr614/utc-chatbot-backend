@@ -393,8 +393,12 @@ class BM25Retriever:
                 from core.storage_prompt import PromptStorageClient
 
                 try:
-                    article_ids = list({str(r.chunk.parent_article_id) for r in results})
-                    logger.debug(f"Fetching system prompts for {len(article_ids)} articles")
+                    article_ids = list(
+                        {str(r.chunk.parent_article_id) for r in results}
+                    )
+                    logger.debug(
+                        f"Fetching system prompts for {len(article_ids)} articles"
+                    )
 
                     prompt_client = PromptStorageClient()
                     prompts = prompt_client.get_prompts_for_article_ids(article_ids)
@@ -406,7 +410,9 @@ class BM25Retriever:
 
                     logger.debug(f"Attached system prompts to {len(results)} results")
                 except Exception as e:
-                    logger.warning(f"Failed to fetch system prompts: {e}. Continuing without prompts.")
+                    logger.warning(
+                        f"Failed to fetch system prompts: {e}. Continuing without prompts."
+                    )
                     # Continue without prompts (graceful degradation)
 
         logger.info(

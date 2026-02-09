@@ -19,6 +19,7 @@ class TestArticleProcessor:
     def mock_tdx_client(self):
         """Mock TDX client."""
         with patch("core.ingestion.TDXClient") as mock:
+            mock.EXCLUDED_CATEGORIES = TDXClient.EXCLUDED_CATEGORIES
             yield mock.return_value
 
     @pytest.fixture
@@ -129,8 +130,8 @@ class TestArticleProcessor:
 
         assert len(updated) == 1
 
-    def test_process_articles_filters_phishing(self, processor):
-        """Test that phishing category articles are filtered out."""
+    def test_process_articles_filters_excluded_categories(self, processor):
+        """Test that excluded category articles are filtered out."""
         articles = [
             {
                 "ID": 123,

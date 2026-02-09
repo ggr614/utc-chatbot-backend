@@ -5,6 +5,7 @@ Revises: 68c23f1aaa54
 Create Date: 2026-02-06 10:30:39.355412
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -12,8 +13,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '4106a4a2f015'
-down_revision: Union[str, Sequence[str], None] = '68c23f1aaa54'
+revision: str = "4106a4a2f015"
+down_revision: Union[str, Sequence[str], None] = "68c23f1aaa54"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -36,7 +37,9 @@ def upgrade() -> None:
 
     # Create indexes for query optimization
     op.create_index("idx_tag_system_prompts_tag", "tag_system_prompts", ["tag_name"])
-    op.execute("CREATE INDEX idx_tag_system_prompts_priority ON tag_system_prompts(priority DESC)")
+    op.execute(
+        "CREATE INDEX idx_tag_system_prompts_priority ON tag_system_prompts(priority DESC)"
+    )
 
     # Add table comment for documentation
     op.execute("""

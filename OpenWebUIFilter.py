@@ -737,7 +737,10 @@ What does DHCP stand for?
         return new_messages
 
     def _inject_context_into_messages(
-        self, messages: List[Dict[str, Any]], context: str, system_prompt: Optional[str] = None
+        self,
+        messages: List[Dict[str, Any]],
+        context: str,
+        system_prompt: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Inject RAG context into the message list via system prompt.
 
@@ -946,17 +949,27 @@ Use the following retrieved documents to help answer the user's question:
             num_docs = len(search_response.get("results", []))
 
             # Extract system prompt from API metadata (NEW)
-            api_system_prompts = search_response.get("metadata", {}).get("system_prompts", {})
+            api_system_prompts = search_response.get("metadata", {}).get(
+                "system_prompts", {}
+            )
             if api_system_prompts and search_response.get("results"):
                 # Use the prompt from the top-ranked article
-                top_article_id = str(search_response["results"][0].get("parent_article_id", ""))
+                top_article_id = str(
+                    search_response["results"][0].get("parent_article_id", "")
+                )
                 resolved_system_prompt = api_system_prompts.get(top_article_id)
                 if resolved_system_prompt:
-                    print(f"[RAG Filter] Using API system prompt from article {top_article_id[:8]}... ({len(resolved_system_prompt)} chars)")
+                    print(
+                        f"[RAG Filter] Using API system prompt from article {top_article_id[:8]}... ({len(resolved_system_prompt)} chars)"
+                    )
                 else:
-                    print("[RAG Filter] Top article not in system_prompts dict, using hardcoded fallback")
+                    print(
+                        "[RAG Filter] Top article not in system_prompts dict, using hardcoded fallback"
+                    )
             elif self.valves.DEBUG_MODE:
-                print("[RAG Filter] No system_prompts in API metadata, using hardcoded fallback")
+                print(
+                    "[RAG Filter] No system_prompts in API metadata, using hardcoded fallback"
+                )
 
             # Capture query_log_id for LLM response logging in outlet
             query_log_id = search_response.get("query_log_id")
