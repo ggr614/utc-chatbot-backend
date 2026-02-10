@@ -184,7 +184,6 @@ Return only the JSON object, no additional text."""
                     },
                     {"role": "user", "content": prompt},
                 ],
-                temperature=self.temperature,
                 max_completion_tokens=self.completion_tokens,
             )
 

@@ -162,6 +162,55 @@ Examples:
         help="Number of chunks to embed per API call (default: 100)",
     )
 
+    # ========== EVALUATE COMMAND ==========
+    eval_parser = subparsers.add_parser(
+        "evaluate",
+        help="Run retrieval evaluation against QA dataset",
+        description="Evaluate BM25, vector, and hybrid retrieval against ground-truth QA pairs.",
+    )
+    eval_parser.add_argument(
+        "--dataset",
+        default="data/qa_pairs.jsonl",
+        help="Path to QA pairs JSONL file (default: data/qa_pairs.jsonl)",
+    )
+    eval_parser.add_argument(
+        "--methods",
+        nargs="+",
+        choices=["bm25", "vector", "hybrid"],
+        default=["bm25", "vector", "hybrid"],
+        help="Retrieval methods to evaluate (default: all three)",
+    )
+    eval_parser.add_argument(
+        "--k-values",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5, 10, 20],
+        help="K values for top-K metrics (default: 1 3 5 10 20)",
+    )
+    eval_parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=200,
+        help="Number of questions to sample (default: 200, use 0 for all)",
+    )
+    eval_parser.add_argument(
+        "--quality-filter",
+        choices=["high", "medium", "low"],
+        default=None,
+        help="Filter questions by quality tier (default: all)",
+    )
+    eval_parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for sampling (default: 42)",
+    )
+    eval_parser.add_argument(
+        "--output-dir",
+        default="data",
+        help="Directory for output files (default: data)",
+    )
+
     return parser
 
 
@@ -397,6 +446,60 @@ def command_pipeline(args: argparse.Namespace) -> int:
         return 1
 
 
+def command_evaluate(args: argparse.Namespace) -> int:
+    """
+    Execute the evaluate command.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    logger.info("=" * 80)
+    logger.info("COMMAND: RETRIEVAL EVALUATION")
+    logger.info("=" * 80)
+
+    try:
+        from core.bm25_search import BM25Retriever
+        from core.vector_search import VectorRetriever
+        from core.storage_chunk import PostgresClient
+        from qa.eval_runner import RetrievalEvaluator, EvalConfig
+
+        sample_size = args.sample_size if args.sample_size > 0 else None
+
+        config = EvalConfig(
+            dataset_path=args.dataset,
+            k_values=args.k_values,
+            methods=args.methods,
+            sample_size=sample_size,
+            quality_filter=args.quality_filter,
+            random_seed=args.seed,
+            output_dir=args.output_dir,
+        )
+
+        # Initialize retrievers
+        postgres_client = PostgresClient()
+        bm25 = BM25Retriever(postgres_client=postgres_client)
+
+        vector = None
+        if "vector" in args.methods or "hybrid" in args.methods:
+            vector = VectorRetriever()
+
+        evaluator = RetrievalEvaluator(
+            bm25_retriever=bm25,
+            vector_retriever=vector,
+            config=config,
+        )
+        evaluator.run()
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Evaluation failed: {str(e)}", exc_info=True)
+        return 1
+
+
 def main() -> int:
     """
     Main entry point for the CLI application.
@@ -434,6 +537,8 @@ def main() -> int:
             exit_code = command_embed(args)
         elif args.command == "pipeline":
             exit_code = command_pipeline(args)
+        elif args.command == "evaluate":
+            exit_code = command_evaluate(args)
         else:
             logger.error(f"Unknown command: {args.command}")
             parser.print_help()
