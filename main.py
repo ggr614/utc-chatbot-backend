@@ -211,6 +211,74 @@ Examples:
         help="Directory for output files (default: data)",
     )
 
+    # ========== SWEEP COMMAND ==========
+    sweep_parser = subparsers.add_parser(
+        "sweep",
+        help="Run vector search parameter sweep",
+        description="Sweep over (top_k, min_similarity) configurations to find optimal vector search parameters.",
+    )
+    sweep_parser.add_argument(
+        "--dataset",
+        default="data/qa_pairs.jsonl",
+        help="Path to QA pairs JSONL file (default: data/qa_pairs.jsonl)",
+    )
+    sweep_parser.add_argument(
+        "--top-k-values",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5, 7, 10, 15, 20],
+        help="top_k values to sweep (default: 1 3 5 7 10 15 20)",
+    )
+    sweep_parser.add_argument(
+        "--min-similarity-values",
+        type=float,
+        nargs="+",
+        default=[0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+        help="min_similarity thresholds to sweep (default: 0.0 0.3 0.4 0.5 0.6 0.7 0.8)",
+    )
+    sweep_parser.add_argument(
+        "--fetch-top-k",
+        type=int,
+        default=50,
+        help="Results to fetch per query for caching (default: 50)",
+    )
+    sweep_parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=200,
+        help="Number of questions to sample (default: 200, use 0 for all)",
+    )
+    sweep_parser.add_argument(
+        "--quality-filter",
+        choices=["high", "medium", "low"],
+        default=None,
+        help="Filter questions by quality tier (default: all)",
+    )
+    sweep_parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for sampling (default: 42)",
+    )
+    sweep_parser.add_argument(
+        "--output-dir",
+        default="data",
+        help="Directory for output files (default: data)",
+    )
+    sweep_parser.add_argument(
+        "--primary-metric",
+        choices=["mrr", "hit_rate_at_5", "ndcg_at_5"],
+        default="mrr",
+        help="Primary metric to rank configurations by (default: mrr)",
+    )
+    sweep_parser.add_argument(
+        "--k-values",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5, 10, 20],
+        help="K values for computing metrics (default: 1 3 5 10 20)",
+    )
+
     return parser
 
 
@@ -500,6 +568,51 @@ def command_evaluate(args: argparse.Namespace) -> int:
         return 1
 
 
+def command_sweep(args: argparse.Namespace) -> int:
+    """
+    Execute the sweep command.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    logger.info("=" * 80)
+    logger.info("COMMAND: VECTOR PARAMETER SWEEP")
+    logger.info("=" * 80)
+
+    try:
+        from core.vector_search import VectorRetriever
+        from qa.param_sweep import VectorParamSweep, SweepConfig
+
+        sample_size = args.sample_size if args.sample_size > 0 else None
+
+        config = SweepConfig(
+            dataset_path=args.dataset,
+            top_k_values=args.top_k_values,
+            min_similarity_values=args.min_similarity_values,
+            k_values_for_metrics=args.k_values,
+            sample_size=sample_size,
+            quality_filter=args.quality_filter,
+            random_seed=args.seed,
+            fetch_top_k=args.fetch_top_k,
+            output_dir=args.output_dir,
+            primary_metric=args.primary_metric,
+        )
+
+        vector = VectorRetriever()
+
+        sweep = VectorParamSweep(vector_retriever=vector, config=config)
+        sweep.run()
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Parameter sweep failed: {str(e)}", exc_info=True)
+        return 1
+
+
 def main() -> int:
     """
     Main entry point for the CLI application.
@@ -539,6 +652,8 @@ def main() -> int:
             exit_code = command_pipeline(args)
         elif args.command == "evaluate":
             exit_code = command_evaluate(args)
+        elif args.command == "sweep":
+            exit_code = command_sweep(args)
         else:
             logger.error(f"Unknown command: {args.command}")
             parser.print_help()
