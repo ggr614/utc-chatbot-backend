@@ -192,6 +192,7 @@ class TestRAGPipeline:
             url=HttpUrl("https://example.com/123"),
             content_html="<p>Test content</p>",
             last_modified_date=datetime(2024, 1, 1, tzinfo=timezone.utc),
+            status_name="Approved",
         )
 
         # Mock text processor
@@ -265,9 +266,9 @@ class TestRAGPipeline:
             ),
         ]
 
-        # Mock embedder
-        pipeline_openai.embedder.generate_embedding = Mock(
-            side_effect=[[0.1] * 3072, [0.2] * 3072]
+        # Mock batch embedder
+        pipeline_openai.embedder.generate_embeddings_batch = Mock(
+            return_value=[[0.1] * 3072, [0.2] * 3072]
         )
 
         embeddings = pipeline_openai.run_embedding(chunks)
@@ -276,7 +277,7 @@ class TestRAGPipeline:
         assert all(isinstance(record, VectorRecord) for record, _ in embeddings)
         assert all(isinstance(vector, list) for _, vector in embeddings)
         assert len(embeddings[0][1]) == 3072
-        assert pipeline_openai.embedder.generate_embedding.call_count == 2
+        assert pipeline_openai.embedder.generate_embeddings_batch.call_count == 1
 
     def test_run_embedding_continues_on_error(self, pipeline_openai):
         """Test that embedding continues when individual chunks fail."""
@@ -307,14 +308,18 @@ class TestRAGPipeline:
             ),
         ]
 
-        # Mock embedder - first succeeds, second fails
+        # Mock batch embedder to fail, triggering individual fallback
+        pipeline_openai.embedder.generate_embeddings_batch = Mock(
+            side_effect=RuntimeError("Batch failed")
+        )
+        # Mock individual embedder - first succeeds, second fails
         pipeline_openai.embedder.generate_embedding = Mock(
             side_effect=[[0.1] * 3072, RuntimeError("Embedding failed")]
         )
 
         embeddings = pipeline_openai.run_embedding(chunks)
 
-        # Should only have 1 successful embedding
+        # Should only have 1 successful embedding (from individual fallback)
         assert len(embeddings) == 1
         assert embeddings[0][0].chunk_id == test_chunk_id_1
 
@@ -374,6 +379,11 @@ class TestRAGPipeline:
 
     def test_run_full_pipeline(self, pipeline_openai):
         """Test running the full pipeline."""
+        # Mock cleanup
+        pipeline_openai.article_processor.cleanup_non_approved_articles = Mock(
+            return_value=0
+        )
+
         # Mock ingestion
         mock_ingestion_stats = {
             "new_count": 10,

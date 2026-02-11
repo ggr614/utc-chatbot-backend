@@ -3,6 +3,7 @@ Pydantic response models for search API endpoints.
 
 Provides consistent response structure for:
 - Search results (BM25, vector, hybrid)
+- BM25 validation results (minimal format for keyword validation)
 - Health checks
 """
 
@@ -77,6 +78,7 @@ class SearchResponse(BaseModel):
         default_factory=dict,
         description=(
             "Additional method-specific metadata. "
+            "For all methods: system_prompts (dict[article_id, prompt_text]) - maps article IDs to their resolved system prompts. "
             "For hybrid/hyde endpoints: rrf_k (int), reranked (bool), "
             "reranker_status ('success'|'failed'|'unavailable'), "
             "reranker_latency_ms (int), num_candidates_reranked (int), "
@@ -84,13 +86,82 @@ class SearchResponse(BaseModel):
             "For hyde: hyde_latency_ms (int), hypothetical_document (str), token_usage (dict)."
         ),
         examples=[
-            {"rrf_k": 60, "reranked": True, "reranker_status": "success", "reranker_latency_ms": 245}
+            {
+                "system_prompts": {
+                    "uuid-article-1": "You are a VPN specialist...",
+                    "uuid-article-2": "You are a helpful IT helpdesk assistant...",
+                },
+                "rrf_k": 60,
+                "reranked": True,
+                "reranker_status": "success",
+                "reranker_latency_ms": 245,
+            }
         ],
     )
     query_log_id: Optional[int] = Field(
         default=None,
         description="Query log ID for this search (for LLM response logging)",
         examples=[12345],
+    )
+
+
+class BM25ValidationResult(BaseModel):
+    """
+    Minimal validation result with IDs and scores only.
+
+    Used by the BM25 validation endpoint for keyword query validation
+    and score analysis. Excludes text content for minimal response size.
+    """
+
+    rank: int = Field(
+        ..., description="Result ranking position (1-indexed)", examples=[1]
+    )
+    score: float = Field(..., description="BM25 relevance score", examples=[5.5])
+    chunk_id: UUID = Field(..., description="Unique chunk identifier")
+    parent_article_id: UUID = Field(..., description="Source article UUID")
+    chunk_sequence: int = Field(
+        ..., description="Chunk position within article (0-indexed)", examples=[0]
+    )
+    source_url: HttpUrl = Field(
+        ...,
+        description="Source article URL",
+        examples=["https://help.example.com/article/123"],
+    )
+
+
+class BM25ValidationResponse(BaseModel):
+    """
+    Validation search response with minimal result format.
+
+    Returns all matching chunks with scores (IDs only, no text content).
+    Designed for keyword validation and score distribution analysis.
+    """
+
+    query: str = Field(
+        ..., description="Original query text", examples=["password reset"]
+    )
+    total_results: int = Field(
+        ..., description="Number of results returned", examples=[150]
+    )
+    results: List[BM25ValidationResult] = Field(
+        ..., description="All ranked results (minimal format)"
+    )
+    latency_ms: int = Field(
+        ..., description="Query processing latency in milliseconds", examples=[85]
+    )
+    metadata: dict = Field(
+        default_factory=dict,
+        description=(
+            "Additional metadata: min_score_filter (float|None), "
+            "top_k_limit (int|None), returned_all_results (bool)"
+        ),
+        examples=[
+            {
+                "min_score_filter": None,
+                "top_k_limit": None,
+                "returned_all_results": True,
+            }
+        ],
     )
 
 

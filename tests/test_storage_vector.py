@@ -304,8 +304,8 @@ class TestVectorStorageClient:
         query_vector = [0.1] * 1536  # Correct dimension
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [
-            ("chunk_1", 123, 0, "Text 1", 100, "https://example.com", None, 0.95),
-            ("chunk_2", 124, 0, "Text 2", 150, "https://example.com", None, 0.85),
+            ("chunk_1", 123, 0, "Text 1", 100, "https://example.com", None, 0.95, None),
+            ("chunk_2", 124, 0, "Text 2", 150, "https://example.com", None, 0.85, None),
         ]
 
         with patch.object(client, "get_connection") as mock_get_conn:

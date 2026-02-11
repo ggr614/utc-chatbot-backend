@@ -1,10 +1,12 @@
 """
 Search endpoints for BM25, vector, and hybrid retrieval.
 
-Provides three search methods:
+Provides search methods:
 1. BM25 - Fast keyword-based sparse retrieval
-2. Vector - Semantic dense retrieval via embeddings
-3. Hybrid - Combined BM25 + vector with RRF fusion and Cohere reranking
+2. BM25 Validate - Returns all BM25 scores for keyword validation (minimal format)
+3. Vector - Semantic dense retrieval via embeddings
+4. Hybrid - Combined BM25 + vector with RRF fusion and Cohere reranking
+5. HyDE - Hypothetical Document Embeddings with hybrid retrieval
 
 All endpoints include query logging for analytics.
 """
@@ -25,11 +27,17 @@ from api.dependencies import (
 )
 from api.models.requests import (
     BM25SearchRequest,
+    BM25ValidationRequest,
     VectorSearchRequest,
     HybridSearchRequest,
     HyDESearchRequest,
 )
-from api.models.responses import SearchResponse, SearchResultChunk
+from api.models.responses import (
+    SearchResponse,
+    SearchResultChunk,
+    BM25ValidationResponse,
+    BM25ValidationResult,
+)
 from api.utils.hybrid_search import hybrid_search, reciprocal_rank_fusion
 from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
@@ -74,7 +82,7 @@ def search_bm25(
     - `query`: Search query text (1-1000 chars)
     - `top_k`: Number of results to return (1-100, default 10)
     - `min_score`: Optional minimum BM25 score threshold
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - Ranked results with BM25 scores
@@ -85,13 +93,19 @@ def search_bm25(
 
     logger.info(
         f"BM25 search: query='{request.query[:50]}', top_k={request.top_k}, "
-        f"min_score={request.min_score}, user_id={request.user_id}"
+        f"min_score={request.min_score}, email={request.email}"
     )
 
     try:
-        # Perform BM25 search
+        # Perform BM25 search with filtering
         results = retriever.search(
-            query=request.query, top_k=request.top_k, min_score=request.min_score
+            query=request.query,
+            top_k=request.top_k,
+            min_score=request.min_score,
+            status_names=request.status_names,
+            category_names=request.category_names,
+            is_public=request.is_public,
+            tags=request.tags,
         )
 
         # Convert BM25SearchResult to SearchResultChunk
@@ -116,6 +130,19 @@ def search_bm25(
             f"BM25 search completed: {len(results)} results, {latency_ms}ms latency"
         )
 
+        # Extract system prompts from results (NEW)
+        system_prompts = {}
+        for r in results:
+            article_id = str(r.chunk.parent_article_id)
+            if (
+                article_id not in system_prompts
+                and hasattr(r, "system_prompt")
+                and r.system_prompt
+            ):
+                system_prompts[article_id] = r.system_prompt
+
+        logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
+
         # Prepare results for logging (extract minimal data)
         results_for_logging = [
             {
@@ -136,7 +163,7 @@ def search_bm25(
                 search_method="bm25",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=request.user_id,
+                email=request.email,
                 query_embedding=None,
                 command=request.command,
             )
@@ -144,16 +171,20 @@ def search_bm25(
             logger.error(f"Query and result logging failed: {e}")
             # Don't propagate logging errors to client
 
-        # Build response
+        # Build response with system prompts in metadata (NEW)
+        metadata = {}
+        if request.min_score is not None:
+            metadata["min_score"] = request.min_score
+        if system_prompts:
+            metadata["system_prompts"] = system_prompts
+
         return SearchResponse(
             query=request.query,
             method="bm25",
             results=result_chunks,
             total_results=len(results),
             latency_ms=latency_ms,
-            metadata={"min_score": request.min_score}
-            if request.min_score is not None
-            else {},
+            metadata=metadata,
             query_log_id=query_log_id_for_response,
         )
 
@@ -167,6 +198,144 @@ def search_bm25(
         logger.error(f"BM25 search error: {str(e)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Search failed"
+        )
+
+
+@router.post(
+    "/bm25/validate",
+    response_model=BM25ValidationResponse,
+    summary="BM25 Validation Search (All Results)",
+    description="Perform BM25 keyword search returning ALL chunks with scores (IDs only). Minimal response format for keyword validation and score analysis. No reranking, fusion, or vector search.",
+    tags=["Search", "Validation"],
+)
+def search_bm25_validate(
+    request: BM25ValidationRequest,
+    api_key: Annotated[str, Depends(verify_api_key)],
+    retriever: Annotated[BM25Retriever, Depends(get_bm25_retriever)],
+    query_log_client: Annotated[QueryLogClient, Depends(get_query_log_client)],
+) -> BM25ValidationResponse:
+    """
+    Perform BM25 keyword search and return all results for validation.
+
+    **Features:**
+    - Returns ALL BM25 scores (or up to top_k if specified)
+    - Minimal response format (IDs and scores only, no text content)
+    - Very fast response (<100ms typical)
+    - No reranking, fusion, vector, or HyDE
+
+    **Use cases:**
+    - Keyword query validation
+    - Debugging BM25 scoring behavior
+    - Analyzing score distributions across entire corpus
+
+    **Request:**
+    - `query`: Search query text (1-1000 chars)
+    - `top_k`: Optional limit on results (1-10,000, default: return all)
+    - `min_score`: Optional minimum BM25 score threshold
+    - `email`: Optional user email address for analytics
+
+    **Response:**
+    - All ranked results with IDs and scores only
+    - Latency in milliseconds
+    - Metadata (filters applied, whether all results returned)
+
+    **Note:** Response excludes text content for minimal payload size.
+    Typical response: 50-80KB for 1000 results, 250-400KB for 5000 results.
+    """
+    start_time = time.time()
+
+    logger.info(
+        f"BM25 validation search: query='{request.query[:50]}', "
+        f"top_k={request.top_k}, min_score={request.min_score}, "
+        f"email={request.email}"
+    )
+
+    try:
+        # Execute BM25 search with very high top_k to return all results
+        # BM25Retriever computes scores for all docs, then limits to top_k
+        # Using 999999 effectively returns all results for any realistic corpus
+        effective_top_k = request.top_k if request.top_k is not None else 999999
+
+        results = retriever.search(
+            query=request.query,
+            top_k=effective_top_k,
+            min_score=request.min_score,
+            status_names=[
+                "Approved"
+            ],  # BM25 validation doesn't inherit ArticleFilterParams, default to Approved
+        )
+
+        # Convert to minimal response format (IDs and scores only)
+        validation_results = [
+            BM25ValidationResult(
+                rank=r.rank,
+                score=r.score,
+                chunk_id=r.chunk.chunk_id,
+                parent_article_id=r.chunk.parent_article_id,
+                chunk_sequence=r.chunk.chunk_sequence,
+                source_url=r.chunk.source_url,
+            )
+            for r in results
+        ]
+
+        latency_ms = int((time.time() - start_time) * 1000)
+
+        logger.info(
+            f"BM25 validation search completed: {len(validation_results)} results, "
+            f"{latency_ms}ms latency"
+        )
+
+        # Log query (best-effort, non-blocking)
+        try:
+            # Convert to minimal format for logging (only log first 100 to avoid huge logs)
+            results_for_log = [
+                {
+                    "rank": r.rank,
+                    "score": r.score,
+                    "chunk_id": str(r.chunk_id),
+                    "parent_article_id": str(r.parent_article_id),
+                }
+                for r in validation_results[:100]
+            ]
+
+            query_log_client.log_query_with_results(
+                raw_query=request.query,
+                cache_result="miss",
+                search_method="bm25_validate",
+                results=results_for_log,
+                latency_ms=latency_ms,
+                email=request.email,
+                query_embedding=None,
+                command=None,
+            )
+        except Exception as log_error:
+            logger.warning(f"Failed to log validation query: {log_error}")
+            # Don't propagate logging errors to client
+
+        # Build response
+        return BM25ValidationResponse(
+            query=request.query,
+            total_results=len(validation_results),
+            results=validation_results,
+            latency_ms=latency_ms,
+            metadata={
+                "min_score_filter": request.min_score,
+                "top_k_limit": request.top_k,
+                "returned_all_results": (request.top_k is None),
+            },
+        )
+
+    except ValueError as e:
+        # Validation errors from retriever
+        logger.warning(f"BM25 validation search input error: {str(e)}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    except Exception as e:
+        # Unexpected errors
+        logger.error(f"BM25 validation search error: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Validation search failed",
         )
 
 
@@ -200,7 +369,7 @@ def search_vector(
     - `query`: Search query text (1-1000 chars)
     - `top_k`: Number of results to return (1-100, default 10)
     - `min_similarity`: Optional minimum similarity threshold (0.0-1.0)
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - Ranked results with similarity scores (0-1)
@@ -213,15 +382,19 @@ def search_vector(
 
     logger.info(
         f"Vector search: query='{request.query[:50]}', top_k={request.top_k}, "
-        f"min_similarity={request.min_similarity}, user_id={request.user_id}"
+        f"min_similarity={request.min_similarity}, email={request.email}"
     )
 
     try:
-        # Perform vector search (includes embedding generation)
+        # Perform vector search with filtering (includes embedding generation)
         results = retriever.search(
             query=request.query,
             top_k=request.top_k,
             min_similarity=request.min_similarity,
+            status_names=request.status_names,
+            category_names=request.category_names,
+            is_public=request.is_public,
+            tags=request.tags,
         )
 
         # Convert VectorSearchResult to SearchResultChunk
@@ -246,6 +419,19 @@ def search_vector(
             f"Vector search completed: {len(results)} results, {latency_ms}ms latency"
         )
 
+        # Extract system prompts from results (NEW)
+        system_prompts = {}
+        for r in results:
+            article_id = str(r.chunk.parent_article_id)
+            if (
+                article_id not in system_prompts
+                and hasattr(r, "system_prompt")
+                and r.system_prompt
+            ):
+                system_prompts[article_id] = r.system_prompt
+
+        logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
+
         # Prepare results for logging (extract minimal data)
         results_for_logging = [
             {
@@ -266,23 +452,27 @@ def search_vector(
                 search_method="vector",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=request.user_id,
+                email=request.email,
                 query_embedding=None,  # Could store embedding here if needed
                 command=request.command,
             )
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
 
-        # Build response
+        # Build response with system prompts in metadata (NEW)
+        metadata = {}
+        if request.min_similarity is not None:
+            metadata["min_similarity"] = request.min_similarity
+        if system_prompts:
+            metadata["system_prompts"] = system_prompts
+
         return SearchResponse(
             query=request.query,
             method="vector",
             results=result_chunks,
             total_results=len(results),
             latency_ms=latency_ms,
-            metadata={"min_similarity": request.min_similarity}
-            if request.min_similarity is not None
-            else {},
+            metadata=metadata,
             query_log_id=query_log_id_for_response,
         )
 
@@ -349,7 +539,7 @@ def search_hybrid(
     - `rrf_k`: RRF constant (default 60, controls rank-based weighting)
     - `min_bm25_score`: Optional BM25 score threshold
     - `min_vector_similarity`: Optional vector similarity threshold
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - Ranked results with Cohere relevance scores (0-1)
@@ -360,11 +550,11 @@ def search_hybrid(
 
     logger.info(
         f"Hybrid search with reranking: query='{search_request.query[:50]}', top_k={search_request.top_k}, "
-        f"rrf_k={search_request.rrf_k}, user_id={search_request.user_id}"
+        f"rrf_k={search_request.rrf_k}, email={search_request.email}"
     )
 
     try:
-        # Perform hybrid search with reranking
+        # Perform hybrid search with reranking and filtering
         results, reranking_metadata = hybrid_search(
             query=search_request.query,
             bm25_retriever=bm25_retriever,
@@ -374,6 +564,10 @@ def search_hybrid(
             rrf_k=search_request.rrf_k,
             min_bm25_score=search_request.min_bm25_score,
             min_vector_similarity=search_request.min_vector_similarity,
+            status_names=search_request.status_names,
+            category_names=search_request.category_names,
+            is_public=search_request.is_public,
+            tags=search_request.tags,
         )
 
         # Convert hybrid results to SearchResultChunk
@@ -399,6 +593,19 @@ def search_hybrid(
             f"reranked={reranking_metadata.get('reranked', False)}"
         )
 
+        # Extract system prompts from results (NEW)
+        system_prompts = {}
+        for r in results:
+            article_id = str(r["chunk"].parent_article_id)
+            if (
+                article_id not in system_prompts
+                and "system_prompt" in r
+                and r["system_prompt"]
+            ):
+                system_prompts[article_id] = r["system_prompt"]
+
+        logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
+
         # Prepare results for logging (extract minimal data)
         results_for_logging = [
             {
@@ -419,7 +626,7 @@ def search_hybrid(
                 search_method="hybrid",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=search_request.user_id,
+                email=search_request.email,
                 query_embedding=None,
                 command=search_request.command,
             )
@@ -458,11 +665,13 @@ def search_hybrid(
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
 
-        # Build metadata with RRF and reranking info
+        # Build metadata with RRF and reranking info (NEW: include system_prompts)
         metadata = {
             "rrf_k": search_request.rrf_k,
             **reranking_metadata,
         }
+        if system_prompts:
+            metadata["system_prompts"] = system_prompts
 
         # Build response
         return SearchResponse(
@@ -548,7 +757,7 @@ async def search_hyde(
     - `rrf_k`: RRF constant (default 60)
     - `min_bm25_score`: Optional BM25 score threshold
     - `min_vector_similarity`: Optional vector similarity threshold
-    - `user_id`: Optional user identifier for analytics
+    - `email`: Optional user email address for analytics
 
     **Response:**
     - Ranked results with Cohere relevance scores (0-1)
@@ -559,7 +768,7 @@ async def search_hyde(
 
     logger.info(
         f"HyDE search: query='{search_request.query[:50]}', top_k={search_request.top_k}, "
-        f"rrf_k={search_request.rrf_k}, user_id={search_request.user_id}"
+        f"rrf_k={search_request.rrf_k}, email={search_request.email}"
     )
 
     # Track HyDE-specific metadata
@@ -575,8 +784,13 @@ async def search_hyde(
         hypothetical_doc = None
         token_usage = None
         try:
-            logger.debug(f"Generating hypothetical document for query: '{search_request.query[:50]}'")
-            hypothetical_doc, token_usage = await hyde_generator.generate_hypothetical_document(
+            logger.debug(
+                f"Generating hypothetical document for query: '{search_request.query[:50]}'"
+            )
+            (
+                hypothetical_doc,
+                token_usage,
+            ) = await hyde_generator.generate_hypothetical_document(
                 query=search_request.query,
             )
             hyde_latency_ms = int((time.time() - hyde_start) * 1000)
@@ -598,26 +812,36 @@ async def search_hyde(
                 f"HyDE generation failed ({hyde_latency_ms}ms), falling back to original query: {str(e)}"
             )
 
-        # Step 2: Perform BM25 search with original query (better for keywords)
+        # Step 2: Perform BM25 search with original query (better for keywords) and filtering
         fetch_k = search_request.top_k * 2  # Fetch 2x results for fusion
         logger.debug(f"Fetching {fetch_k} BM25 results with original query")
         bm25_results = bm25_retriever.search(
             query=search_request.query,
             top_k=fetch_k,
             min_score=search_request.min_bm25_score,
+            status_names=search_request.status_names,
+            category_names=search_request.category_names,
+            is_public=search_request.is_public,
+            tags=search_request.tags,
         )
         logger.debug(f"BM25 search returned {len(bm25_results)} results")
 
-        # Step 3: Perform vector search with hypothetical document
+        # Step 3: Perform vector search with hypothetical document and filtering
         logger.debug(f"Fetching {fetch_k} vector results with hypothetical document")
         embedding_start = time.time()
         vector_results = vector_retriever.search(
             query=hypothetical_doc,  # Use hypothetical doc for semantic matching
             top_k=fetch_k,
             min_similarity=search_request.min_vector_similarity,
+            status_names=search_request.status_names,
+            category_names=search_request.category_names,
+            is_public=search_request.is_public,
+            tags=search_request.tags,
         )
         embedding_latency_ms = int((time.time() - embedding_start) * 1000)
-        logger.debug(f"Vector search returned {len(vector_results)} results in {embedding_latency_ms}ms")
+        logger.debug(
+            f"Vector search returned {len(vector_results)} results in {embedding_latency_ms}ms"
+        )
 
         # Step 4: Apply RRF fusion
         logger.debug("Applying RRF fusion")
@@ -639,6 +863,7 @@ async def search_hyde(
         if reranker is None:
             logger.warning("Reranker not available, using RRF results")
             reranking_metadata["reranker_status"] = "unavailable"
+            reranking_metadata["reranker_status"] = "unavailable"
             final_results = fused_results[: search_request.top_k]
         else:
             try:
@@ -659,6 +884,7 @@ async def search_hyde(
                 # Graceful degradation: use RRF results
                 logger.error(f"Reranking failed, falling back to RRF: {str(e)}")
                 reranking_metadata["reranking_failed"] = True
+                reranking_metadata["reranker_status"] = "failed"
                 reranking_metadata["reranker_status"] = "failed"
                 reranking_metadata["error"] = str(e)
                 final_results = fused_results[: search_request.top_k]
@@ -687,6 +913,19 @@ async def search_hyde(
             f"reranked={reranking_metadata.get('reranked', False)}"
         )
 
+        # Extract system prompts from results (NEW)
+        system_prompts = {}
+        for r in final_results:
+            article_id = str(r["chunk"].parent_article_id)
+            if (
+                article_id not in system_prompts
+                and "system_prompt" in r
+                and r["system_prompt"]
+            ):
+                system_prompts[article_id] = r["system_prompt"]
+
+        logger.debug(f"Extracted system prompts for {len(system_prompts)} articles")
+
         # Prepare results for logging (extract minimal data)
         results_for_logging = [
             {
@@ -707,7 +946,7 @@ async def search_hyde(
                 search_method="hyde",
                 results=results_for_logging,
                 latency_ms=latency_ms,
-                user_id=search_request.user_id,
+                email=search_request.email,
                 query_embedding=None,
                 command=search_request.command,
             )
@@ -749,16 +988,26 @@ async def search_hyde(
                     hyde_log_client.log_hyde_generation(
                         query_log_id=query_log_id_for_response,
                         hypothetical_document=hypothetical_doc,
-                        generation_status="success" if not hyde_metadata["hyde_failed"] else "failed_fallback",
+                        generation_status="success"
+                        if not hyde_metadata["hyde_failed"]
+                        else "failed_fallback",
                         model_name=hyde_generator.deployment_name,
                         generation_latency_ms=hyde_metadata["hyde_latency_ms"],
                         embedding_latency_ms=embedding_latency_ms,
-                        prompt_tokens=token_usage.get("prompt_tokens") if token_usage else None,
-                        completion_tokens=token_usage.get("completion_tokens") if token_usage else None,
-                        total_tokens=token_usage.get("total_tokens") if token_usage else None,
+                        prompt_tokens=token_usage.get("prompt_tokens")
+                        if token_usage
+                        else None,
+                        completion_tokens=token_usage.get("completion_tokens")
+                        if token_usage
+                        else None,
+                        total_tokens=token_usage.get("total_tokens")
+                        if token_usage
+                        else None,
                         error_message=hyde_metadata.get("hyde_error"),
                     )
-                    logger.debug(f"HyDE generation logged for query_log_id {query_log_id_for_response}")
+                    logger.debug(
+                        f"HyDE generation logged for query_log_id {query_log_id_for_response}"
+                    )
                 except Exception as hyde_log_error:
                     # Don't fail the request if HyDE logging fails
                     logger.error(f"HyDE logging failed: {hyde_log_error}")
@@ -766,12 +1015,14 @@ async def search_hyde(
         except Exception as e:
             logger.error(f"Query and result logging failed: {e}")
 
-        # Build metadata with HyDE, RRF, and reranking info
+        # Build metadata with HyDE, RRF, and reranking info (NEW: include system_prompts)
         metadata = {
             "rrf_k": search_request.rrf_k,
             **hyde_metadata,
             **reranking_metadata,
         }
+        if system_prompts:
+            metadata["system_prompts"] = system_prompts
 
         # Build response
         return SearchResponse(
@@ -801,5 +1052,6 @@ async def search_hyde(
         # Unexpected errors
         logger.error(f"HyDE search error: {str(e)}", exc_info=True)
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="HyDE search failed"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="HyDE search failed",
         )

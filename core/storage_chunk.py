@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Dict, List, Set
+from typing import Dict, List, Optional, Set
 import psycopg
 from core.storage_base import BaseStorageClient
 from core.schemas import TextChunk
@@ -205,4 +205,102 @@ class PostgresClient(BaseStorageClient):
                     return chunks
         except Exception as e:
             logger.error(f"Failed to fetch chunks: {str(e)}")
+            raise
+
+    def get_all_chunks_filtered(
+        self,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
+    ) -> List[TextChunk]:
+        """
+        Retrieve chunks from the database with article metadata filtering.
+
+        Filters are applied using AND logic. Within list filters (status_names, category_names, tags),
+        OR logic is used (ANY match). For tags, articles must have at least one of the provided tags.
+
+        Args:
+            status_names: Filter by article status (e.g., ['Approved', 'Published'])
+            category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+            is_public: Filter by article visibility (True for public, False for private)
+            tags: Filter by article tags (ANY match using array overlap operator)
+
+        Returns:
+            List of TextChunk objects with optional article_tags field populated
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        logger.debug(
+            f"Fetching filtered chunks: status={status_names}, category={category_names}, "
+            f"is_public={is_public}, tags={tags}"
+        )
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    # Build WHERE clause conditions
+                    where_conditions = []
+                    params = []
+
+                    if status_names is not None:
+                        where_conditions.append("a.status_name = ANY(%s)")
+                        params.append(status_names)
+
+                    if category_names is not None:
+                        where_conditions.append("a.category_name = ANY(%s)")
+                        params.append(category_names)
+
+                    if is_public is not None:
+                        where_conditions.append("a.is_public = %s")
+                        params.append(is_public)
+
+                    if tags is not None:
+                        # Use PostgreSQL array overlap operator (&&)
+                        where_conditions.append("a.tags && %s")
+                        params.append(tags)
+
+                    # Build full query
+                    where_clause = (
+                        f"WHERE {' AND '.join(where_conditions)}"
+                        if where_conditions
+                        else ""
+                    )
+
+                    query = f"""
+                        SELECT ac.id, ac.parent_article_id, ac.chunk_sequence,
+                               ac.text_content, ac.token_count, ac.url, ac.last_modified_date,
+                               a.tags as article_tags
+                        FROM article_chunks ac
+                        JOIN articles a ON ac.parent_article_id = a.id
+                        {where_clause}
+                        ORDER BY ac.parent_article_id, ac.chunk_sequence
+                    """
+
+                    logger.debug(f"Executing query: {query}")
+                    logger.debug(f"Query parameters: {params}")
+
+                    cur.execute(query, params)
+                    rows = cur.fetchall()
+                    chunks = []
+                    for row in rows:
+                        chunk = TextChunk(
+                            chunk_id=row[0],
+                            parent_article_id=row[1],
+                            chunk_sequence=row[2],
+                            text_content=row[3],
+                            token_count=row[4],
+                            source_url=row[5],
+                            last_modified_date=row[6],
+                            article_tags=row[7],  # Include article tags for BM25 search
+                        )
+                        chunks.append(chunk)
+                    logger.info(
+                        f"Retrieved {len(chunks)} filtered chunks from database "
+                        f"(filters: status={status_names}, category={category_names}, "
+                        f"is_public={is_public}, tags={tags})"
+                    )
+                    return chunks
+        except Exception as e:
+            logger.error(f"Failed to fetch filtered chunks: {str(e)}")
             raise

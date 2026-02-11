@@ -21,6 +21,23 @@ class TdxArticle(BaseModel):
     raw_ingestion_date: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )
+    status_name: str | None = Field(
+        default=None,
+        description="Article status from TDX API (e.g., 'Approved', 'Draft', 'Archived')",
+    )
+    category_name: str | None = Field(
+        default=None,
+        description="Article category from TDX API (e.g., 'IT Help', 'Documentation')",
+    )
+    is_public: bool | None = Field(
+        default=None, description="Whether article is publicly visible in TDX"
+    )
+    summary: str | None = Field(
+        default=None, description="Short summary/description of the article from TDX"
+    )
+    tags: List[str] | None = Field(
+        default=None, description="List of tags associated with the article in TDX"
+    )
 
 
 # Chunk
@@ -51,6 +68,11 @@ class TextChunk(BaseModel):
     source_url: HttpUrl
     last_modified_date: datetime = Field(
         default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+    # Article metadata (optional, populated during filtered queries)
+    article_tags: List[str] | None = Field(
+        default=None, description="Tags from parent article (used for BM25 tag search)"
     )
 
 
@@ -187,8 +209,10 @@ class QueryLog(BaseModel):
     )
 
     # User tracking
-    user_id: str | None = Field(
-        default=None, description="User identifier for analytics."
+    email: str | None = Field(
+        default=None,
+        max_length=255,
+        description="User email address for analytics (from Open WebUI).",
     )
 
     # Command tracking

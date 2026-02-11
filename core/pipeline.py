@@ -292,13 +292,14 @@ class RAGPipeline:
             raise
 
     def run_embedding(
-        self, chunks: List[TextChunk]
+        self, chunks: List[TextChunk], batch_size: int = 100
     ) -> List[Tuple[VectorRecord, List[float]]]:
         """
-        Generate embeddings for text chunks.
+        Generate embeddings for text chunks using batch API calls.
 
         Args:
             chunks: List of TextChunk objects to embed
+            batch_size: Number of chunks to embed per API call (default: 100)
 
         Returns:
             List of tuples (VectorRecord, embedding_vector)
@@ -314,41 +315,70 @@ class RAGPipeline:
             logger.warning("No chunks provided for embedding")
             return []
 
-        logger.info(f"Starting embedding phase for {len(chunks)} chunks")
+        logger.info(
+            f"Starting embedding phase for {len(chunks)} chunks "
+            f"(batch_size={batch_size})"
+        )
         try:
             with PerformanceLogger(logger, f"Embedding {len(chunks)} chunks"):
                 embeddings = []
 
-                for idx, chunk in enumerate(chunks, 1):
-                    if idx % 10 == 0:
-                        logger.debug(f"Embedding progress: {idx}/{len(chunks)} chunks")
+                # Process chunks in batches
+                for batch_start in range(0, len(chunks), batch_size):
+                    batch_chunks = chunks[batch_start : batch_start + batch_size]
+                    batch_num = batch_start // batch_size + 1
+                    total_batches = (len(chunks) + batch_size - 1) // batch_size
+
+                    logger.info(
+                        f"Embedding batch {batch_num}/{total_batches} "
+                        f"({len(batch_chunks)} chunks)"
+                    )
 
                     try:
-                        # Generate embedding
-                        embedding_vector = self.embedder.generate_embedding(
-                            chunk.text_content
-                        )
+                        # Generate embeddings for the batch
+                        texts = [chunk.text_content for chunk in batch_chunks]
+                        batch_vectors = self.embedder.generate_embeddings_batch(texts)
 
-                        # Create VectorRecord
-                        vector_record = VectorRecord(
-                            chunk_id=chunk.chunk_id,
-                            parent_article_id=chunk.parent_article_id,
-                            chunk_sequence=chunk.chunk_sequence,
-                            text_content=chunk.text_content,
-                            token_count=chunk.token_count,
-                            source_url=chunk.source_url,
-                            last_modified_date=chunk.last_modified_date,
-                        )
-
-                        embeddings.append((vector_record, embedding_vector))
-                        logger.debug(f"Generated embedding for chunk {chunk.chunk_id}")
+                        # Map results back to VectorRecord tuples
+                        for chunk, embedding_vector in zip(batch_chunks, batch_vectors):
+                            vector_record = VectorRecord(
+                                chunk_id=chunk.chunk_id,
+                                parent_article_id=chunk.parent_article_id,
+                                chunk_sequence=chunk.chunk_sequence,
+                                text_content=chunk.text_content,
+                                token_count=chunk.token_count,
+                                source_url=chunk.source_url,
+                                last_modified_date=chunk.last_modified_date,
+                            )
+                            embeddings.append((vector_record, embedding_vector))
 
                     except Exception as e:
-                        logger.error(
-                            f"Failed to embed chunk {chunk.chunk_id}: {str(e)}"
+                        logger.warning(
+                            f"Batch {batch_num} failed: {str(e)}. "
+                            f"Falling back to individual processing."
                         )
-                        # Continue with other chunks
-                        continue
+                        # Fall back to processing chunks individually
+                        for chunk in batch_chunks:
+                            try:
+                                embedding_vector = self.embedder.generate_embedding(
+                                    chunk.text_content
+                                )
+                                vector_record = VectorRecord(
+                                    chunk_id=chunk.chunk_id,
+                                    parent_article_id=chunk.parent_article_id,
+                                    chunk_sequence=chunk.chunk_sequence,
+                                    text_content=chunk.text_content,
+                                    token_count=chunk.token_count,
+                                    source_url=chunk.source_url,
+                                    last_modified_date=chunk.last_modified_date,
+                                )
+                                embeddings.append((vector_record, embedding_vector))
+                            except Exception as chunk_err:
+                                logger.error(
+                                    f"Failed to embed chunk "
+                                    f"{chunk.chunk_id}: {str(chunk_err)}"
+                                )
+                                continue
 
                 logger.info(f"Successfully generated {len(embeddings)} embeddings")
                 return embeddings
@@ -386,13 +416,16 @@ class RAGPipeline:
             raise
 
     def run_full_pipeline(
-        self, article_ids: Optional[List[UUID]] = None
+        self,
+        article_ids: Optional[List[UUID]] = None,
+        batch_size: int = 100,
     ) -> Dict[str, Any]:
         """
         Run the complete RAG pipeline from ingestion to storage.
 
         Args:
             article_ids: Optional list of specific article IDs to process
+            batch_size: Number of chunks to embed per API call (default: 100)
 
         Returns:
             Statistics dictionary with counts for each phase
@@ -405,6 +438,7 @@ class RAGPipeline:
         logger.info("=" * 80)
 
         stats = {
+            "cleanup": {"deleted_count": 0},
             "ingestion": {},
             "processing": {"processed_count": 0, "chunk_count": 0},
             "embedding": {"embedding_count": 0},
@@ -416,6 +450,25 @@ class RAGPipeline:
 
         try:
             with PerformanceLogger(logger, "Full RAG pipeline"):
+                # Phase 0: Cleanup non-approved articles (automatic)
+                if not self.skip_ingestion:
+                    logger.info("\n" + "=" * 80)
+                    logger.info("PHASE 0: CLEANUP NON-APPROVED ARTICLES")
+                    logger.info("=" * 80)
+                    try:
+                        cleaned_count = (
+                            self.article_processor.cleanup_non_approved_articles()
+                        )
+                        stats["cleanup"]["deleted_count"] = cleaned_count
+                    except Exception as e:
+                        logger.error(f"Cleanup phase failed: {str(e)}")
+                        logger.warning(
+                            "Continuing with pipeline despite cleanup failure"
+                        )
+                        stats["cleanup"]["error"] = str(e)
+                else:
+                    logger.info("PHASE 0: CLEANUP - SKIPPED (ingestion disabled)")
+
                 # Phase 1: Ingestion
                 if not self.skip_ingestion:
                     logger.info("\n" + "=" * 80)
@@ -470,7 +523,9 @@ class RAGPipeline:
                     logger.info(
                         f"Generating embeddings for {len(chunks_to_embed)} chunks"
                     )
-                    all_embeddings = self.run_embedding(chunks_to_embed)
+                    all_embeddings = self.run_embedding(
+                        chunks_to_embed, batch_size=batch_size
+                    )
 
                     stats["embedding"]["embedding_count"] = len(all_embeddings)
 
@@ -501,6 +556,10 @@ class RAGPipeline:
                 logger.info("=" * 80)
                 logger.info(f"Duration: {stats['duration_seconds']:.2f} seconds")
 
+                if stats["cleanup"]["deleted_count"] > 0:
+                    logger.info(
+                        f"Cleanup: {stats['cleanup']['deleted_count']} non-approved articles removed"
+                    )
                 if stats.get("ingestion"):
                     logger.info(
                         f"Ingestion: {stats['ingestion'].get('new_count', 0)} new, "

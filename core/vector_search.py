@@ -32,11 +32,13 @@ class VectorSearchResult:
         chunk: The TextChunk object
         similarity: Cosine similarity score (0-1, higher is more similar)
         rank: Position in the ranked results (1-indexed)
+        system_prompt: Optional system prompt resolved from article tags
     """
 
     chunk: TextChunk
     similarity: float
     rank: int
+    system_prompt: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert result to dictionary with metadata."""
@@ -99,17 +101,30 @@ class VectorRetriever:
         query: str,
         top_k: int = 10,
         min_similarity: Optional[float] = None,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
+        include_system_prompts: bool = True,
     ) -> List[VectorSearchResult]:
         """
-        Search for semantically similar chunks using vector similarity.
+        Search for semantically similar chunks using vector similarity with optional article metadata filtering.
+
+        Filters are applied using AND logic. Within list filters (status_names, category_names, tags),
+        OR logic is used (ANY match). For tags, articles must have at least one of the provided tags.
 
         Args:
             query: Search query string
             top_k: Number of top results to return (default: 10)
             min_similarity: Minimum cosine similarity threshold (0-1, default: None)
+            status_names: Filter by article status (e.g., ['Approved', 'Published'])
+            category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+            is_public: Filter by article visibility (True for public, False for private)
+            tags: Filter by article tags (ANY match using array overlap operator)
+            include_system_prompts: Include system prompts resolved from article tags (default: True)
 
         Returns:
-            List of VectorSearchResult objects, ranked by similarity
+            List of VectorSearchResult objects, ranked by similarity, with optional system_prompt field
 
         Raises:
             ValueError: If query is empty or top_k is invalid
@@ -126,7 +141,10 @@ class VectorRetriever:
                 f"min_similarity must be between 0 and 1, got {min_similarity}"
             )
 
-        logger.info(f"Searching for: '{query}' (top_k={top_k})")
+        logger.info(
+            f"Searching for: '{query}' (top_k={top_k}, filters: "
+            f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags})"
+        )
 
         with PerformanceLogger(logger, f"Vector search for '{query}'"):
             # Generate embedding for query
@@ -141,7 +159,7 @@ class VectorRetriever:
 
             logger.debug(f"Generated embedding with dimension {len(query_embedding)}")
 
-            # Search for similar vectors
+            # Search for similar vectors with filtering
             logger.debug(f"Searching for top {top_k} similar vectors")
             try:
                 # Apply similarity threshold if specified
@@ -153,6 +171,11 @@ class VectorRetriever:
                     query_vector=query_embedding,
                     limit=top_k,
                     min_similarity=min_sim_threshold,
+                    status_names=status_names,
+                    category_names=category_names,
+                    is_public=is_public,
+                    tags=tags,
+                    include_system_prompts=include_system_prompts,
                 )
             except Exception as e:
                 logger.error(f"Vector search failed: {str(e)}")
@@ -176,7 +199,8 @@ class VectorRetriever:
                     ),  # Use created_at as last_modified
                 )
                 similarity = result_dict["similarity"]
-                results.append((similarity, chunk))
+                system_prompt = result_dict.get("system_prompt")
+                results.append((similarity, chunk, system_prompt))
 
             # Sort by similarity (descending) and take top_k
             results.sort(reverse=True, key=lambda x: x[0])
@@ -188,8 +212,11 @@ class VectorRetriever:
                     chunk=chunk,
                     similarity=similarity,
                     rank=rank,
+                    system_prompt=system_prompt,
                 )
-                for rank, (similarity, chunk) in enumerate(results, start=1)
+                for rank, (similarity, chunk, system_prompt) in enumerate(
+                    results, start=1
+                )
             ]
 
         logger.info(
@@ -210,14 +237,22 @@ class VectorRetriever:
         queries: List[str],
         top_k: int = 10,
         min_similarity: Optional[float] = None,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
     ) -> Dict[str, List[VectorSearchResult]]:
         """
-        Perform batch search for multiple queries.
+        Perform batch search for multiple queries with optional filtering.
 
         Args:
             queries: List of query strings
             top_k: Number of top results per query (default: 10)
             min_similarity: Minimum similarity threshold (default: None)
+            status_names: Filter by article status (e.g., ['Approved', 'Published'])
+            category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+            is_public: Filter by article visibility (True for public, False for private)
+            tags: Filter by article tags (ANY match using array overlap operator)
 
         Returns:
             Dictionary mapping query -> list of search results
@@ -226,7 +261,10 @@ class VectorRetriever:
             logger.warning("No queries provided for batch search")
             return {}
 
-        logger.info(f"Performing batch vector search for {len(queries)} queries")
+        logger.info(
+            f"Performing batch vector search for {len(queries)} queries with filters: "
+            f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags}"
+        )
 
         results = {}
         with PerformanceLogger(logger, f"Batch search for {len(queries)} queries"):
@@ -236,6 +274,10 @@ class VectorRetriever:
                         query=query,
                         top_k=top_k,
                         min_similarity=min_similarity,
+                        status_names=status_names,
+                        category_names=category_names,
+                        is_public=is_public,
+                        tags=tags,
                     )
                 except Exception as e:
                     logger.error(f"Error searching for '{query}': {str(e)}")
@@ -280,9 +322,13 @@ class VectorRetriever:
         chunk_id: str,
         top_k: int = 10,
         min_similarity: Optional[float] = None,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
     ) -> List[VectorSearchResult]:
         """
-        Find chunks similar to a given chunk.
+        Find chunks similar to a given chunk with optional article metadata filtering.
 
         Useful for finding related content or recommendations.
 
@@ -290,6 +336,10 @@ class VectorRetriever:
             chunk_id: ID of the chunk to find similar content for
             top_k: Number of similar chunks to return (default: 10)
             min_similarity: Minimum similarity threshold (default: None)
+            status_names: Filter by article status (e.g., ['Approved', 'Published'])
+            category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+            is_public: Filter by article visibility (True for public, False for private)
+            tags: Filter by article tags (ANY match using array overlap operator)
 
         Returns:
             List of VectorSearchResult objects, excluding the query chunk itself
@@ -298,7 +348,10 @@ class VectorRetriever:
             ValueError: If chunk_id is not found
             RuntimeError: If search fails
         """
-        logger.info(f"Finding similar chunks to: {chunk_id}")
+        logger.info(
+            f"Finding similar chunks to: {chunk_id} with filters: "
+            f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags}"
+        )
 
         try:
             # Get the chunk's embedding from database
@@ -313,6 +366,10 @@ class VectorRetriever:
                 query_vector=chunk_embedding,
                 limit=top_k + 1,  # +1 because we'll exclude the query chunk
                 min_similarity=min_sim_threshold,
+                status_names=status_names,
+                category_names=category_names,
+                is_public=is_public,
+                tags=tags,
             )
 
             # Convert dict results and filter out the query chunk

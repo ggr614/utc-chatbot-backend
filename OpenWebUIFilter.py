@@ -222,10 +222,12 @@ class Filter:
         # Instance variables to pass data from inlet to outlet
         self._query_log_id = None
         self._search_response_data = None
-        self._search_metadata = None      # Debug metadata (dict or None)
-        self._command_mode = None          # Track mode: "bypass", "q", "qlong", "debug", "debuglong"
-        self._original_query = None        # Original query before command strip
-        self._use_hyde_search = False      # Command-scoped HyDE toggle
+        self._search_metadata = None  # Debug metadata (dict or None)
+        self._command_mode = (
+            None  # Track mode: "bypass", "q", "qlong", "debug", "debuglong"
+        )
+        self._original_query = None  # Original query before command strip
+        self._use_hyde_search = False  # Command-scoped HyDE toggle
 
     def _parse_command(self, query: str) -> Tuple[Optional[str], str]:
         """
@@ -257,19 +259,19 @@ class Filter:
             return ("help", "")
 
         elif query_lower == "!debuglong" or query_lower.startswith("!debuglong "):
-            cleaned = query_stripped[len("!debuglong"):].strip()
+            cleaned = query_stripped[len("!debuglong") :].strip()
             return ("debuglong", cleaned if cleaned else query_stripped)
 
         elif query_lower == "!qlong" or query_lower.startswith("!qlong "):
-            cleaned = query_stripped[len("!qlong"):].strip()
+            cleaned = query_stripped[len("!qlong") :].strip()
             return ("qlong", cleaned if cleaned else query_stripped)
 
         elif query_lower == "!debug" or query_lower.startswith("!debug "):
-            cleaned = query_stripped[len("!debug"):].strip()
+            cleaned = query_stripped[len("!debug") :].strip()
             return ("debug", cleaned if cleaned else query_stripped)
 
         elif query_lower == "!q" or query_lower.startswith("!q "):
-            cleaned = query_stripped[len("!q"):].strip()
+            cleaned = query_stripped[len("!q") :].strip()
             return ("q", cleaned if cleaned else query_stripped)
 
         # No command found
@@ -409,33 +411,27 @@ What does DHCP stand for?
             "raw_query": self._original_query,
             "cleaned_query": cleaned_query,
             "command": self._command_mode,
-
             # Search configuration
             "search_method": search_response.get("method", "unknown"),
             "top_k": self.valves.TOP_K,
             "fusion_method": self.valves.FUSION_METHOD,
             "rrf_k": self.valves.RRF_K if self.valves.FUSION_METHOD == "rrf" else None,
-
             # Performance metrics
             "total_latency_ms": search_response.get("latency_ms", 0),
-
             # Results overview
             "num_results": len(results),
             "context_length_chars": len(context),
             "context_token_estimate": len(context) // 4,  # ~4 chars per token
             "max_context_tokens": self.valves.MAX_CONTEXT_TOKENS,
-
             # HyDE-specific (if applicable)
             "hyde_enabled": self._use_hyde_search,
             "hypothetical_document": metadata.get("hypothetical_document"),
             "hyde_latency_ms": metadata.get("hyde_latency_ms"),
             "hyde_token_usage": metadata.get("hyde_token_usage"),
-
             # Reranking details
             "reranked": metadata.get("reranked", False),
             "reranker_latency_ms": metadata.get("reranker_latency_ms"),
             "reranker_status": metadata.get("reranker_status", "unknown"),
-
             # Results for display (top_k only)
             "results": [
                 {
@@ -444,12 +440,12 @@ What does DHCP stand for?
                     "chunk_id": str(r.get("chunk_id", ""))[:8] + "...",  # Truncate UUID
                     "source_url": r.get("source_url"),
                     "text_preview": (r.get("text_content", "")[:100] + "...")
-                        if len(r.get("text_content", "")) > 100 else r.get("text_content", ""),
+                    if len(r.get("text_content", "")) > 100
+                    else r.get("text_content", ""),
                     "token_count": r.get("token_count"),
                 }
-                for r in results[:self.valves.TOP_K]
+                for r in results[: self.valves.TOP_K]
             ],
-
             # Additional metadata (BM25 results, vector results, RRF results if available)
             "bm25_results_count": metadata.get("bm25_results_count"),
             "vector_results_count": metadata.get("vector_results_count"),
@@ -481,12 +477,12 @@ What does DHCP stand for?
         # Search Configuration
         output += "### Search Configuration\n"
         output += f"- **Method**: {md.get('search_method', 'unknown').upper()}"
-        if md.get('hyde_enabled'):
+        if md.get("hyde_enabled"):
             output += " (HyDE - Hypothetical Document Embeddings)"
         output += "\n"
         output += f"- **Top K**: {md.get('top_k', 'N/A')}\n"
         output += f"- **Fusion Method**: {md.get('fusion_method', 'N/A').upper()}\n"
-        if md.get('rrf_k'):
+        if md.get("rrf_k"):
             output += f"- **RRF Constant**: {md.get('rrf_k')}\n"
         output += "\n"
 
@@ -494,69 +490,79 @@ What does DHCP stand for?
         output += "### Performance Metrics\n"
         output += f"- **Total Latency**: {md.get('total_latency_ms', 'N/A')}ms\n"
 
-        if md.get('hyde_enabled') and md.get('hyde_latency_ms'):
+        if md.get("hyde_enabled") and md.get("hyde_latency_ms"):
             output += f"- **HyDE Generation**: {md.get('hyde_latency_ms')}ms\n"
 
-        if md.get('reranked') and md.get('reranker_latency_ms'):
+        if md.get("reranked") and md.get("reranker_latency_ms"):
             output += f"- **Reranking**: {md.get('reranker_latency_ms')}ms\n"
 
         output += "\n"
 
         # HyDE Generation Details (if applicable)
-        if md.get('hyde_enabled') and md.get('hypothetical_document'):
+        if md.get("hyde_enabled") and md.get("hypothetical_document"):
             output += "### HyDE Generation\n"
             output += "- **Status**: Success\n"
             output += "- **Hypothetical Document**:\n"
-            hypo_doc = md.get('hypothetical_document', '')
+            hypo_doc = md.get("hypothetical_document", "")
             # Truncate if too long
             if len(hypo_doc) > 300:
                 hypo_doc = hypo_doc[:300] + "..."
             output += f"  > {hypo_doc}\n\n"
 
-            if md.get('hyde_token_usage'):
-                tokens = md.get('hyde_token_usage', {})
-                output += f"- **Token Usage**: {tokens.get('prompt_tokens', '?')} prompt + "
+            if md.get("hyde_token_usage"):
+                tokens = md.get("hyde_token_usage", {})
+                output += (
+                    f"- **Token Usage**: {tokens.get('prompt_tokens', '?')} prompt + "
+                )
                 output += f"{tokens.get('completion_tokens', '?')} completion = "
                 output += f"{tokens.get('total_tokens', '?')} total\n\n"
 
         # Retrieval Results Count
-        if md.get('bm25_results_count') or md.get('vector_results_count'):
+        if md.get("bm25_results_count") or md.get("vector_results_count"):
             output += "### Retrieval Pipeline\n"
-            if md.get('bm25_results_count'):
-                output += f"- **BM25 Results**: {md.get('bm25_results_count')} candidates\n"
-            if md.get('vector_results_count'):
+            if md.get("bm25_results_count"):
+                output += (
+                    f"- **BM25 Results**: {md.get('bm25_results_count')} candidates\n"
+                )
+            if md.get("vector_results_count"):
                 output += f"- **Vector Results**: {md.get('vector_results_count')} candidates\n"
-            if md.get('rrf_results_count'):
+            if md.get("rrf_results_count"):
                 output += f"- **RRF Fusion**: {md.get('rrf_results_count')} combined results\n"
             output += "\n"
 
         # Reranking Details
-        if md.get('reranked'):
+        if md.get("reranked"):
             output += "### Reranking\n"
             output += f"- **Status**: {md.get('reranker_status', 'unknown').upper()}\n"
-            if md.get('reranker_latency_ms'):
+            if md.get("reranker_latency_ms"):
                 output += f"- **Latency**: {md.get('reranker_latency_ms')}ms\n"
             output += "\n"
 
         # Final Results (injected into context)
-        results = md.get('results', [])
+        results = md.get("results", [])
         if results:
             output += "### Final Results (Injected into Context)\n\n"
             for result in results:
-                output += f"**{result.get('rank')}. Relevance: {result.get('score')}**\n"
+                output += (
+                    f"**{result.get('rank')}. Relevance: {result.get('score')}**\n"
+                )
                 output += f"- **Chunk ID**: `{result.get('chunk_id')}`\n"
-                if result.get('source_url'):
+                if result.get("source_url"):
                     output += f"- **Source**: {result.get('source_url')}\n"
                 output += f"- **Tokens**: {result.get('token_count', 'N/A')}\n"
-                if result.get('text_preview'):
+                if result.get("text_preview"):
                     output += f"- **Preview**: {result.get('text_preview')}\n"
                 output += "\n"
 
         # Context Injection Stats
         output += "### Context Injection\n"
         output += f"- **Documents Injected**: {md.get('num_results', 0)}\n"
-        output += f"- **Context Length**: {md.get('context_length_chars', 0):,} characters\n"
-        output += f"- **Estimated Tokens**: ~{md.get('context_token_estimate', 0)} tokens "
+        output += (
+            f"- **Context Length**: {md.get('context_length_chars', 0):,} characters\n"
+        )
+        output += (
+            f"- **Estimated Tokens**: ~{md.get('context_token_estimate', 0)} tokens "
+        )
         output += f"(max: {md.get('max_context_tokens', 0)})\n"
 
         output += "\n---\n"
@@ -564,7 +570,7 @@ What does DHCP stand for?
         return output
 
     def _search_documents(
-        self, query: str, user_id: Optional[str] = None, use_hyde: bool = False
+        self, query: str, email: Optional[str] = None, use_hyde: bool = False
     ) -> Dict[str, Any]:
         """Call the RAG Helpdesk API search endpoint (hybrid or hyde)."""
         # Choose endpoint based on command-scoped HyDE toggle
@@ -603,10 +609,10 @@ What does DHCP stand for?
             payload["min_bm25_score"] = self.valves.MIN_BM25_SCORE
         if self.valves.MIN_VECTOR_SIMILARITY is not None:
             payload["min_vector_similarity"] = self.valves.MIN_VECTOR_SIMILARITY
-        if user_id:
-            payload["user_id"] = user_id
+        if email:
+            payload["email"] = email
         # Add command for query logging
-        if hasattr(self, '_command_mode') and self._command_mode:
+        if hasattr(self, "_command_mode") and self._command_mode:
             payload["command"] = self._command_mode
 
         # DEBUG: Log full request details
@@ -731,12 +737,24 @@ What does DHCP stand for?
         return new_messages
 
     def _inject_context_into_messages(
-        self, messages: List[Dict[str, Any]], context: str
+        self,
+        messages: List[Dict[str, Any]],
+        context: str,
+        system_prompt: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
-        """Inject RAG context into the message list via system prompt."""
+        """Inject RAG context into the message list via system prompt.
+
+        Args:
+            messages: The conversation message list
+            context: Formatted document context string
+            system_prompt: Optional system prompt from API. If None, falls back to SYSTEM_PROMPT_RAG.
+        """
+
+        # Use API-provided prompt if available, otherwise fall back to hardcoded
+        base_prompt = system_prompt if system_prompt else SYSTEM_PROMPT_RAG
 
         # Build the full instruction with context
-        rag_instruction = f"""{SYSTEM_PROMPT_RAG}
+        rag_instruction = f"""{base_prompt}
 
 You have access to a knowledge base of IT helpdesk support articles.
 Use the following retrieved documents to help answer the user's question:
@@ -894,7 +912,9 @@ Use the following retrieved documents to help answer the user's question:
 
         # Use cleaned query for RAG search (command stripped)
         user_query = cleaned_query
-        print(f"[RAG Filter] Cleaned Query: {user_query[:100]}{'...' if len(user_query) > 100 else ''}")
+        print(
+            f"[RAG Filter] Cleaned Query: {user_query[:100]}{'...' if len(user_query) > 100 else ''}"
+        )
 
         # Emit status update
         if __event_emitter__:
@@ -918,14 +938,38 @@ Use the following retrieved documents to help answer the user's question:
         num_docs = 0
         error_msg = None
         error_detail = None
+        resolved_system_prompt = None  # Will hold API-provided system prompt
 
         try:
-            user_id = __user__.get("id") if __user__ else None
+            email = __user__.get("email") if __user__ else None
             search_response = self._search_documents(
-                user_query, user_id, use_hyde=self._use_hyde_search
+                user_query, email, use_hyde=self._use_hyde_search
             )
             context = self._format_context(search_response)
             num_docs = len(search_response.get("results", []))
+
+            # Extract system prompt from API metadata (NEW)
+            api_system_prompts = search_response.get("metadata", {}).get(
+                "system_prompts", {}
+            )
+            if api_system_prompts and search_response.get("results"):
+                # Use the prompt from the top-ranked article
+                top_article_id = str(
+                    search_response["results"][0].get("parent_article_id", "")
+                )
+                resolved_system_prompt = api_system_prompts.get(top_article_id)
+                if resolved_system_prompt:
+                    print(
+                        f"[RAG Filter] Using API system prompt from article {top_article_id[:8]}... ({len(resolved_system_prompt)} chars)"
+                    )
+                else:
+                    print(
+                        "[RAG Filter] Top article not in system_prompts dict, using hardcoded fallback"
+                    )
+            elif self.valves.DEBUG_MODE:
+                print(
+                    "[RAG Filter] No system_prompts in API metadata, using hardcoded fallback"
+                )
 
             # Capture query_log_id for LLM response logging in outlet
             query_log_id = search_response.get("query_log_id")
@@ -1014,7 +1058,9 @@ Use the following retrieved documents to help answer the user's question:
 
         # Inject context if we have any
         if context:
-            body["messages"] = self._inject_context_into_messages(messages, context)
+            body["messages"] = self._inject_context_into_messages(
+                messages, context, system_prompt=resolved_system_prompt
+            )
 
             if __event_emitter__:
                 await __event_emitter__(
@@ -1075,7 +1121,9 @@ Use the following retrieved documents to help answer the user's question:
                     # Extract LLM response text from body
                     self._log_llm_response(body, query_log_id)
                 elif self.valves.DEBUG_MODE:
-                    print("[RAG Filter] No query_log_id found, skipping response logging")
+                    print(
+                        "[RAG Filter] No query_log_id found, skipping response logging"
+                    )
             elif self.valves.DEBUG_MODE:
                 print("[RAG Filter] LLM response logging disabled")
 
@@ -1228,7 +1276,9 @@ Use the following retrieved documents to help answer the user's question:
             messages = body.get("messages", [])
             if not messages or messages[-1].get("role") != "assistant":
                 if self.valves.DEBUG_MODE:
-                    print("[RAG Filter] Cannot append debug output - no assistant message found")
+                    print(
+                        "[RAG Filter] Cannot append debug output - no assistant message found"
+                    )
                 return
 
             last_message = messages[-1]
@@ -1242,7 +1292,9 @@ Use the following retrieved documents to help answer the user's question:
                         original_text = part.get("text", "")
                         debug_output = self._format_debug_output()
                         part["text"] = original_text + debug_output
-                        print(f"[RAG Filter] Debug output appended ({len(debug_output)} chars)")
+                        print(
+                            f"[RAG Filter] Debug output appended ({len(debug_output)} chars)"
+                        )
                         break
             else:
                 # Simple string content
@@ -1252,6 +1304,8 @@ Use the following retrieved documents to help answer the user's question:
 
         except Exception as e:
             # Don't fail outlet on debug formatting errors
-            print(f"[RAG Filter] Failed to append debug output: {type(e).__name__}: {str(e)}")
+            print(
+                f"[RAG Filter] Failed to append debug output: {type(e).__name__}: {str(e)}"
+            )
             if self.valves.DEBUG_MODE:
                 print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")

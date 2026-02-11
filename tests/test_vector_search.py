@@ -65,7 +65,16 @@ def mock_vector_store(sample_chunks):
     store = Mock()
 
     # Mock search_similar_vectors to return dicts with similarities
-    def mock_search(query_vector, limit, min_similarity=0.0):
+    def mock_search(
+        query_vector,
+        limit,
+        min_similarity=0.0,
+        status_names=None,
+        category_names=None,
+        is_public=None,
+        tags=None,
+        include_system_prompts=True,
+    ):
         # Return sample chunks as dicts with mock cosine similarities
         results = [
             {
@@ -332,7 +341,16 @@ class TestVectorRetriever:
         chunk_id = str(sample_chunks[0].chunk_id)
 
         # Mock search_similar_vectors to return chunks including the query chunk
-        def mock_search(query_vector, limit, min_similarity=0.0):
+        def mock_search(
+            query_vector,
+            limit,
+            min_similarity=0.0,
+            status_names=None,
+            category_names=None,
+            is_public=None,
+            tags=None,
+            include_system_prompts=True,
+        ):
             results = [
                 {
                     "chunk_id": sample_chunks[0].chunk_id,
@@ -398,7 +416,16 @@ class TestVectorRetriever:
         chunk_id = str(sample_chunks[0].chunk_id)
 
         # Mock search results
-        def mock_search(query_vector, limit, min_similarity=0.0):
+        def mock_search(
+            query_vector,
+            limit,
+            min_similarity=0.0,
+            status_names=None,
+            category_names=None,
+            is_public=None,
+            tags=None,
+            include_system_prompts=True,
+        ):
             results = [
                 {
                     "chunk_id": sample_chunks[0].chunk_id,

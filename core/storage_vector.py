@@ -380,18 +380,35 @@ class VectorStorageClient(BaseStorageClient):
             raise
 
     def search_similar_vectors(
-        self, query_vector: List[float], limit: int = 10, min_similarity: float = 0.0
+        self,
+        query_vector: List[float],
+        limit: int = 10,
+        min_similarity: float = 0.0,
+        status_names: Optional[List[str]] = None,
+        category_names: Optional[List[str]] = None,
+        is_public: Optional[bool] = None,
+        tags: Optional[List[str]] = None,
+        include_system_prompts: bool = True,
     ) -> List[Dict]:
         """
-        Search for similar vectors using cosine similarity.
+        Search for similar vectors using cosine similarity with optional article metadata filtering.
+
+        Filters are applied using AND logic. Within list filters (status_names, category_names, tags),
+        OR logic is used (ANY match). For tags, articles must have at least one of the provided tags.
 
         Args:
             query_vector: The query embedding vector
             limit: Maximum number of results to return
             min_similarity: Minimum similarity threshold (0.0 to 1.0)
+            status_names: Filter by article status (e.g., ['Approved', 'Published'])
+            category_names: Filter by article category (e.g., ['IT Help', 'Documentation'])
+            is_public: Filter by article visibility (True for public, False for private)
+            tags: Filter by article tags (ANY match using array overlap operator)
+            include_system_prompts: Include system prompts resolved from article tags (default: True)
 
         Returns:
-            List of dictionaries with chunk data (from article_chunks) and similarity scores
+            List of dictionaries with chunk data (from article_chunks), similarity scores,
+            and optional system_prompt field (if include_system_prompts=True)
 
         Raises:
             ConnectionError: If database operation fails
@@ -403,46 +420,110 @@ class VectorStorageClient(BaseStorageClient):
                 f"expected {self.embedding_dim}, got {len(query_vector)}"
             )
 
-        logger.debug(f"Searching for {limit} similar vectors in {self.table_name}")
+        logger.debug(
+            f"Searching for {limit} similar vectors in {self.table_name} with filters: "
+            f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags}"
+        )
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
-                    # Use cosine similarity (1 - cosine distance) and join with article_chunks
-                    cur.execute(
-                        f"""
-                        SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
-                               c.text_content, c.token_count, c.url, e.created_at,
-                               1 - (e.embedding <=> %s::vector) AS similarity
-                        FROM {self.table_name} e
-                        JOIN article_chunks c ON e.chunk_id = c.id
-                        WHERE 1 - (e.embedding <=> %s::vector) >= %s
-                        ORDER BY e.embedding <=> %s::vector
-                        LIMIT %s
-                        """,  # type: ignore
-                        (
-                            query_vector,
-                            query_vector,
-                            min_similarity,
-                            query_vector,
-                            limit,
-                        ),
+                    # Build WHERE clause conditions
+                    where_conditions = ["1 - (e.embedding <=> %s::vector) >= %s"]
+                    params = [query_vector, query_vector, min_similarity]
+
+                    if status_names is not None:
+                        where_conditions.append("a.status_name = ANY(%s)")
+                        params.append(status_names)
+
+                    if category_names is not None:
+                        where_conditions.append("a.category_name = ANY(%s)")
+                        params.append(category_names)
+
+                    if is_public is not None:
+                        where_conditions.append("a.is_public = %s")
+                        params.append(is_public)
+
+                    if tags is not None:
+                        # Use PostgreSQL array overlap operator (&&)
+                        where_conditions.append("a.tags && %s")
+                        params.append(tags)
+
+                    # Add order by and limit parameters
+                    params.extend([query_vector, limit])
+
+                    # Build full query with article JOIN
+                    where_clause = " AND ".join(where_conditions)
+
+                    if include_system_prompts:
+                        # Query with system prompt resolution CTE
+                        query = f"""
+                            WITH article_prompts AS (
+                                SELECT
+                                    a.id AS article_id,
+                                    tsp.system_prompt,
+                                    ROW_NUMBER() OVER (
+                                        PARTITION BY a.id
+                                        ORDER BY tsp.priority DESC, tsp.tag_name ASC
+                                    ) AS rn
+                                FROM articles a
+                                LEFT JOIN LATERAL UNNEST(a.tags) AS tag ON true
+                                LEFT JOIN tag_system_prompts tsp ON tsp.tag_name = tag
+                                WHERE tsp.system_prompt IS NOT NULL
+                            )
+                            SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
+                                   c.text_content, c.token_count, c.url, e.created_at,
+                                   1 - (e.embedding <=> %s::vector) AS similarity,
+                                   COALESCE(
+                                       (SELECT system_prompt FROM article_prompts WHERE article_id = c.parent_article_id AND rn = 1),
+                                       (SELECT system_prompt FROM tag_system_prompts WHERE tag_name = '__default__')
+                                   ) AS system_prompt
+                            FROM {self.table_name} e
+                            JOIN article_chunks c ON e.chunk_id = c.id
+                            JOIN articles a ON c.parent_article_id = a.id
+                            WHERE {where_clause}
+                            ORDER BY e.embedding <=> %s::vector
+                            LIMIT %s
+                        """
+                    else:
+                        # Original query without system prompts
+                        query = f"""
+                            SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
+                                   c.text_content, c.token_count, c.url, e.created_at,
+                                   1 - (e.embedding <=> %s::vector) AS similarity
+                            FROM {self.table_name} e
+                            JOIN article_chunks c ON e.chunk_id = c.id
+                            JOIN articles a ON c.parent_article_id = a.id
+                            WHERE {where_clause}
+                            ORDER BY e.embedding <=> %s::vector
+                            LIMIT %s
+                        """
+
+                    logger.debug(
+                        f"Executing query with {len(params)} parameters (include_system_prompts={include_system_prompts})"
                     )
+
+                    cur.execute(query, params)  # type: ignore
                     rows = cur.fetchall()
                     results = []
                     for row in rows:
-                        results.append(
-                            {
-                                "chunk_id": row[0],
-                                "parent_article_id": row[1],
-                                "chunk_sequence": row[2],
-                                "text_content": row[3],
-                                "token_count": row[4],
-                                "source_url": row[5],
-                                "created_at": row[6],
-                                "similarity": float(row[7]),
-                            }
-                        )
-                    logger.info(f"Found {len(results)} similar vectors")
+                        result_dict = {
+                            "chunk_id": row[0],
+                            "parent_article_id": row[1],
+                            "chunk_sequence": row[2],
+                            "text_content": row[3],
+                            "token_count": row[4],
+                            "source_url": row[5],
+                            "created_at": row[6],
+                            "similarity": float(row[7]),
+                        }
+                        if include_system_prompts:
+                            result_dict["system_prompt"] = row[8]
+                        results.append(result_dict)
+                    logger.info(
+                        f"Found {len(results)} similar vectors "
+                        f"(filters: status={status_names}, category={category_names}, "
+                        f"is_public={is_public}, tags={tags})"
+                    )
                     return results
         except Exception as e:
             logger.error(f"Failed to search similar vectors: {str(e)}")

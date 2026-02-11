@@ -21,6 +21,25 @@ class TDXClient:
     Retrieves and processes content from our TDX Knowledge base.
     """
 
+    EXCLUDED_CATEGORIES = [
+        "Recent Phishing Emails",
+        "To do starting October 11th",
+        "To do before October 8th",
+        "TDX System Updates",
+        "Ticket Escalation Guidelines",
+        "IT Student Resources",
+        "Digital Measures",
+        "Technician Info",
+        "Field Team",
+        "IT Status",
+        "Cable TV",
+        "SIRT",
+        "PMO",
+        "Yearly Objectives",
+        "Purchasing",
+        "Device Troubleshooting: Outdated",
+    ]
+
     def __init__(self):
         settings = get_tdx_settings()
         self.base_url = settings.BASE_URL
@@ -175,10 +194,10 @@ class TDXClient:
 
     def list_article_ids(self) -> List[int]:
         """
-        Retrieve list of all article IDs from TDX API, excluding phishing category.
+        Retrieve list of all article IDs from TDX API, excluding certain categories.
 
         Returns:
-            List of article IDs (excluding "Recent Phishing Emails" category)
+            List of article IDs (excluding categories in EXCLUDED_CATEGORIES)
 
         Raises:
             RuntimeError: If request fails after retries
@@ -211,10 +230,22 @@ class TDXClient:
                 for article in articles_data:
                     article_id = article.get("ID")
                     category_name = article.get("CategoryName")
+                    status_name = article.get("StatusName")
 
-                    # Filter out phishing category early to reduce API calls
-                    if category_name == "Recent Phishing Emails":
-                        logger.debug(f"Filtering out phishing article {article_id}")
+                    # Filter out excluded categories early to reduce API calls
+                    if category_name in self.EXCLUDED_CATEGORIES:
+                        logger.debug(
+                            f"Filtering out excluded-category article {article_id} "
+                            f"(category: {category_name})"
+                        )
+                        filtered_count += 1
+                        continue
+
+                    # Filter out non-approved articles early to reduce API calls
+                    if status_name != "Approved":
+                        logger.debug(
+                            f"Filtering out non-approved article {article_id} (status: {status_name})"
+                        )
                         filtered_count += 1
                         continue
 
@@ -225,7 +256,7 @@ class TDXClient:
 
                 logger.info(
                     f"Successfully retrieved {len(article_ids)} article IDs "
-                    f"({filtered_count} phishing articles filtered)"
+                    f"({filtered_count} filtered - excluded categories and non-approved articles)"
                 )
                 return article_ids
             else:

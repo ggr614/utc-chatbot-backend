@@ -74,8 +74,12 @@ class PostgresClient(BaseStorageClient):
                             try:
                                 cur.execute(
                                     """
-                                    INSERT INTO articles (tdx_article_id, title, url, content_html, last_modified_date, raw_ingestion_date)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                    INSERT INTO articles (
+                                        tdx_article_id, title, url, content_html,
+                                        last_modified_date, raw_ingestion_date,
+                                        status_name, category_name, is_public, summary, tags
+                                    )
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     RETURNING id
                                     """,
                                     (
@@ -85,6 +89,11 @@ class PostgresClient(BaseStorageClient):
                                         article.content_html,
                                         article.last_modified_date,
                                         article.raw_ingestion_date,
+                                        article.status_name,
+                                        article.category_name,
+                                        article.is_public,
+                                        article.summary,
+                                        article.tags,
                                     ),
                                 )
                                 # Get the auto-generated UUID
@@ -140,7 +149,12 @@ class PostgresClient(BaseStorageClient):
                                         url = %s,
                                         content_html = %s,
                                         last_modified_date = %s,
-                                        raw_ingestion_date = %s
+                                        raw_ingestion_date = %s,
+                                        status_name = %s,
+                                        category_name = %s,
+                                        is_public = %s,
+                                        summary = %s,
+                                        tags = %s
                                     WHERE tdx_article_id = %s
                                     RETURNING id
                                     """,
@@ -150,6 +164,11 @@ class PostgresClient(BaseStorageClient):
                                         article.content_html,
                                         article.last_modified_date,
                                         article.raw_ingestion_date,
+                                        article.status_name,
+                                        article.category_name,
+                                        article.is_public,
+                                        article.summary,
+                                        article.tags,
                                         article.tdx_article_id,
                                     ),
                                 )
@@ -188,7 +207,10 @@ class PostgresClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, tdx_article_id, title, url, content_html, last_modified_date
+                        SELECT
+                            id, tdx_article_id, title, url, content_html,
+                            last_modified_date, status_name, category_name,
+                            is_public, summary, tags
                         FROM articles
                         ORDER BY id
                         """
@@ -204,6 +226,11 @@ class PostgresClient(BaseStorageClient):
                                 url=row[3],
                                 content_html=row[4],
                                 last_modified_date=row[5],
+                                status_name=row[6],
+                                category_name=row[7],
+                                is_public=row[8],
+                                summary=row[9],
+                                tags=row[10],
                             )
                         )
                     logger.info(f"Retrieved {len(articles)} articles from database")
@@ -235,7 +262,10 @@ class PostgresClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, tdx_article_id, title, url, content_html, last_modified_date
+                        SELECT
+                            id, tdx_article_id, title, url, content_html,
+                            last_modified_date, status_name, category_name,
+                            is_public, summary, tags
                         FROM articles
                         WHERE id = ANY(%s)
                         ORDER BY id
@@ -253,6 +283,11 @@ class PostgresClient(BaseStorageClient):
                                 url=row[3],
                                 content_html=row[4],
                                 last_modified_date=row[5],
+                                status_name=row[6],
+                                category_name=row[7],
+                                is_public=row[8],
+                                summary=row[9],
+                                tags=row[10],
                             )
                         )
                     logger.info(f"Retrieved {len(articles)} articles from database")
@@ -394,4 +429,92 @@ class PostgresClient(BaseStorageClient):
                     return chunks
         except Exception as e:
             logger.error(f"Failed to fetch chunks: {str(e)}")
+            raise
+
+    def get_articles_by_tdx_ids(self, tdx_ids: List[int]) -> List[Dict]:
+        """
+        Retrieve articles from database by TDX article IDs.
+
+        Args:
+            tdx_ids: List of TDX article IDs to query
+
+        Returns:
+            List of dictionaries with article metadata (id, tdx_article_id, title)
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        if not tdx_ids:
+            return []
+
+        logger.debug(f"Fetching {len(tdx_ids)} articles by TDX IDs from database")
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, tdx_article_id, title
+                        FROM articles
+                        WHERE tdx_article_id = ANY(%s)
+                        """,
+                        (tdx_ids,),
+                    )
+                    rows = cur.fetchall()
+                    articles = [
+                        {"id": row[0], "tdx_article_id": row[1], "title": row[2]}
+                        for row in rows
+                    ]
+                    logger.debug(f"Retrieved {len(articles)} articles from database")
+                    return articles
+        except Exception as e:
+            logger.error(f"Failed to fetch articles by TDX IDs: {str(e)}")
+            raise
+
+    def delete_articles_by_tdx_ids(self, tdx_ids: List[int]) -> int:
+        """
+        Delete articles by TDX article IDs.
+
+        CASCADE DELETE automatically removes:
+        - article_chunks (via parent_article_id FK)
+        - embeddings_openai (via chunk_id FK)
+        - warm_cache_entries (via article_id FK)
+
+        Args:
+            tdx_ids: List of TDX article IDs to delete
+
+        Returns:
+            Number of articles deleted
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        if not tdx_ids:
+            return 0
+
+        logger.info(f"Deleting {len(tdx_ids)} articles from database")
+
+        try:
+            with PerformanceLogger(logger, f"Delete {len(tdx_ids)} articles"):
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            DELETE FROM articles
+                            WHERE tdx_article_id = ANY(%s)
+                            RETURNING id
+                            """,
+                            (tdx_ids,),
+                        )
+                        deleted_ids = cur.fetchall()
+                        conn.commit()
+
+                        deleted_count = len(deleted_ids)
+                        logger.info(
+                            f"Deleted {deleted_count} articles "
+                            f"(CASCADE removes related chunks, embeddings, and cache entries)"
+                        )
+                        return deleted_count
+        except Exception as e:
+            logger.error(f"Failed to delete articles: {str(e)}")
             raise

@@ -19,6 +19,7 @@ class TestArticleProcessor:
     def mock_tdx_client(self):
         """Mock TDX client."""
         with patch("core.ingestion.TDXClient") as mock:
+            mock.EXCLUDED_CATEGORIES = TDXClient.EXCLUDED_CATEGORIES
             yield mock.return_value
 
     @pytest.fixture
@@ -129,8 +130,8 @@ class TestArticleProcessor:
 
         assert len(updated) == 1
 
-    def test_process_articles_filters_phishing(self, processor):
-        """Test that phishing category articles are filtered out."""
+    def test_process_articles_filters_excluded_categories(self, processor):
+        """Test that excluded category articles are filtered out."""
         articles = [
             {
                 "ID": 123,
@@ -138,6 +139,7 @@ class TestArticleProcessor:
                 "Body": "Content",
                 "ModifiedDate": "2024-01-01T00:00:00Z",
                 "CategoryName": "Recent Phishing Emails",
+                "StatusName": "Approved",
             },
             {
                 "ID": 456,
@@ -145,6 +147,7 @@ class TestArticleProcessor:
                 "Body": "Content",
                 "ModifiedDate": "2024-01-01T00:00:00Z",
                 "CategoryName": "IT Help",
+                "StatusName": "Approved",
             },
         ]
 
@@ -161,6 +164,7 @@ class TestArticleProcessor:
                 "Subject": "Test Article",
                 "Body": "Content",
                 "ModifiedDate": "2024-01-01T00:00:00Z",
+                "StatusName": "Approved",
             }
         ]
 
@@ -180,25 +184,35 @@ class TestArticleProcessor:
                 "Subject": "Test",
                 "Body": "Content",
                 "ModifiedDate": "2024-01-01T00:00:00Z",
+                "StatusName": "Approved",
             },
             {
                 "ID": 123,
                 "Subject": None,
                 "Body": "Content",
                 "ModifiedDate": "2024-01-01T00:00:00Z",
+                "StatusName": "Approved",
             },
             {
                 "ID": 456,
                 "Subject": "Test",
                 "Body": None,
                 "ModifiedDate": "2024-01-01T00:00:00Z",
+                "StatusName": "Approved",
             },
-            {"ID": 789, "Subject": "Test", "Body": "Content", "ModifiedDate": None},
+            {
+                "ID": 789,
+                "Subject": "Test",
+                "Body": "Content",
+                "ModifiedDate": None,
+                "StatusName": "Approved",
+            },
             {
                 "ID": 999,
                 "Subject": "Valid",
                 "Body": "Valid Content",
                 "ModifiedDate": "2024-01-01T00:00:00Z",
+                "StatusName": "Approved",
             },
         ]
 
@@ -216,6 +230,7 @@ class TestArticleProcessor:
                 "Subject": "Test Article",
                 "Body": "Content",
                 "ModifiedDate": "2024-01-01T00:00:00Z",
+                "StatusName": "Approved",
             }
         ]
 
@@ -240,12 +255,14 @@ class TestArticleProcessor:
                     "Subject": "Updated Article",
                     "Body": "Content",
                     "ModifiedDate": "2024-01-02T00:00:00Z",
+                    "StatusName": "Approved",
                 },
                 {
                     "ID": 456,
                     "Subject": "New Article",
                     "Body": "Content",
                     "ModifiedDate": "2024-01-01T00:00:00Z",
+                    "StatusName": "Approved",
                 },
             ],
             [],
@@ -271,6 +288,7 @@ class TestArticleProcessor:
                     "Subject": "Test Article",
                     "Body": "Content",
                     "ModifiedDate": "2024-01-01T00:00:00Z",
+                    "StatusName": "Approved",
                 }
             ],
             [],
@@ -351,7 +369,10 @@ class TestTDXClient:
             # Mock article list response
             list_response = Mock()
             list_response.status_code = 200
-            list_response.json.return_value = [{"ID": 123}, {"ID": 456}]
+            list_response.json.return_value = [
+                {"ID": 123, "CategoryName": "IT Help", "StatusName": "Approved"},
+                {"ID": 456, "CategoryName": "Documentation", "StatusName": "Approved"},
+            ]
 
             mock_request.side_effect = [auth_response, list_response]
 
