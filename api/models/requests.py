@@ -187,12 +187,26 @@ class HybridSearchRequest(SearchRequest, ArticleFilterParams):
     for optimal relevance.
 
     Workflow:
-    1. BM25 + Vector search (2× top_k results)
+    1. BM25 + Vector search (fetch_top_k results each)
     2. RRF fusion (combines and deduplicates)
     3. Cohere reranking (neural relevance scoring)
     4. Return top_k results
     """
 
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="Number of results to return after reranking",
+        examples=[5],
+    )
+    fetch_top_k: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of candidates to fetch from each retriever (BM25 and vector) before fusion",
+        examples=[20],
+    )
     min_bm25_score: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -207,10 +221,10 @@ class HybridSearchRequest(SearchRequest, ArticleFilterParams):
         examples=[0.7],
     )
     rrf_k: int = Field(
-        default=60,
+        default=1,
         ge=1,
-        description="RRF constant (controls rank-based weighting). Typical value: 60.",
-        examples=[60],
+        description="RRF constant (controls rank-based weighting). Lower values give more weight to top ranks.",
+        examples=[1],
     )
 
 
@@ -226,8 +240,8 @@ class HyDESearchRequest(SearchRequest, ArticleFilterParams):
 
     Workflow:
     1. Generate hypothetical document via LLM (~500-1000ms, uses model default temperature)
-    2. BM25 search with original query (keywords)
-    3. Vector search with hypothetical document (semantics)
+    2. BM25 search with original query (fetch_top_k results)
+    3. Vector search with hypothetical document (fetch_top_k results)
     4. RRF fusion
     5. Cohere reranking with original query
     6. Return top_k results
@@ -235,6 +249,20 @@ class HyDESearchRequest(SearchRequest, ArticleFilterParams):
     Note: Higher latency (~1.5-2.5s) due to LLM generation step.
     """
 
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=100,
+        description="Number of results to return after reranking",
+        examples=[5],
+    )
+    fetch_top_k: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Number of candidates to fetch from each retriever (BM25 and vector) before fusion",
+        examples=[20],
+    )
     min_bm25_score: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -249,10 +277,10 @@ class HyDESearchRequest(SearchRequest, ArticleFilterParams):
         examples=[0.7],
     )
     rrf_k: int = Field(
-        default=60,
+        default=1,
         ge=1,
-        description="RRF constant (controls rank-based weighting). Typical value: 60.",
-        examples=[60],
+        description="RRF constant (controls rank-based weighting). Lower values give more weight to top ranks.",
+        examples=[1],
     )
 
 

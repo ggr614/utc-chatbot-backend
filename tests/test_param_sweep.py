@@ -1,22 +1,23 @@
-"""Tests for qa/param_sweep.py — vector search parameter sweep."""
+"""Tests for qa/param_sweep.py — vector and hybrid search parameter sweeps."""
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock
 from uuid import UUID
 from datetime import datetime, timezone
 
 import pytest
 
+from core.bm25_search import BM25SearchResult
 from core.schemas import TextChunk
 from core.vector_search import VectorSearchResult
 from qa.eval_dataset import EvalQuestion, EvalDataset
-from qa.eval_metrics import RetrievalResult
 from qa.param_sweep import (
+    CachedHybridResult,
     CachedVectorResult,
+    HybridParamSweep,
+    HybridSweepConfig,
     RankedItem,
     SweepConfig,
-    SweepResult,
     VectorParamSweep,
 )
 
@@ -150,7 +151,9 @@ class TestApplyConfig:
         sweep = _make_sweep()
         cached = [_make_cached_result()]
 
-        results, zero_count, avg_results = sweep._apply_config(cached, top_k=10, min_similarity=0.0)
+        results, zero_count, avg_results = sweep._apply_config(
+            cached, top_k=10, min_similarity=0.0
+        )
 
         assert len(results) == 1
         assert len(results[0].retrieved_chunk_ids) == 5
@@ -162,7 +165,9 @@ class TestApplyConfig:
         sweep = _make_sweep()
         cached = [_make_cached_result()]
 
-        results, zero_count, avg_results = sweep._apply_config(cached, top_k=3, min_similarity=0.0)
+        results, zero_count, avg_results = sweep._apply_config(
+            cached, top_k=3, min_similarity=0.0
+        )
 
         assert len(results[0].retrieved_chunk_ids) == 3
         assert results[0].retrieved_chunk_ids[0] == CHUNK_A_ID
@@ -177,7 +182,9 @@ class TestApplyConfig:
         # Items: 0.9, 0.8, 0.6, 0.4, 0.2
         # After filter >= 0.5: 0.9, 0.8, 0.6
 
-        results, zero_count, avg_results = sweep._apply_config(cached, top_k=10, min_similarity=0.5)
+        results, zero_count, avg_results = sweep._apply_config(
+            cached, top_k=10, min_similarity=0.5
+        )
 
         assert len(results[0].retrieved_chunk_ids) == 3
         assert results[0].retrieved_chunk_ids == [CHUNK_A_ID, CHUNK_B_ID, CHUNK_C_ID]
@@ -189,7 +196,9 @@ class TestApplyConfig:
         # Items: 0.9, 0.8, 0.6, 0.4, 0.2
         # Filter >= 0.5: [0.9, 0.8, 0.6], then truncate to top_k=2: [0.9, 0.8]
 
-        results, _, avg_results = sweep._apply_config(cached, top_k=2, min_similarity=0.5)
+        results, _, avg_results = sweep._apply_config(
+            cached, top_k=2, min_similarity=0.5
+        )
 
         assert len(results[0].retrieved_chunk_ids) == 2
         assert results[0].retrieved_chunk_ids == [CHUNK_A_ID, CHUNK_B_ID]
@@ -200,7 +209,9 @@ class TestApplyConfig:
         sweep = _make_sweep()
         cached = [_make_cached_result()]
 
-        results, zero_count, avg_results = sweep._apply_config(cached, top_k=10, min_similarity=0.99)
+        results, zero_count, avg_results = sweep._apply_config(
+            cached, top_k=10, min_similarity=0.99
+        )
 
         assert len(results[0].retrieved_chunk_ids) == 0
         assert zero_count == 1
@@ -211,7 +222,9 @@ class TestApplyConfig:
         sweep = _make_sweep()
         cached = [_make_cached_result(error="API failed")]
 
-        results, zero_count, _ = sweep._apply_config(cached, top_k=10, min_similarity=0.0)
+        results, zero_count, _ = sweep._apply_config(
+            cached, top_k=10, min_similarity=0.0
+        )
 
         assert results[0].error == "API failed"
         assert results[0].retrieved_chunk_ids == []
@@ -243,7 +256,9 @@ class TestApplyConfig:
             ),
         ]
 
-        results, zero_count, avg_results = sweep._apply_config(cached, top_k=5, min_similarity=0.5)
+        results, zero_count, avg_results = sweep._apply_config(
+            cached, top_k=5, min_similarity=0.5
+        )
 
         assert len(results) == 2
         assert len(results[0].retrieved_chunk_ids) == 1  # 0.95 passes
@@ -260,7 +275,9 @@ class TestApplyConfig:
             )
         ]
 
-        results, zero_count, _ = sweep._apply_config(cached, top_k=10, min_similarity=0.5)
+        results, zero_count, _ = sweep._apply_config(
+            cached, top_k=10, min_similarity=0.5
+        )
 
         assert len(results[0].retrieved_chunk_ids) == 1
         assert zero_count == 0
@@ -422,7 +439,9 @@ class TestRunVectorSearch:
 
         sweep = VectorParamSweep(
             vector_retriever=mock_retriever,
-            config=SweepConfig(top_k_values=[5], min_similarity_values=[0.0], fetch_top_k=10),
+            config=SweepConfig(
+                top_k_values=[5], min_similarity_values=[0.0], fetch_top_k=10
+            ),
         )
 
         questions = [
@@ -446,7 +465,9 @@ class TestRunVectorSearch:
 
         sweep = VectorParamSweep(
             vector_retriever=mock_retriever,
-            config=SweepConfig(top_k_values=[5], min_similarity_values=[0.0], fetch_top_k=10),
+            config=SweepConfig(
+                top_k_values=[5], min_similarity_values=[0.0], fetch_top_k=10
+            ),
         )
 
         cached = sweep._run_vector_search([_make_eval_question()])
@@ -483,7 +504,9 @@ class TestRunVectorSearch:
 
         sweep = VectorParamSweep(
             vector_retriever=mock_retriever,
-            config=SweepConfig(top_k_values=[5], min_similarity_values=[0.0], fetch_top_k=10),
+            config=SweepConfig(
+                top_k_values=[5], min_similarity_values=[0.0], fetch_top_k=10
+            ),
         )
 
         cached = sweep._run_vector_search([_make_eval_question()])
@@ -647,3 +670,692 @@ class TestSimilarityDistribution:
 
         assert dist["top_1_result"] == {}
         assert dist["top_5_result"] == {}
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# HYBRID PARAMETER SWEEP TESTS
+# ═════════════════════════════════════════════════════════════════════════════
+
+
+# ── Hybrid Fixtures ──────────────────────────────────────────────────────────
+
+
+def _make_bm25_result(chunk_id: UUID, article_id: UUID, rank: int) -> BM25SearchResult:
+    """Build a BM25SearchResult for testing."""
+    chunk = _make_text_chunk(chunk_id, article_id)
+    return BM25SearchResult(chunk=chunk, score=10.0 / rank, rank=rank)
+
+
+def _make_vector_result(
+    chunk_id: UUID, article_id: UUID, similarity: float, rank: int
+) -> VectorSearchResult:
+    """Build a VectorSearchResult for testing."""
+    chunk = _make_text_chunk(chunk_id, article_id)
+    return VectorSearchResult(chunk=chunk, similarity=similarity, rank=rank)
+
+
+def _make_cached_hybrid(
+    query: str = "test query",
+    expected_chunk: UUID = CHUNK_A_ID,
+    expected_article: UUID = ARTICLE_X_ID,
+    bm25_results: list[BM25SearchResult] | None = None,
+    vector_results: list[VectorSearchResult] | None = None,
+    latency_ms: float = 500.0,
+    error: str | None = None,
+) -> CachedHybridResult:
+    """Build a CachedHybridResult for testing."""
+    if bm25_results is None:
+        bm25_results = [
+            _make_bm25_result(CHUNK_A_ID, ARTICLE_X_ID, 1),
+            _make_bm25_result(CHUNK_B_ID, ARTICLE_Y_ID, 2),
+            _make_bm25_result(CHUNK_C_ID, ARTICLE_X_ID, 3),
+        ]
+    if vector_results is None:
+        vector_results = [
+            _make_vector_result(CHUNK_B_ID, ARTICLE_Y_ID, 0.9, 1),
+            _make_vector_result(CHUNK_A_ID, ARTICLE_X_ID, 0.8, 2),
+            _make_vector_result(CHUNK_D_ID, ARTICLE_Y_ID, 0.6, 3),
+        ]
+    return CachedHybridResult(
+        query=query,
+        expected_chunk_id=expected_chunk,
+        expected_article_id=expected_article,
+        bm25_results=bm25_results,
+        vector_results=vector_results,
+        search_latency_ms=latency_ms,
+        error=error,
+    )
+
+
+def _make_hybrid_sweep(
+    config: HybridSweepConfig | None = None,
+    include_reranker: bool = False,
+) -> HybridParamSweep:
+    """Create a HybridParamSweep with mocked retrievers."""
+    mock_bm25 = MagicMock()
+    mock_vector = MagicMock()
+    mock_reranker = MagicMock() if include_reranker else None
+
+    # Configure mock reranker to reverse the order and assign Cohere-style scores
+    if mock_reranker is not None:
+
+        def _mock_rerank(query, results, top_n=None):
+            reranked = []
+            reversed_results = list(reversed(results))
+            for new_rank, r in enumerate(reversed_results, 1):
+                reranked.append(
+                    {
+                        "rank": new_rank,
+                        "combined_score": 1.0 / new_rank,  # descending scores
+                        "chunk": r["chunk"],
+                    }
+                )
+            return reranked
+
+        mock_reranker.rerank.side_effect = _mock_rerank
+
+    cfg = config or HybridSweepConfig(
+        rrf_k_values=[10, 60],
+        top_k_values=[1, 3, 5],
+        fetch_top_k=10,
+        include_reranker=include_reranker,
+    )
+    return HybridParamSweep(
+        bm25_retriever=mock_bm25,
+        vector_retriever=mock_vector,
+        reranker=mock_reranker,
+        config=cfg,
+    )
+
+
+# ── TestHybridSweepConfig ───────────────────────────────────────────────────
+
+
+class TestHybridSweepConfig:
+    def test_default_values(self):
+        cfg = HybridSweepConfig()
+        assert cfg.rrf_k_values == [1, 10, 30, 60, 100]
+        assert cfg.top_k_values == [1, 3, 5, 10, 20]
+        assert cfg.fetch_top_k == 50
+        assert cfg.sample_size == 200
+        assert cfg.random_seed == 42
+        assert cfg.primary_metric == "mrr"
+        assert cfg.primary_level == "chunk"
+        assert cfg.include_reranker is True
+
+    def test_fetch_top_k_must_cover_top_k_values(self):
+        with pytest.raises(ValueError, match="fetch_top_k"):
+            HybridParamSweep(
+                bm25_retriever=MagicMock(),
+                vector_retriever=MagicMock(),
+                config=HybridSweepConfig(top_k_values=[10, 20], fetch_top_k=15),
+            )
+
+    def test_fetch_top_k_equal_to_max_is_valid(self):
+        sweep = HybridParamSweep(
+            bm25_retriever=MagicMock(),
+            vector_retriever=MagicMock(),
+            config=HybridSweepConfig(top_k_values=[5, 10], fetch_top_k=10),
+        )
+        assert sweep.config.fetch_top_k == 10
+
+
+# ── TestHybridRunSearches ───────────────────────────────────────────────────
+
+
+class TestHybridRunSearches:
+    def test_calls_bm25_batch_and_vector_per_query(self):
+        """Calls batch_search once and vector search once per question."""
+        mock_bm25 = MagicMock()
+        mock_vector = MagicMock()
+
+        chunk_a = _make_text_chunk(CHUNK_A_ID, ARTICLE_X_ID)
+        mock_bm25.batch_search.return_value = {
+            "Q1?": [BM25SearchResult(chunk=chunk_a, score=5.0, rank=1)],
+            "Q2?": [BM25SearchResult(chunk=chunk_a, score=3.0, rank=1)],
+        }
+        mock_vector.search.return_value = [
+            VectorSearchResult(chunk=chunk_a, similarity=0.85, rank=1)
+        ]
+
+        sweep = HybridParamSweep(
+            bm25_retriever=mock_bm25,
+            vector_retriever=mock_vector,
+            config=HybridSweepConfig(
+                rrf_k_values=[60], top_k_values=[5], fetch_top_k=10
+            ),
+        )
+
+        questions = [_make_eval_question("Q1?"), _make_eval_question("Q2?")]
+        cached = sweep._run_searches(questions)
+
+        assert mock_bm25.batch_search.call_count == 1
+        assert mock_vector.search.call_count == 2
+        assert len(cached) == 2
+
+    def test_caches_bm25_and_vector_results(self):
+        """Cached results contain both BM25 and vector results."""
+        mock_bm25 = MagicMock()
+        mock_vector = MagicMock()
+
+        chunk_a = _make_text_chunk(CHUNK_A_ID, ARTICLE_X_ID)
+        chunk_b = _make_text_chunk(CHUNK_B_ID, ARTICLE_Y_ID)
+        mock_bm25.batch_search.return_value = {
+            "Q1?": [BM25SearchResult(chunk=chunk_a, score=5.0, rank=1)],
+        }
+        mock_vector.search.return_value = [
+            VectorSearchResult(chunk=chunk_b, similarity=0.9, rank=1),
+        ]
+
+        sweep = HybridParamSweep(
+            bm25_retriever=mock_bm25,
+            vector_retriever=mock_vector,
+            config=HybridSweepConfig(
+                rrf_k_values=[60], top_k_values=[5], fetch_top_k=10
+            ),
+        )
+
+        cached = sweep._run_searches([_make_eval_question("Q1?")])
+
+        assert len(cached) == 1
+        assert len(cached[0].bm25_results) == 1
+        assert len(cached[0].vector_results) == 1
+        assert cached[0].bm25_results[0].chunk.chunk_id == CHUNK_A_ID
+        assert cached[0].vector_results[0].chunk.chunk_id == CHUNK_B_ID
+
+    def test_handles_vector_search_failure(self):
+        """Failed vector searches produce CachedHybridResult with error."""
+        mock_bm25 = MagicMock()
+        mock_vector = MagicMock()
+
+        mock_bm25.batch_search.return_value = {"Q1?": []}
+        mock_vector.search.side_effect = RuntimeError("API timeout")
+
+        sweep = HybridParamSweep(
+            bm25_retriever=mock_bm25,
+            vector_retriever=mock_vector,
+            config=HybridSweepConfig(
+                rrf_k_values=[60], top_k_values=[5], fetch_top_k=10
+            ),
+        )
+
+        cached = sweep._run_searches([_make_eval_question("Q1?")])
+
+        assert len(cached) == 1
+        assert cached[0].error == "API timeout"
+        assert cached[0].vector_results == []
+        assert cached[0].search_latency_ms >= 0
+
+    def test_uses_fetch_top_k(self):
+        """Uses config.fetch_top_k for both BM25 and vector search."""
+        mock_bm25 = MagicMock()
+        mock_vector = MagicMock()
+        mock_bm25.batch_search.return_value = {"Q1?": []}
+        mock_vector.search.return_value = []
+
+        sweep = HybridParamSweep(
+            bm25_retriever=mock_bm25,
+            vector_retriever=mock_vector,
+            config=HybridSweepConfig(
+                rrf_k_values=[60], top_k_values=[5], fetch_top_k=42
+            ),
+        )
+
+        sweep._run_searches([_make_eval_question("Q1?")])
+
+        bm25_kwargs = mock_bm25.batch_search.call_args[1]
+        assert bm25_kwargs["top_k"] == 42
+        vector_kwargs = mock_vector.search.call_args[1]
+        assert vector_kwargs["top_k"] == 42
+
+
+# ── TestHybridFuseResults ───────────────────────────────────────────────────
+
+
+class TestHybridFuseResults:
+    def test_produces_fused_results_per_query(self):
+        """Returns one fused list per cached query."""
+        sweep = _make_hybrid_sweep()
+        cached = [_make_cached_hybrid(), _make_cached_hybrid(query="Q2")]
+
+        fused = sweep._fuse_results(cached, rrf_k=60)
+
+        assert len(fused) == 2
+        assert all(isinstance(f, list) for f in fused)
+
+    def test_fused_results_contain_chunks(self):
+        """Each fused result dict has 'chunk', 'rank', 'combined_score'."""
+        sweep = _make_hybrid_sweep()
+        cached = [_make_cached_hybrid()]
+
+        fused = sweep._fuse_results(cached, rrf_k=60)
+
+        assert len(fused[0]) > 0
+        for r in fused[0]:
+            assert "chunk" in r
+            assert "rank" in r
+            assert "combined_score" in r
+
+    def test_different_rrf_k_produces_different_scores(self):
+        """Different rrf_k values produce different RRF scores."""
+        sweep = _make_hybrid_sweep()
+        cached = [_make_cached_hybrid()]
+
+        fused_k10 = sweep._fuse_results(cached, rrf_k=10)
+        fused_k60 = sweep._fuse_results(cached, rrf_k=60)
+
+        # Same chunks but different scores
+        scores_k10 = {
+            str(r["chunk"].chunk_id): r["combined_score"] for r in fused_k10[0]
+        }
+        scores_k60 = {
+            str(r["chunk"].chunk_id): r["combined_score"] for r in fused_k60[0]
+        }
+
+        # At least one score must differ
+        some_chunk = list(scores_k10.keys())[0]
+        assert scores_k10[some_chunk] != scores_k60[some_chunk]
+
+    def test_error_query_produces_empty_list(self):
+        """Errored cached results produce empty fused list."""
+        sweep = _make_hybrid_sweep()
+        cached = [_make_cached_hybrid(error="failed")]
+
+        fused = sweep._fuse_results(cached, rrf_k=60)
+
+        assert fused[0] == []
+
+    def test_deduplicates_chunks(self):
+        """Chunks appearing in both BM25 and vector are deduplicated."""
+        sweep = _make_hybrid_sweep()
+        # CHUNK_A appears in both BM25 rank 1 and vector rank 2
+        # CHUNK_B appears in both BM25 rank 2 and vector rank 1
+        cached = [_make_cached_hybrid()]
+
+        fused = sweep._fuse_results(cached, rrf_k=60)
+
+        chunk_ids = [str(r["chunk"].chunk_id) for r in fused[0]]
+        assert len(chunk_ids) == len(set(chunk_ids))  # all unique
+
+
+# ── TestHybridApplyTopK ─────────────────────────────────────────────────────
+
+
+class TestHybridApplyTopK:
+    def _make_fused(self, chunk_ids: list[UUID]) -> list[dict]:
+        """Build fused-style result dicts."""
+        results = []
+        for rank, cid in enumerate(chunk_ids, 1):
+            aid = (
+                ARTICLE_X_ID
+                if cid in (CHUNK_A_ID, CHUNK_C_ID, CHUNK_E_ID)
+                else ARTICLE_Y_ID
+            )
+            results.append(
+                {
+                    "rank": rank,
+                    "combined_score": 1.0 / rank,
+                    "chunk": _make_text_chunk(cid, aid),
+                }
+            )
+        return results
+
+    def test_truncates_to_top_k(self):
+        """top_k=2 on 4 results returns first 2."""
+        fused = self._make_fused([CHUNK_A_ID, CHUNK_B_ID, CHUNK_C_ID, CHUNK_D_ID])
+        cached_entry = _make_cached_hybrid()
+
+        result = HybridParamSweep._apply_top_k(fused, 2, cached_entry, "test_method")
+
+        assert len(result.retrieved_chunk_ids) == 2
+        assert result.retrieved_chunk_ids[0] == CHUNK_A_ID
+        assert result.retrieved_chunk_ids[1] == CHUNK_B_ID
+
+    def test_returns_all_when_top_k_exceeds_results(self):
+        """top_k=10 on 2 results returns all 2."""
+        fused = self._make_fused([CHUNK_A_ID, CHUNK_B_ID])
+        cached_entry = _make_cached_hybrid()
+
+        result = HybridParamSweep._apply_top_k(fused, 10, cached_entry, "test_method")
+
+        assert len(result.retrieved_chunk_ids) == 2
+
+    def test_empty_results(self):
+        """Empty fused results produce empty RetrievalResult."""
+        cached_entry = _make_cached_hybrid()
+
+        result = HybridParamSweep._apply_top_k([], 5, cached_entry, "test_method")
+
+        assert result.retrieved_chunk_ids == []
+        assert result.retrieved_article_ids == []
+
+    def test_method_label_preserved(self):
+        """The method_label is stored in retrieval_method."""
+        fused = self._make_fused([CHUNK_A_ID])
+        cached_entry = _make_cached_hybrid()
+
+        result = HybridParamSweep._apply_top_k(
+            fused, 5, cached_entry, "hybrid_rrf60_k5"
+        )
+
+        assert result.retrieval_method == "hybrid_rrf60_k5"
+
+    def test_expected_ids_from_cached_entry(self):
+        """Expected chunk/article IDs come from the cached entry."""
+        fused = self._make_fused([CHUNK_B_ID])
+        cached_entry = _make_cached_hybrid(
+            expected_chunk=CHUNK_C_ID, expected_article=ARTICLE_Y_ID
+        )
+
+        result = HybridParamSweep._apply_top_k(fused, 5, cached_entry, "test")
+
+        assert result.expected_chunk_id == CHUNK_C_ID
+        assert result.expected_article_id == ARTICLE_Y_ID
+
+
+# ── TestHybridSweepAllConfigs ───────────────────────────────────────────────
+
+
+class TestHybridSweepAllConfigs:
+    def test_correct_count_without_reranker(self):
+        """2 rrf_k x 3 top_k = 6 results without reranker."""
+        sweep = _make_hybrid_sweep(include_reranker=False)
+        cached = [_make_cached_hybrid()]
+
+        results, reranker_latency = sweep._sweep_all_configs(cached)
+
+        assert len(results) == 6  # 2 rrf_k x 3 top_k
+        assert all(not sr.reranked for sr in results)
+        assert reranker_latency == 0.0
+
+    def test_correct_count_with_reranker(self):
+        """2 rrf_k x 3 top_k x 2 (reranked/not) = 12 results."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+
+        results, reranker_latency = sweep._sweep_all_configs(cached)
+
+        assert len(results) == 12  # 2 x 3 x 2
+        non_reranked = [sr for sr in results if not sr.reranked]
+        reranked = [sr for sr in results if sr.reranked]
+        assert len(non_reranked) == 6
+        assert len(reranked) == 6
+
+    def test_each_config_has_metrics(self):
+        """Every HybridSweepResult has required metric structure."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+
+        results, _ = sweep._sweep_all_configs(cached)
+
+        for sr in results:
+            assert "chunk_level" in sr.metrics
+            assert "article_level" in sr.metrics
+            assert "total_queries" in sr.metrics
+            assert sr.metrics["total_queries"] == 1
+
+    def test_reranked_uses_reranker(self):
+        """Reranked configs call the reranker mock."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+
+        sweep._sweep_all_configs(cached)
+
+        # Reranker called once per rrf_k value per query
+        # 2 rrf_k values x 1 query = 2 calls
+        assert sweep.reranker.rerank.call_count == 2
+
+    def test_method_labels_encode_config(self):
+        """Method labels encode rrf_k, top_k, and reranked status."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+
+        results, _ = sweep._sweep_all_configs(cached)
+
+        # Check a non-reranked config
+        non_reranked = next(
+            sr for sr in results if sr.rrf_k == 60 and sr.top_k == 3 and not sr.reranked
+        )
+        assert non_reranked is not None
+
+        # Check a reranked config
+        reranked = next(
+            sr for sr in results if sr.rrf_k == 60 and sr.top_k == 3 and sr.reranked
+        )
+        assert reranked is not None
+
+
+# ── TestHybridFindBestConfigs ───────────────────────────────────────────────
+
+
+class TestHybridFindBestConfigs:
+    def test_finds_best_for_each_metric(self):
+        """Returns best config for each tracked metric."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+
+        results, _ = sweep._sweep_all_configs(cached)
+        best = sweep._find_best_configs(results)
+
+        expected_keys = [
+            "chunk_mrr",
+            "chunk_hit_rate_at_5",
+            "chunk_ndcg_at_5",
+            "article_mrr",
+            "article_hit_rate_at_5",
+            "article_ndcg_at_5",
+        ]
+        for key in expected_keys:
+            assert key in best
+            assert "rrf_k" in best[key]
+            assert "top_k" in best[key]
+            assert "reranked" in best[key]
+            assert "value" in best[key]
+
+    def test_best_config_has_highest_value(self):
+        """Best config value is the maximum across all configs."""
+        sweep = _make_hybrid_sweep(include_reranker=False)
+        cached = [_make_cached_hybrid()]
+
+        results, _ = sweep._sweep_all_configs(cached)
+        best = sweep._find_best_configs(results)
+
+        # The best chunk_mrr value should be the max across all results
+        all_mrr_values = [sr.metrics["chunk_level"]["mrr"] for sr in results]
+        assert best["chunk_mrr"]["value"] == round(max(all_mrr_values), 4)
+
+
+# ── TestHybridGenerateReport ────────────────────────────────────────────────
+
+
+class TestHybridGenerateReport:
+    def _make_dataset(self) -> EvalDataset:
+        return EvalDataset(
+            questions=[_make_eval_question()],
+            total_chunks_in_source=10,
+            total_qa_pairs_in_source=30,
+            filtered_count=1,
+            quality_distribution={"high": 1},
+            source_file="test.jsonl",
+        )
+
+    def test_report_structure(self):
+        """Report has required top-level keys."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+        results, reranker_latency = sweep._sweep_all_configs(cached)
+        best = sweep._find_best_configs(results)
+
+        report = sweep._generate_report(
+            self._make_dataset(), cached, results, best, reranker_latency
+        )
+
+        assert "metadata" in report
+        assert "best_configs" in report
+        assert "recommendation" in report
+        assert "reranker_impact" in report
+        assert "all_configurations" in report
+        assert "heatmaps" in report
+
+    def test_metadata_fields(self):
+        """Metadata contains expected fields."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+        results, reranker_latency = sweep._sweep_all_configs(cached)
+        best = sweep._find_best_configs(results)
+
+        report = sweep._generate_report(
+            self._make_dataset(), cached, results, best, reranker_latency
+        )
+
+        meta = report["metadata"]
+        assert meta["tool"] == "hybrid_param_sweep"
+        assert meta["total_configurations"] == 12
+        assert meta["reranker_included"] is True
+        assert "search_latency" in meta
+        assert "reranker_latency" in meta
+        assert "rrf_k_values" in meta
+        assert "top_k_values" in meta
+
+    def test_all_configurations_included(self):
+        """All 12 configs (2 rrf_k x 3 top_k x 2) appear."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+        results, reranker_latency = sweep._sweep_all_configs(cached)
+        best = sweep._find_best_configs(results)
+
+        report = sweep._generate_report(
+            self._make_dataset(), cached, results, best, reranker_latency
+        )
+
+        assert len(report["all_configurations"]) == 12
+
+    def test_recommendation_present(self):
+        """Report includes a recommendation with required fields."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+        results, reranker_latency = sweep._sweep_all_configs(cached)
+        best = sweep._find_best_configs(results)
+
+        report = sweep._generate_report(
+            self._make_dataset(), cached, results, best, reranker_latency
+        )
+
+        rec = report["recommendation"]
+        assert "rrf_k" in rec
+        assert "top_k" in rec
+        assert "reranked" in rec
+        assert "primary_metric" in rec
+        assert "metrics" in rec
+
+    def test_heatmaps_have_rrf_and_reranked(self):
+        """Heatmaps include both rrf_ and reranked_ prefixed entries."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+        results, reranker_latency = sweep._sweep_all_configs(cached)
+        best = sweep._find_best_configs(results)
+
+        report = sweep._generate_report(
+            self._make_dataset(), cached, results, best, reranker_latency
+        )
+
+        heatmaps = report["heatmaps"]
+        rrf_keys = [k for k in heatmaps if k.startswith("rrf_")]
+        reranked_keys = [k for k in heatmaps if k.startswith("reranked_")]
+        assert len(rrf_keys) > 0
+        assert len(reranked_keys) > 0
+
+    def test_no_reranker_impact_without_reranker(self):
+        """reranker_impact is empty when reranker is not included."""
+        sweep = _make_hybrid_sweep(include_reranker=False)
+        cached = [_make_cached_hybrid()]
+        results, reranker_latency = sweep._sweep_all_configs(cached)
+        best = sweep._find_best_configs(results)
+
+        report = sweep._generate_report(
+            self._make_dataset(), cached, results, best, reranker_latency
+        )
+
+        assert report["reranker_impact"] == {}
+
+
+# ── TestRerankerImpact ──────────────────────────────────────────────────────
+
+
+class TestRerankerImpact:
+    def test_computes_deltas(self):
+        """Impact analysis computes deltas between reranked and non-reranked."""
+        sweep = _make_hybrid_sweep(include_reranker=True)
+        cached = [_make_cached_hybrid()]
+        results, _ = sweep._sweep_all_configs(cached)
+
+        impact = sweep._compute_reranker_impact(results)
+
+        # Should have one entry per rrf_k value
+        assert "rrf_k_10" in impact
+        assert "rrf_k_60" in impact
+
+        # Each rrf_k entry should have top_k entries
+        for rrf_key, top_k_data in impact.items():
+            assert len(top_k_data) > 0
+            for tk_key, metrics in top_k_data.items():
+                assert "chunk_mrr" in metrics
+                mrr_data = metrics["chunk_mrr"]
+                assert "without_reranker" in mrr_data
+                assert "with_reranker" in mrr_data
+                assert "delta" in mrr_data
+                # delta = with - without
+                assert mrr_data["delta"] == round(
+                    mrr_data["with_reranker"] - mrr_data["without_reranker"], 4
+                )
+
+    def test_empty_without_reranked_results(self):
+        """No impact data when there are no reranked results."""
+        sweep = _make_hybrid_sweep(include_reranker=False)
+        cached = [_make_cached_hybrid()]
+        results, _ = sweep._sweep_all_configs(cached)
+
+        impact = sweep._compute_reranker_impact(results)
+
+        # All entries should have empty top_k data (no reranked results to compare)
+        for rrf_key, top_k_data in impact.items():
+            assert top_k_data == {}
+
+
+# ── TestHybridSaveReport ────────────────────────────────────────────────────
+
+
+class TestHybridSaveReport:
+    def test_saves_json(self, tmp_path):
+        """Report is written as valid JSON."""
+        sweep = _make_hybrid_sweep()
+        report = {"metadata": {"test": True}, "results": []}
+
+        json_path, _ = sweep.save_report(report, str(tmp_path))
+
+        with open(json_path, "r") as f:
+            loaded = json.load(f)
+        assert loaded["metadata"]["test"] is True
+
+    def test_saves_latest_copy(self, tmp_path):
+        """A 'latest' copy is also written."""
+        sweep = _make_hybrid_sweep()
+        report = {"metadata": {"test": True}, "results": []}
+
+        sweep.save_report(report, str(tmp_path))
+
+        latest_file = tmp_path / "hybrid_sweep_report_latest.json"
+        assert latest_file.exists()
+        with open(latest_file, "r") as f:
+            loaded = json.load(f)
+        assert loaded["metadata"]["test"] is True
+
+    def test_filename_contains_hybrid(self, tmp_path):
+        """Filename includes 'hybrid_sweep_report'."""
+        sweep = _make_hybrid_sweep()
+        report = {"metadata": {}}
+
+        json_path, _ = sweep.save_report(report, str(tmp_path))
+
+        assert "hybrid_sweep_report_" in json_path
+        assert json_path.endswith(".json")

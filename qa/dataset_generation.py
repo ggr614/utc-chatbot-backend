@@ -11,6 +11,7 @@ from core.config import get_chat_settings
 import json
 import asyncio
 import html
+import re
 from datetime import datetime, timezone
 
 import logging
@@ -101,30 +102,88 @@ class GenerateDatasetOpenAI:
 
         return text
 
+    @staticmethod
+    def _strip_markdown_fences(text: str) -> str:
+        """
+        Strip markdown code fences from LLM response text.
+
+        Azure OpenAI sometimes wraps JSON responses in ```json...``` fences
+        despite being told to return raw JSON.
+
+        Args:
+            text: Response text that may be wrapped in markdown code fences
+
+        Returns:
+            Text with code fences removed, or original text if no fences found
+        """
+        pattern = r"^```(?:json)?\s*\n?(.*?)\n?\s*```$"
+        match = re.match(pattern, text.strip(), re.DOTALL)
+        if match:
+            return match.group(1).strip()
+        return text.strip()
+
+    @staticmethod
+    def _validate_response(response_text: str) -> bool:
+        """
+        Validate that response text contains valid JSON with qa_pairs.
+
+        Args:
+            response_text: The (already fence-stripped) response text
+
+        Returns:
+            True if valid, False otherwise
+        """
+        try:
+            parsed = json.loads(response_text)
+        except (json.JSONDecodeError, TypeError):
+            return False
+
+        qa_pairs = parsed.get("qa_pairs")
+        if not isinstance(qa_pairs, list) or len(qa_pairs) == 0:
+            return False
+
+        for pair in qa_pairs:
+            if not isinstance(pair, dict):
+                return False
+            if not pair.get("question") or not pair.get("answer"):
+                return False
+
+        return True
+
     def load_chunks(self, postgresclient: PostgresClient) -> List[TextChunk]:
         # Input validation
         chunks = postgresclient.get_all_chunks()
         return chunks
 
     async def process_single_chunk(
-        self, chunk: TextChunk, idx: int, total: int
-    ) -> Dict[str, Any] | None:
+        self,
+        chunk: TextChunk,
+        idx: int,
+        total: int,
+        max_retries: int = 3,
+    ) -> Dict[str, Any]:
         """
-        Process a single chunk to generate QA pairs.
+        Process a single chunk to generate QA pairs with bounded retry.
+
+        Retries on: RateLimitError, APITimeoutError, content filter,
+        empty response, and invalid JSON. Does not retry on generic
+        APIError or unexpected exceptions.
 
         Args:
             chunk: TextChunk to process
             idx: Current index (1-based)
             total: Total number of chunks
+            max_retries: Maximum retry attempts (default: 3)
 
         Returns:
-            Dictionary with QA pairs and metadata, or None if failed
+            Dictionary with QA pairs and metadata (status field indicates
+            success or failure reason)
         """
-        try:
-            # Clean the text before processing
-            clean_content = self.clean_text(chunk.text_content)
+        clean_content = self.clean_text(chunk.text_content)
+        retry_delay = 1  # Base delay in seconds
+        last_failure_reason = "unknown"
 
-            prompt = f"""You are an expert at generating question-answer pairs from IT knowledge base articles for training and evaluation purposes.
+        prompt = f"""You are an expert at generating question-answer pairs from IT knowledge base articles for training and evaluation purposes.
 
 Context: This chunk comes from the IT knowledge base of the University of Tennessee at Chattanooga (UTC), a higher education institution. UTC's mascot is the "Mocs," and many campus services and systems use "mocs" in their naming (e.g., MocsNet, MocsID, MyMocsNet, etc.).
 
@@ -136,8 +195,40 @@ IMPORTANT: Use proper apostrophes ('), quotation marks ("), and dashes (- or —
 {clean_content}
 </chunk>
 
+## Question Persona
+
+Generate questions as if asked by an entry-level IT helpdesk technician with the following profile:
+
+**Background**
+- College-aged (18-23), likely a student worker or recent hire
+- No prior helpdesk or IT support experience
+- No formal training in troubleshooting methodologies
+- Unfamiliar with IT terminology, ticket systems, and escalation paths
+- Limited understanding of networking (IP, DNS, DHCP, VLANs), Active Directory, and identity management concepts
+
+**Communication Style**
+- Brief, informal, and sometimes vague
+- Describes symptoms rather than root causes ("it's not working" vs. specific errors)
+- Often omits system details, error codes, or steps already attempted
+- Hesitant to use technical language — paraphrases or guesses at terms
+- May ask overly broad questions when unsure where to start
+
+**Mindset**
+- Lacks confidence — second-guesses themselves and fears breaking things
+- Tends to jump to asking for help before fully investigating
+- Uncertain about scope of responsibility and when to escalate
+- Unfamiliar with SLAs, priority frameworks, and documentation expectations
+
+## Question Difficulty Tiers
+
+Each of the 3 questions MUST come from a different difficulty tier:
+
+1. **Simple lookup** — A straightforward question where the answer is a single fact or step directly stated in the chunk (e.g., "How do I reset a MocsID password?")
+2. **Procedural** — A question requiring synthesis of multiple steps or details from the chunk (e.g., "A student can't connect to MocsNet on their laptop — what should I walk them through?")
+3. **Contextual reasoning** — A question that requires understanding the broader purpose or implications of the information, or applying it to a scenario not explicitly described (e.g., "A student says their internet works in the library but not their dorm — could this be a MocsNet issue or something else?")
+
 For each question-answer pair:
-1. The question should be worded differently from the others (vary phrasing, perspective, or specificity)
+1. The question should reflect the persona's communication style and knowledge level for its assigned difficulty tier
 2. The answer must be directly derivable from the chunk content
 3. Assess whether the chunk provides sufficient context to properly answer the question
 
@@ -147,16 +238,19 @@ Return your response as valid JSON in the following format:
         {{
             "question": "The question text",
             "answer": "The answer derived from the chunk",
+            "difficulty": "simple_lookup",
             "sufficient_context": true
         }},
         {{
             "question": "A differently worded question",
             "answer": "The answer derived from the chunk",
+            "difficulty": "procedural",
             "sufficient_context": true
         }},
         {{
             "question": "Another variation of the question",
             "answer": "The answer derived from the chunk",
+            "difficulty": "contextual_reasoning",
             "sufficient_context": false
         }}
     ],
@@ -168,95 +262,276 @@ Guidelines:
 - Set "sufficient_context" to true only if the chunk contains enough information to fully and accurately answer the question without requiring external knowledge
 - Set "sufficient_context" to false if the answer would be incomplete, ambiguous, or require assumptions beyond what's in the chunk
 - "overall_quality" reflects how useful this chunk is for generating meaningful QA pairs (high = rich content, low = sparse/fragmented)
-- Questions can have the same general intent if the chunk only supports one type of question, but must use different wording
 - Avoid yes/no questions; prefer questions that require substantive answers
-- Questions should reflect how a UTC student, faculty, or staff member might naturally ask for help
+- Simple lookup questions should use casual, direct phrasing
+- Procedural questions can be slightly longer, describing a scenario the technician encountered
+- Contextual reasoning questions should reflect genuine confusion or uncertainty about how to apply the information
 - Use natural punctuation: regular apostrophes ('), quotes ("), and dashes (-)
 
 Return only the JSON object, no additional text."""
 
-            response = await self.client.chat.completions.create(
-                model=self.deployment_name,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You follow the user's instructions exactly. Use proper punctuation with regular apostrophes and quotes.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                max_completion_tokens=self.completion_tokens,
-            )
+        for attempt in range(max_retries):
+            try:
+                response = await self.client.chat.completions.create(
+                    model=self.deployment_name,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "You follow the user's instructions exactly. Use proper punctuation with regular apostrophes and quotes.",
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    max_completion_tokens=self.completion_tokens,
+                )
 
-            # Parse the response
-            response_text = response.choices[0].message.content
+                # Check finish_reason
+                finish_reason = response.choices[0].finish_reason
 
-            # Create metadata-rich output
-            result = {
-                "chunk_id": str(chunk.chunk_id),
-                "parent_article_id": str(chunk.parent_article_id),
-                "chunk_sequence": chunk.chunk_sequence,
-                "source_url": str(chunk.source_url),
-                "token_count": chunk.token_count,
-                "last_modified_date": chunk.last_modified_date.isoformat(),
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "response": response_text,
-            }
+                if finish_reason == "content_filter":
+                    last_failure_reason = "content_filter"
+                    logger.warning(
+                        f"Content filter triggered for chunk {idx} "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay * (2**attempt))
+                        continue
+                    break
 
-            if idx % 10 == 0:
-                print(f"Processed {idx}/{total} chunks...")
+                if finish_reason == "length":
+                    last_failure_reason = "length_exceeded"
+                    logger.warning(
+                        f"Response truncated for chunk {idx} "
+                        f"(attempt {attempt + 1}/{max_retries})"
+                    )
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay * (2**attempt))
+                        continue
+                    break
 
-            return result
+                # Extract response content
+                response_text = response.choices[0].message.content
 
-        except RateLimitError as e:
-            logger.warning(f"Rate limit for chunk {idx}, will retry: {str(e)}")
-            # Wait and retry once
-            await asyncio.sleep(2)
-            return await self.process_single_chunk(chunk, idx, total)
+                if not response_text or not response_text.strip():
+                    last_failure_reason = "empty_response"
+                    logger.warning(
+                        f"Empty response for chunk {idx} "
+                        f"(attempt {attempt + 1}/{max_retries}, "
+                        f"finish_reason={finish_reason})"
+                    )
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay * (2**attempt))
+                        continue
+                    break
 
-        except (APITimeoutError, APIError) as e:
-            logger.error(f"API error for chunk {idx}: {str(e)}")
-            return None
+                # Strip markdown fences and validate JSON
+                response_text = self._strip_markdown_fences(response_text)
 
-        except Exception as e:
-            logger.error(f"Unexpected error processing chunk {idx}: {str(e)}")
-            return None
+                if not self._validate_response(response_text):
+                    last_failure_reason = "invalid_json"
+                    logger.warning(
+                        f"Invalid JSON for chunk {idx} "
+                        f"(attempt {attempt + 1}/{max_retries}): "
+                        f"'{response_text[:100]}...'"
+                    )
+                    if attempt < max_retries - 1:
+                        await asyncio.sleep(retry_delay * (2**attempt))
+                        continue
+                    break
 
-    async def build_dataset(self, chunks: List[TextChunk]) -> List[Dict[str, Any]]:
+                # Success
+                if idx % 10 == 0:
+                    print(f"Processed {idx}/{total} chunks...")
+
+                return {
+                    "chunk_id": str(chunk.chunk_id),
+                    "parent_article_id": str(chunk.parent_article_id),
+                    "chunk_sequence": chunk.chunk_sequence,
+                    "source_url": str(chunk.source_url),
+                    "token_count": chunk.token_count,
+                    "last_modified_date": chunk.last_modified_date.isoformat(),
+                    "generated_at": datetime.now(timezone.utc).isoformat(),
+                    "response": response_text,
+                    "status": "success",
+                    "finish_reason": finish_reason,
+                }
+
+            except RateLimitError as e:
+                last_failure_reason = "rate_limit"
+                logger.warning(
+                    f"Rate limit for chunk {idx} "
+                    f"(attempt {attempt + 1}/{max_retries}): {e}"
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (2**attempt))
+                    continue
+                break
+
+            except APITimeoutError as e:
+                last_failure_reason = "api_timeout"
+                logger.warning(
+                    f"API timeout for chunk {idx} "
+                    f"(attempt {attempt + 1}/{max_retries}): {e}"
+                )
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(retry_delay * (2**attempt))
+                    continue
+                break
+
+            except APIError as e:
+                last_failure_reason = (
+                    f"api_error_{getattr(e, 'status_code', 'unknown')}"
+                )
+                logger.error(f"API error for chunk {idx}: {e}")
+                break
+
+            except Exception as e:
+                last_failure_reason = f"exception_{type(e).__name__}"
+                logger.error(f"Unexpected error processing chunk {idx}: {e}")
+                break
+
+        # All retries exhausted or non-retryable error
+        logger.warning(
+            f"Failed chunk {idx} after {max_retries} attempts: {last_failure_reason}"
+        )
+        return {
+            "chunk_id": str(chunk.chunk_id),
+            "parent_article_id": str(chunk.parent_article_id),
+            "chunk_sequence": chunk.chunk_sequence,
+            "source_url": str(chunk.source_url),
+            "token_count": chunk.token_count,
+            "last_modified_date": chunk.last_modified_date.isoformat(),
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "response": "",
+            "status": last_failure_reason,
+            "finish_reason": None,
+        }
+
+    async def build_dataset(
+        self,
+        chunks: List[TextChunk],
+        min_token_count: int = 0,
+    ) -> List[Dict[str, Any]]:
         """
-        Build dataset with parallel processing for faster generation.
+        Build dataset with parallel processing, retry queue, and statistics.
 
         Args:
             chunks: List of TextChunk objects to process
+            min_token_count: Skip chunks below this token count (default: 0)
 
         Returns:
-            List of dictionaries containing QA pairs with metadata
+            List of successful result dictionaries containing QA pairs
         """
+        # Filter by minimum token count
+        if min_token_count > 0:
+            original_count = len(chunks)
+            chunks = [c for c in chunks if c.token_count >= min_token_count]
+            skipped = original_count - len(chunks)
+            if skipped > 0:
+                print(
+                    f"Skipped {skipped} chunks below {min_token_count} token threshold"
+                )
+
         print(f"Starting parallel processing of {len(chunks)} chunks...")
         print(f"Max concurrent requests: {self.max_concurrent_requests}")
 
-        # Create semaphore to limit concurrent requests
         semaphore = asyncio.Semaphore(self.max_concurrent_requests)
 
         async def process_with_semaphore(chunk: TextChunk, idx: int, total: int):
             async with semaphore:
                 return await self.process_single_chunk(chunk, idx, total)
 
-        # Process all chunks concurrently with rate limiting
+        # === Pass 1: Initial processing ===
         tasks = [
             process_with_semaphore(chunk, idx, len(chunks))
             for idx, chunk in enumerate(chunks, 1)
         ]
-
         results = await asyncio.gather(*tasks)
 
-        # Filter out None results (failed requests)
-        json_output = [r for r in results if r is not None]
+        successes = []
+        failures = []
+        for i, result in enumerate(results):
+            if result is not None and result.get("status") == "success":
+                successes.append(result)
+            else:
+                failures.append((i, chunks[i], result))
 
-        print(
-            f"\nCompleted: {len(json_output)}/{len(chunks)} chunks processed successfully"
+        print(f"\nPass 1 complete: {len(successes)} succeeded, {len(failures)} failed")
+
+        # === Pass 2: Retry failed chunks ===
+        if failures:
+            print(f"\nRetrying {len(failures)} failed chunks (pass 2)...")
+            retry_tasks = [
+                process_with_semaphore(chunk, original_idx + 1, len(chunks))
+                for original_idx, chunk, _ in failures
+            ]
+            retry_results = await asyncio.gather(*retry_tasks)
+
+            recovered = 0
+            final_failures = []
+            for (_, _, original_failure), retry_result in zip(failures, retry_results):
+                if retry_result is not None and retry_result.get("status") == "success":
+                    successes.append(retry_result)
+                    recovered += 1
+                else:
+                    final_failures.append(retry_result or original_failure)
+
+            print(
+                f"Pass 2 complete: recovered {recovered}, "
+                f"{len(final_failures)} still failed"
+            )
+        else:
+            final_failures = []
+
+        self._print_generation_stats(
+            total_chunks=len(chunks),
+            successes=successes,
+            failures=final_failures,
         )
 
-        return json_output
+        return successes
+
+    @staticmethod
+    def _print_generation_stats(
+        total_chunks: int,
+        successes: List[Dict[str, Any]],
+        failures: List[Dict[str, Any]],
+    ) -> None:
+        """Print generation statistics summary."""
+        failure_reasons: Dict[str, int] = {}
+        for f in failures:
+            reason = f.get("status", "unknown") if f is not None else "none_returned"
+            failure_reasons[reason] = failure_reasons.get(reason, 0) + 1
+
+        print("\n" + "=" * 60)
+        print("GENERATION STATISTICS")
+        print("=" * 60)
+        print(f"Total chunks:      {total_chunks}")
+        print(
+            f"Successful:        {len(successes)} "
+            f"({100 * len(successes) / max(total_chunks, 1):.1f}%)"
+        )
+        print(
+            f"Failed:            {len(failures)} "
+            f"({100 * len(failures) / max(total_chunks, 1):.1f}%)"
+        )
+
+        if failure_reasons:
+            print("\nFailure breakdown:")
+            for reason, count in sorted(failure_reasons.items(), key=lambda x: -x[1]):
+                print(f"  {reason}: {count}")
+
+        finish_reasons: Dict[str, int] = {}
+        for s in successes:
+            fr = str(s.get("finish_reason", "unknown"))
+            finish_reasons[fr] = finish_reasons.get(fr, 0) + 1
+
+        if finish_reasons:
+            print("\nFinish reasons (successes):")
+            for reason, count in sorted(finish_reasons.items(), key=lambda x: -x[1]):
+                print(f"  {reason}: {count}")
+
+        print("=" * 60)
 
     def save_to_file(self, json_output: List[Dict[str, Any]], filepath: str) -> None:
         """
@@ -278,8 +553,12 @@ Return only the JSON object, no additional text."""
         return None
 
 
-async def main_async():
-    """Async main function for parallel processing."""
+async def main_async(min_token_count: int = 0):
+    """Async main function for parallel processing.
+
+    Args:
+        min_token_count: Skip chunks below this token count (default: 0)
+    """
     try:
         print("Initializing dataset generation...")
         generator = GenerateDatasetOpenAI(max_concurrent_requests=50)
@@ -300,14 +579,16 @@ async def main_async():
         print("\nGenerating QA pairs with parallel processing...")
         start_time = datetime.now(timezone.utc)
 
-        json_output = await generator.build_dataset(chunks)
+        json_output = await generator.build_dataset(
+            chunks, min_token_count=min_token_count
+        )
 
         end_time = datetime.now(timezone.utc)
         duration = (end_time - start_time).total_seconds()
 
         print(f"\nGeneration completed in {duration:.2f} seconds")
         print(f"Average: {duration / len(chunks):.2f} seconds per chunk")
-        print(f"Generated {len(json_output)} QA pair responses")
+        print(f"Generated {len(json_output)} successful QA pair responses")
 
         print("\nSaving to file...")
         generator.save_to_file(json_output=json_output, filepath=r"data/qa_pairs.jsonl")
@@ -323,14 +604,24 @@ async def main_async():
 
 def main():
     """Synchronous wrapper for async main."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate QA dataset from chunks")
+    parser.add_argument(
+        "--min-tokens",
+        type=int,
+        default=0,
+        help="Skip chunks below this token count (default: 0 = no filter)",
+    )
+    args = parser.parse_args()
+
     # Configure logging
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     )
 
-    # Run the async main function
-    asyncio.run(main_async())
+    asyncio.run(main_async(min_token_count=args.min_tokens))
 
 
 if __name__ == "__main__":

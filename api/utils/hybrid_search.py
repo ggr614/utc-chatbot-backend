@@ -25,7 +25,7 @@ logger = get_logger(__name__)
 def reciprocal_rank_fusion(
     bm25_results: List[BM25SearchResult],
     vector_results: List[VectorSearchResult],
-    k: int = 60,
+    k: int = 1,
 ) -> List[Dict[str, Any]]:
     """
     Combine search results using Reciprocal Rank Fusion (RRF).
@@ -39,7 +39,7 @@ def reciprocal_rank_fusion(
     Args:
         bm25_results: Results from BM25 search
         vector_results: Results from vector search
-        k: RRF constant (typically 60). Higher k gives less weight to ranks.
+        k: RRF constant (default 1). Lower values give more weight to top ranks.
 
     Returns:
         List of dicts with keys: rank, combined_score, chunk
@@ -112,8 +112,9 @@ def hybrid_search(
     bm25_retriever: BM25Retriever,
     vector_retriever: VectorRetriever,
     reranker: Optional[CohereReranker],
-    top_k: int = 10,
-    rrf_k: int = 60,
+    top_k: int = 5,
+    rrf_k: int = 1,
+    fetch_top_k: int = 20,
     min_bm25_score: Optional[float] = None,
     min_vector_similarity: Optional[float] = None,
     status_names: Optional[List[str]] = None,
@@ -125,7 +126,7 @@ def hybrid_search(
     Perform hybrid search with Cohere reranking and optional article metadata filtering.
 
     Workflow:
-    1. Fetch 2×top_k results from BM25 and vector search (with filtering)
+    1. Fetch fetch_top_k results from BM25 and vector search (with filtering)
     2. Apply Reciprocal Rank Fusion (RRF) to combine and deduplicate
     3. Rerank fused results using Cohere Rerank v3.5 via AWS Bedrock
     4. Return top_k reranked results with metadata
@@ -138,8 +139,9 @@ def hybrid_search(
         bm25_retriever: Initialized BM25 retriever
         vector_retriever: Initialized vector retriever
         reranker: Initialized Cohere reranker
-        top_k: Number of final results to return (default: 10)
-        rrf_k: RRF constant (default: 60, controls rank-based weighting)
+        top_k: Number of final results to return (default: 5)
+        rrf_k: RRF constant (default: 1, controls rank-based weighting)
+        fetch_top_k: Number of candidates to fetch from each retriever (default: 20)
         min_bm25_score: Minimum BM25 score threshold (filters BM25 results)
         min_vector_similarity: Minimum vector similarity threshold (filters vector results)
         status_names: Filter by article status (e.g., ['Approved', 'Published'])
@@ -174,9 +176,7 @@ def hybrid_search(
         f"status={status_names}, category={category_names}, is_public={is_public}, tags={tags}"
     )
 
-    # Fetch more results from each method to improve fusion quality
-    # Request 2× top_k, capped at 100 max
-    fetch_k = min(top_k * 2, 100)
+    fetch_k = fetch_top_k
 
     try:
         # Perform BM25 search with filtering

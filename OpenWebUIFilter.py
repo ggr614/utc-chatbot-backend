@@ -175,7 +175,7 @@ class Filter:
             description="Fusion method: 'rrf' (Reciprocal Rank Fusion) or 'weighted'",
         )
         RRF_K: int = Field(
-            default=60, description="RRF constant (for 'rrf' method)", ge=1
+            default=1, description="RRF constant (for 'rrf' method)", ge=1
         )
         BM25_WEIGHT: float = Field(
             default=0.5,

@@ -522,8 +522,8 @@ def search_hybrid(
     - Production use cases requiring high relevance
 
     **Workflow:**
-    1. **BM25 Search**: Fast keyword-based retrieval (2×top_k results)
-    2. **Vector Search**: Semantic similarity retrieval (2×top_k results)
+    1. **BM25 Search**: Fast keyword-based retrieval (fetch_top_k results)
+    2. **Vector Search**: Semantic similarity retrieval (fetch_top_k results)
     3. **RRF Fusion**: Reciprocal Rank Fusion combines and deduplicates results
     4. **Cohere Rerank**: Neural reranking refines relevance using Cohere v3.5
 
@@ -535,8 +535,9 @@ def search_hybrid(
 
     **Request:**
     - `query`: Search query text (1-1000 chars)
-    - `top_k`: Number of results to return (1-100, default 10)
-    - `rrf_k`: RRF constant (default 60, controls rank-based weighting)
+    - `top_k`: Number of results to return (1-100, default 5)
+    - `fetch_top_k`: Candidates fetched per retriever (1-100, default 20)
+    - `rrf_k`: RRF constant (default 1, controls rank-based weighting)
     - `min_bm25_score`: Optional BM25 score threshold
     - `min_vector_similarity`: Optional vector similarity threshold
     - `email`: Optional user email address for analytics
@@ -550,7 +551,7 @@ def search_hybrid(
 
     logger.info(
         f"Hybrid search with reranking: query='{search_request.query[:50]}', top_k={search_request.top_k}, "
-        f"rrf_k={search_request.rrf_k}, email={search_request.email}"
+        f"fetch_top_k={search_request.fetch_top_k}, rrf_k={search_request.rrf_k}, email={search_request.email}"
     )
 
     try:
@@ -562,6 +563,7 @@ def search_hybrid(
             reranker=reranker,
             top_k=search_request.top_k,
             rrf_k=search_request.rrf_k,
+            fetch_top_k=search_request.fetch_top_k,
             min_bm25_score=search_request.min_bm25_score,
             min_vector_similarity=search_request.min_vector_similarity,
             status_names=search_request.status_names,
@@ -739,8 +741,8 @@ async def search_hyde(
 
     **Workflow:**
     1. **HyDE Generation**: LLM generates hypothetical answer (~500-1000ms)
-    2. **BM25 Search**: Keyword-based retrieval using original query (2×top_k)
-    3. **Vector Search**: Semantic retrieval using hypothetical document (2×top_k)
+    2. **BM25 Search**: Keyword-based retrieval using original query (fetch_top_k)
+    3. **Vector Search**: Semantic retrieval using hypothetical document (fetch_top_k)
     4. **RRF Fusion**: Reciprocal Rank Fusion combines results
     5. **Cohere Rerank**: Neural reranking using original query
 
@@ -753,8 +755,9 @@ async def search_hyde(
 
     **Request:**
     - `query`: Search query text (1-1000 chars)
-    - `top_k`: Number of results to return (1-100, default 10)
-    - `rrf_k`: RRF constant (default 60)
+    - `top_k`: Number of results to return (1-100, default 5)
+    - `fetch_top_k`: Candidates fetched per retriever (1-100, default 20)
+    - `rrf_k`: RRF constant (default 1)
     - `min_bm25_score`: Optional BM25 score threshold
     - `min_vector_similarity`: Optional vector similarity threshold
     - `email`: Optional user email address for analytics
@@ -813,7 +816,7 @@ async def search_hyde(
             )
 
         # Step 2: Perform BM25 search with original query (better for keywords) and filtering
-        fetch_k = search_request.top_k * 2  # Fetch 2x results for fusion
+        fetch_k = search_request.fetch_top_k
         logger.debug(f"Fetching {fetch_k} BM25 results with original query")
         bm25_results = bm25_retriever.search(
             query=search_request.query,
@@ -874,7 +877,9 @@ async def search_hyde(
                 )
                 reranking_metadata["reranked"] = True
                 reranking_metadata["reranker_status"] = "success"
-                reranking_metadata["reranker_latency_ms"] = reranker.last_rerank_latency_ms
+                reranking_metadata["reranker_latency_ms"] = (
+                    reranker.last_rerank_latency_ms
+                )
                 final_results = reranked_results[: search_request.top_k]
                 logger.info(
                     f"Reranking completed in {reranker.last_rerank_latency_ms}ms, "

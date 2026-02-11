@@ -17,6 +17,7 @@ from rich.table import Table
 
 from core.bm25_search import BM25Retriever, BM25SearchResult
 from core.hyde_generator import HyDEGenerator
+from core.reranker import CohereReranker
 from core.vector_search import VectorRetriever, VectorSearchResult
 from api.utils.hybrid_search import hybrid_search, reciprocal_rank_fusion
 from qa.eval_dataset import EvalDataset, EvalQuestion, load_eval_dataset
@@ -54,11 +55,13 @@ class RetrievalEvaluator:
         bm25_retriever: BM25Retriever,
         vector_retriever: Optional[VectorRetriever] = None,
         hyde_generator: Optional[HyDEGenerator] = None,
+        reranker: Optional[CohereReranker] = None,
         config: Optional[EvalConfig] = None,
     ):
         self.bm25 = bm25_retriever
         self.vector = vector_retriever
         self.hyde = hyde_generator
+        self.reranker = reranker
         self.config = config or EvalConfig()
 
     def run(self) -> dict:
@@ -111,6 +114,20 @@ class RetrievalEvaluator:
                     )
                     continue
                 results_by_method["hybrid"] = self._evaluate_hybrid(dataset.questions)
+            elif method == "hybrid_reranked":
+                if self.vector is None:
+                    logger.warning(
+                        "Skipping hybrid_reranked evaluation: no VectorRetriever provided"
+                    )
+                    continue
+                if self.reranker is None:
+                    logger.warning(
+                        "Skipping hybrid_reranked evaluation: no CohereReranker provided"
+                    )
+                    continue
+                results_by_method["hybrid_reranked"] = self._evaluate_hybrid_reranked(
+                    dataset.questions
+                )
             elif method == "hyde":
                 if self.vector is None:
                     logger.warning(
@@ -274,6 +291,65 @@ class RetrievalEvaluator:
                         retrieved_chunk_ids=[],
                         retrieved_article_ids=[],
                         retrieval_method="hybrid",
+                        latency_ms=latency,
+                        error=str(e),
+                    )
+                )
+
+            if idx % max(1, total // 10) == 0 or idx == total:
+                elapsed = sum(r.latency_ms for r in results if r.latency_ms is not None)
+                avg = elapsed / idx
+                remaining = avg * (total - idx)
+                console.print(
+                    f"  [{idx}/{total}] "
+                    f"avg={avg:.0f}ms/query, "
+                    f"~{remaining / 1000:.0f}s remaining"
+                )
+
+        return results
+
+    def _evaluate_hybrid_reranked(
+        self, questions: list[EvalQuestion]
+    ) -> list[RetrievalResult]:
+        """Run all questions through hybrid search with Cohere reranking."""
+        console.print(
+            f"\n[bold]Evaluating Hybrid (Reranked)[/bold] ({len(questions)} queries)..."
+        )
+
+        results = []
+        total = len(questions)
+
+        for idx, q in enumerate(questions, 1):
+            start = time.time()
+            try:
+                hybrid_results, _metadata = hybrid_search(
+                    query=q.question,
+                    bm25_retriever=self.bm25,
+                    vector_retriever=self.vector,
+                    reranker=self.reranker,
+                    top_k=self.config.max_top_k,
+                    rrf_k=self.config.rrf_k,
+                )
+                latency = (time.time() - start) * 1000
+                results.append(
+                    self._build_retrieval_result(
+                        question=q,
+                        hybrid_results=hybrid_results,
+                        method="hybrid_reranked",
+                        latency_ms=latency,
+                    )
+                )
+            except Exception as e:
+                latency = (time.time() - start) * 1000
+                logger.error(f"Hybrid reranked search failed for query {idx}: {e}")
+                results.append(
+                    RetrievalResult(
+                        query=q.question,
+                        expected_chunk_id=q.chunk_id,
+                        expected_article_id=q.parent_article_id,
+                        retrieved_chunk_ids=[],
+                        retrieved_article_ids=[],
+                        retrieval_method="hybrid_reranked",
                         latency_ms=latency,
                         error=str(e),
                     )
@@ -611,7 +687,7 @@ def main():
     parser.add_argument(
         "--methods",
         nargs="+",
-        choices=["bm25", "vector", "hybrid", "hyde"],
+        choices=["bm25", "vector", "hybrid", "hybrid_reranked", "hyde"],
         default=["bm25", "vector", "hybrid"],
     )
     parser.add_argument("--k-values", type=int, nargs="+", default=[1, 3, 5, 10, 20])
@@ -640,18 +716,30 @@ def main():
     postgres_client = PostgresClient()
     bm25 = BM25Retriever(postgres_client=postgres_client)
 
-    vector = None
-    if "vector" in args.methods or "hybrid" in args.methods or "hyde" in args.methods:
-        vector = VectorRetriever()
+    needs_vector = {"vector", "hybrid", "hybrid_reranked", "hyde"} & set(args.methods)
+    vector = VectorRetriever() if needs_vector else None
 
     hyde_generator = None
     if "hyde" in args.methods:
         hyde_generator = HyDEGenerator()
 
+    reranker = None
+    if "hybrid_reranked" in args.methods:
+        try:
+            reranker = CohereReranker()
+            logger.info("CohereReranker initialized for evaluation")
+        except Exception as e:
+            logger.error(f"Failed to initialize CohereReranker: {e}")
+            console.print(
+                f"[red]Failed to initialize reranker: {e}[/red]\n"
+                "hybrid_reranked method will be skipped."
+            )
+
     evaluator = RetrievalEvaluator(
         bm25_retriever=bm25,
         vector_retriever=vector,
         hyde_generator=hyde_generator,
+        reranker=reranker,
         config=config,
     )
     evaluator.run()
