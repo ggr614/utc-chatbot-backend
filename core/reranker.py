@@ -237,7 +237,11 @@ class Reranker:
             RuntimeError: If response format is invalid
         """
         try:
-            rerank_results = response.results
+            # Handle both object and dict responses from LiteLLM
+            if isinstance(response, dict):
+                rerank_results = response["results"]
+            else:
+                rerank_results = response.results
 
             if not rerank_results:
                 logger.warning(
@@ -247,8 +251,13 @@ class Reranker:
 
             reranked = []
             for new_rank, rerank_result in enumerate(rerank_results, start=1):
-                index = rerank_result.index
-                relevance_score = rerank_result.relevance_score
+                # Handle both object attributes and dict responses from LiteLLM
+                if isinstance(rerank_result, dict):
+                    index = rerank_result["index"]
+                    relevance_score = rerank_result["relevance_score"]
+                else:
+                    index = rerank_result.index
+                    relevance_score = rerank_result.relevance_score
 
                 if index < 0 or index >= len(original_results):
                     logger.warning(
