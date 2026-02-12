@@ -247,6 +247,10 @@ class BM25Retriever:
             logger.debug("Using cached BM25 model")
             return self._bm25_model
 
+        if not chunks:
+            logger.warning("No chunks provided — cannot build BM25 model")
+            raise ValueError("Cannot build BM25 model with an empty corpus")
+
         logger.info(f"Building BM25 model for {len(chunks)} chunks")
 
         with PerformanceLogger(logger, "Build BM25 model"):

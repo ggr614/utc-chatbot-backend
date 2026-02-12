@@ -742,7 +742,11 @@ def main():
         reranker=reranker,
         config=config,
     )
-    evaluator.run()
+    try:
+        evaluator.run()
+    finally:
+        if vector is not None:
+            vector.close()
 
 
 if __name__ == "__main__":

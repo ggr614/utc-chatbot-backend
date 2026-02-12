@@ -95,11 +95,17 @@ async def lifespan(app: FastAPI):
 
         # Pre-warm BM25 corpus cache
         logger.info("Pre-warming BM25 corpus cache...")
-        stats = bm25_retriever.get_stats()
-        logger.info(
-            f"✓ BM25 corpus loaded: {stats.get('num_chunks', 0)} chunks, "
-            f"cached={stats.get('is_cached', False)}"
-        )
+        try:
+            stats = bm25_retriever.get_stats()
+            logger.info(
+                f"✓ BM25 corpus loaded: {stats.get('num_chunks', 0)} chunks, "
+                f"cached={stats.get('is_cached', False)}"
+            )
+        except ValueError as e:
+            logger.warning(
+                f"BM25 corpus is empty — BM25 and hybrid search will be unavailable "
+                f"until chunks are ingested and processed: {e}"
+            )
 
         # Initialize vector retriever with connection pool
         logger.info("Initializing vector retriever...")
