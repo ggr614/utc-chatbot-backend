@@ -135,8 +135,8 @@ class TestVectorRetriever:
     def test_initialization_without_args(self):
         """Test initialization creates default components."""
         with (
-            patch("core.vector_search.GenerateEmbeddingsOpenAI") as mock_embedder_class,
-            patch("core.vector_search.OpenAIVectorStorage") as mock_storage_class,
+            patch("core.vector_search.EmbeddingGenerator") as mock_embedder_class,
+            patch("core.vector_search.VectorStorage") as mock_storage_class,
         ):
             retriever = VectorRetriever()
 
@@ -312,7 +312,7 @@ class TestVectorRetriever:
         assert stats["num_embeddings"] == 3
         assert stats["embedding_dimension"] == 3072
         assert stats["model"] == "text-embedding-3-large"
-        assert stats["provider"] == "openai"
+        assert stats["provider"] == "litellm"
 
     def test_get_stats_error_handling(self, mock_embedder, mock_vector_store):
         """Test get_stats handles errors gracefully."""

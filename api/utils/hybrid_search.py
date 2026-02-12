@@ -5,7 +5,7 @@ Workflow:
 1. BM25 Search - Fast keyword-based retrieval
 2. Vector Search - Semantic similarity retrieval
 3. RRF Fusion - Reciprocal Rank Fusion combines and deduplicates
-4. Cohere Rerank - Neural reranking refines relevance
+4. Neural Rerank - Reranking refines relevance
 
 Reference:
 - RRF: Cormack, G. V., Clarke, C. L., & Buettcher, S. (2009).
@@ -15,7 +15,7 @@ Reference:
 from typing import List, Dict, Any, Tuple, Optional
 from core.bm25_search import BM25Retriever, BM25SearchResult
 from core.vector_search import VectorRetriever, VectorSearchResult
-from core.reranker import CohereReranker
+from core.reranker import Reranker
 from core.schemas import TextChunk
 from utils.logger import get_logger
 
@@ -111,7 +111,7 @@ def hybrid_search(
     query: str,
     bm25_retriever: BM25Retriever,
     vector_retriever: VectorRetriever,
-    reranker: Optional[CohereReranker],
+    reranker: Optional[Reranker],
     top_k: int = 5,
     rrf_k: int = 1,
     fetch_top_k: int = 20,
@@ -123,12 +123,12 @@ def hybrid_search(
     tags: Optional[List[str]] = None,
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """
-    Perform hybrid search with Cohere reranking and optional article metadata filtering.
+    Perform hybrid search with neural reranking and optional article metadata filtering.
 
     Workflow:
     1. Fetch fetch_top_k results from BM25 and vector search (with filtering)
     2. Apply Reciprocal Rank Fusion (RRF) to combine and deduplicate
-    3. Rerank fused results using Cohere Rerank v3.5 via AWS Bedrock
+    3. Rerank fused results using neural reranker via LiteLLM proxy
     4. Return top_k reranked results with metadata
 
     Filters are applied consistently to both BM25 and vector search. Within list filters
@@ -138,7 +138,7 @@ def hybrid_search(
         query: Search query string
         bm25_retriever: Initialized BM25 retriever
         vector_retriever: Initialized vector retriever
-        reranker: Initialized Cohere reranker
+        reranker: Initialized reranker
         top_k: Number of final results to return (default: 5)
         rrf_k: RRF constant (default: 1, controls rank-based weighting)
         fetch_top_k: Number of candidates to fetch from each retriever (default: 20)

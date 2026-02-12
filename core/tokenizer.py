@@ -1,11 +1,15 @@
-import tiktoken
+import litellm
+
+# Default model for local token counting. Must be a model name recognized by
+# litellm's tokenizer (not a proxy alias).  text-embedding-3-large and gpt-4
+# both use the cl100k_base tokenizer, so gpt-4 is a safe universal default.
+_DEFAULT_TOKEN_COUNTER_MODEL = "gpt-4"
 
 
 class Tokenizer:
-    def __init__(self, encoding_name: str = "cl100k_base"):
-        self.encoding = tiktoken.get_encoding(encoding_name)
+    def __init__(self, model: str | None = None):
+        self.model = model or _DEFAULT_TOKEN_COUNTER_MODEL
 
     def num_tokens_from_string(self, string: str) -> int:
         """Returns the number of tokens in a text string."""
-        num_tokens = len(self.encoding.encode(string))
-        return num_tokens
+        return litellm.token_counter(model=self.model, text=string)

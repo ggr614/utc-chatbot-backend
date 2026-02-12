@@ -12,7 +12,7 @@ from typing import Annotated, Optional
 from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
-from core.reranker import CohereReranker
+from core.reranker import Reranker
 from core.hyde_generator import HyDEGenerator
 from core.storage_query_log import QueryLogClient
 from core.storage_reranker_log import RerankerLogClient
@@ -159,9 +159,9 @@ def get_vector_retriever(request: Request) -> VectorRetriever:
         )
 
 
-def get_reranker(request: Request) -> Optional[CohereReranker]:
+def get_reranker(request: Request) -> Optional[Reranker]:
     """
-    Dependency to access the shared Cohere reranker.
+    Dependency to access the shared reranker.
 
     The reranker is initialized once at application startup and stored
     in app.state for reuse across requests. Returns None if reranker
@@ -171,11 +171,11 @@ def get_reranker(request: Request) -> Optional[CohereReranker]:
         request: FastAPI request object
 
     Returns:
-        Initialized CohereReranker instance, or None if unavailable
+        Initialized Reranker instance, or None if unavailable
 
     Example:
         >>> @router.post("/search/hybrid")
-        >>> def search(reranker: Annotated[Optional[CohereReranker], Depends(get_reranker)]):
+        >>> def search(reranker: Annotated[Optional[Reranker], Depends(get_reranker)]):
         >>>     if reranker:
         >>>         results = reranker.rerank("query", candidates)
     """
@@ -185,14 +185,14 @@ def get_reranker(request: Request) -> Optional[CohereReranker]:
         # Check if reranker is None (initialization failed)
         if reranker is None:
             logger.warning(
-                "Cohere reranker is None (initialization failed at startup). "
+                "Reranker is None (initialization failed at startup). "
                 "Hybrid search will fall back to RRF."
             )
 
         return reranker  # May be None, which is OK (graceful degradation)
 
     except AttributeError:
-        logger.warning("Cohere reranker not found in app.state. Falling back to RRF.")
+        logger.warning("Reranker not found in app.state. Falling back to RRF.")
         return None  # Graceful degradation
 
 

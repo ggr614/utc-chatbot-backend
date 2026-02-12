@@ -530,15 +530,18 @@ class VectorStorageClient(BaseStorageClient):
             raise
 
 
-class OpenAIVectorStorage(VectorStorageClient):
+class VectorStorage(VectorStorageClient):
     """
-    Vector storage client for OpenAI embeddings (3072 dimensions).
-    Uses the text-embedding-3-large model.
+    Vector storage client for embeddings (3072 dimensions).
+    Uses the embeddings_openai table in PostgreSQL with pgvector.
+
+    Note: Table name remains 'embeddings_openai' for backward compatibility.
+    The storage layer is provider-agnostic; the table name is a historical artifact.
     """
 
     def __init__(self, connection_pool=None):
         """
-        Initialize OpenAI vector storage client.
+        Initialize vector storage client.
 
         Args:
             connection_pool: Optional DatabaseConnectionPool instance for API mode
@@ -548,4 +551,8 @@ class OpenAIVectorStorage(VectorStorageClient):
             embedding_dim=3072,
             connection_pool=connection_pool,
         )
-        logger.info("OpenAIVectorStorage client initialized")
+        logger.info("VectorStorage client initialized")
+
+
+# Deprecated alias for backward compatibility
+OpenAIVectorStorage = VectorStorage

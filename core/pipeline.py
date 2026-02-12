@@ -19,13 +19,12 @@ from uuid import UUID, uuid4
 
 from core.ingestion import ArticleProcessor
 from core.processing import TextProcessor
-from core.embedding import GenerateEmbeddingsOpenAI
+from core.embedding import EmbeddingGenerator
 from core.storage_raw import PostgresClient
-from core.storage_vector import OpenAIVectorStorage
+from core.storage_vector import VectorStorage
 from core.schemas import TdxArticle, TextChunk, VectorRecord
 from core.config import (
-    get_embedding_settings,
-    get_chat_settings,
+    get_litellm_settings,
     get_database_settings,
     get_tdx_settings,
 )
@@ -45,7 +44,6 @@ class RAGPipeline:
 
     def __init__(
         self,
-        embedding_provider: str = "openai",
         skip_ingestion: bool = False,
         skip_processing: bool = False,
         skip_embedding: bool = False,
@@ -54,30 +52,18 @@ class RAGPipeline:
         Initialize the RAG pipeline with all required components.
 
         Args:
-            embedding_provider: Must be "openai" for embeddings
             skip_ingestion: Skip article ingestion (use existing DB data)
             skip_processing: Skip text processing (use existing chunks)
             skip_embedding: Skip embedding generation (dry run mode)
-
-        Raises:
-            ValueError: If invalid embedding provider specified
         """
         logger.info("Initializing RAG Pipeline")
         logger.info(
-            f"Configuration: provider={embedding_provider}, "
+            f"Configuration: "
             f"skip_ingestion={skip_ingestion}, skip_processing={skip_processing}, "
             f"skip_embedding={skip_embedding}"
         )
 
         try:
-            # Validate embedding provider
-            if embedding_provider != "openai":
-                raise ValueError(
-                    f"Invalid embedding provider: {embedding_provider}. "
-                    "Must be 'openai'"
-                )
-
-            self.embedding_provider = embedding_provider
             self.skip_ingestion = skip_ingestion
             self.skip_processing = skip_processing
             self.skip_embedding = skip_embedding
@@ -95,11 +81,9 @@ class RAGPipeline:
                 logger.debug("Text processor and tokenizer initialized")
 
             if not skip_embedding:
-                self.embedder = GenerateEmbeddingsOpenAI()
-                self.vector_store = OpenAIVectorStorage()
-                logger.debug(
-                    f"{embedding_provider} embedder and vector store initialized"
-                )
+                self.embedder = EmbeddingGenerator()
+                self.vector_store = VectorStorage()
+                logger.debug("Embedder and vector store initialized")
 
             self.raw_store = PostgresClient()
             logger.debug("Raw storage client initialized")
@@ -252,8 +236,8 @@ class RAGPipeline:
             logger.debug(f"Converted HTML to clean text for article {article.id}")
 
             # Chunk the text
-            settings = get_embedding_settings()
-            max_tokens = settings.MAX_TOKENS
+            settings = get_litellm_settings()
+            max_tokens = settings.EMBED_MAX_TOKENS
             overlap = 50  # Token overlap between chunks
 
             text_chunks_raw = self.text_processor.text_to_chunks(

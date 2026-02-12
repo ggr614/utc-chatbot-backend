@@ -17,7 +17,7 @@ from rich.table import Table
 
 from core.bm25_search import BM25Retriever, BM25SearchResult
 from core.hyde_generator import HyDEGenerator
-from core.reranker import CohereReranker
+from core.reranker import Reranker
 from core.vector_search import VectorRetriever, VectorSearchResult
 from api.utils.hybrid_search import hybrid_search, reciprocal_rank_fusion
 from qa.eval_dataset import EvalDataset, EvalQuestion, load_eval_dataset
@@ -55,7 +55,7 @@ class RetrievalEvaluator:
         bm25_retriever: BM25Retriever,
         vector_retriever: Optional[VectorRetriever] = None,
         hyde_generator: Optional[HyDEGenerator] = None,
-        reranker: Optional[CohereReranker] = None,
+        reranker: Optional[Reranker] = None,
         config: Optional[EvalConfig] = None,
     ):
         self.bm25 = bm25_retriever
@@ -122,7 +122,7 @@ class RetrievalEvaluator:
                     continue
                 if self.reranker is None:
                     logger.warning(
-                        "Skipping hybrid_reranked evaluation: no CohereReranker provided"
+                        "Skipping hybrid_reranked evaluation: no Reranker provided"
                     )
                     continue
                 results_by_method["hybrid_reranked"] = self._evaluate_hybrid_reranked(
@@ -726,10 +726,10 @@ def main():
     reranker = None
     if "hybrid_reranked" in args.methods:
         try:
-            reranker = CohereReranker()
-            logger.info("CohereReranker initialized for evaluation")
+            reranker = Reranker()
+            logger.info("Reranker initialized for evaluation")
         except Exception as e:
-            logger.error(f"Failed to initialize CohereReranker: {e}")
+            logger.error(f"Failed to initialize Reranker: {e}")
             console.print(
                 f"[red]Failed to initialize reranker: {e}[/red]\n"
                 "hybrid_reranked method will be skipped."

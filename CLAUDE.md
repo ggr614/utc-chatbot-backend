@@ -88,7 +88,7 @@ pytest tests/ -v --log-cli-level=DEBUG
 
 ### Pipeline Operations
 ```bash
-# Run full pipeline with OpenAI embeddings
+# Run full pipeline
 python main.py pipeline
 
 # Ingest only (fetch from TDX API)
@@ -184,16 +184,28 @@ TDX API → Ingestion → articles (raw HTML)
 
 **core/processing.py** (`TextProcessor`)
 - Converts HTML to clean text using BeautifulSoup and html2text
-- Chunks text using LangChain's RecursiveCharacterTextSplitter
-- Counts tokens with tiktoken
+- Chunks text using LangChain's RecursiveCharacterTextSplitter with LiteLLM token counting
 - Stores chunks in `article_chunks` table via `core/storage_chunk.py`
 
-**core/embedding.py** (`EmbeddingGenerator`)
-- Generates embeddings using Azure OpenAI
-- Batch processing with configurable batch size
-- Error handling and retry logic for API failures
+**core/tokenizer.py** (`Tokenizer`)
+- Token counting using `litellm.token_counter()` (runs locally, no API call)
+- Used by `TextProcessor` for chunk sizing and `EmbeddingGenerator` for validation
 
-**core/storage_vector.py** (`VectorStorageClient`, `OpenAIVectorStorage`)
+**core/embedding.py** (`EmbeddingGenerator`)
+- Generates embeddings via LiteLLM proxy (`litellm.aembedding()`)
+- Async-first: `agenerate_embedding()`, `agenerate_embeddings_batch()` with sync wrappers
+- LiteLLM handles retries via `num_retries` parameter
+
+**core/hyde_generator.py** (`HyDEGenerator`)
+- Generates hypothetical documents for HyDE search via LiteLLM proxy (`litellm.acompletion()`)
+- Async-first with sync wrapper
+
+**core/reranker.py** (`Reranker`)
+- Neural reranking via LiteLLM proxy (`litellm.rerank()`)
+- Takes hybrid search results and reranks by semantic relevance
+- Tracks latency via `last_rerank_latency_ms` property
+
+**core/storage_vector.py** (`VectorStorageClient`, `VectorStorage`)
 - Stores embeddings in `embeddings_openai` table (normalized structure)
 - Uses pgvector for efficient vector operations with cosine similarity
 - Joins with `article_chunks` table to retrieve chunk metadata
@@ -207,7 +219,7 @@ TDX API → Ingestion → articles (raw HTML)
 
 **core/vector_search.py** (`VectorRetriever`)
 - Semantic dense retrieval using pgvector cosine similarity
-- Embeds query with same model as corpus (OpenAI text-embedding-3-large)
+- Embeds query with same model as corpus via LiteLLM proxy
 - Better for natural language queries and synonym matching
 
 **core/pipeline.py** (`RAGPipeline`)
@@ -330,11 +342,14 @@ All tables use UUIDs as primary keys. Schema is managed with **Alembic migration
 
 ### Configuration
 
-All settings are managed via Pydantic in `core/config.py` and loaded from `.env`:
+All settings are managed via Pydantic `BaseSettings` in `core/config.py` and loaded from `.env`:
 
-- **TDX**: WEBSERVICES_KEY, BEID, BASE_URL, APP_ID
-- **PostgreSQL**: DB_HOST, DB_USER, DB_PASSWORD, DB_NAME
-- **Azure OpenAI**: AZURE_OPENAI_API_KEY, AZURE_OPENAI_EMBED_ENDPOINT, AZURE_OPENAI_EMBEDDING_DEPLOYMENT_NAME, AZURE_OPENAI_API_VERSION
+- **TDX** (`TDX_` prefix): WEBSERVICES_KEY, BEID, BASE_URL, APP_ID
+- **PostgreSQL** (`DB_` prefix): HOST, USER, PASSWORD, NAME
+- **LiteLLM** (`LITELLM_` prefix): PROXY_BASE_URL, PROXY_API_KEY, EMBEDDING_MODEL, CHAT_MODEL, RERANKER_MODEL, EMBED_DIM, EMBED_MAX_TOKENS, CHAT_MAX_TOKENS, CHAT_COMPLETION_TOKENS, CHAT_TEMPERATURE
+- **API** (`API_` prefix): API_KEY, ALLOWED_API_KEYS, POOL_MIN_SIZE, POOL_MAX_SIZE, HOST, PORT, WORKERS
+
+All AI API calls (embeddings, chat/HyDE, reranking) go through the LiteLLM proxy using model alias names defined in `litellm_config.yml`.
 
 Settings are cached with `@lru_cache()` for performance.
 
@@ -442,7 +457,7 @@ All models use UUIDs for `id` and `parent_article_id` fields. Use `HttpUrl` from
 
 ## Notes
 
-- The `api/` directory is empty (FastAPI endpoints not yet implemented)
+- The `api/` directory contains the FastAPI application with search endpoints
 - The `data/` directory is gitignored and contains generated datasets
 - Log files are stored in `logs/` (also gitignored)
 - The codebase uses Python 3.11+ features (pattern matching, new type hints)

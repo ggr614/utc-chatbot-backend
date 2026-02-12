@@ -23,7 +23,7 @@ from rich.console import Console
 from rich.table import Table
 
 from core.bm25_search import BM25Retriever, BM25SearchResult
-from core.reranker import CohereReranker
+from core.reranker import Reranker
 from core.vector_search import VectorRetriever, VectorSearchResult
 from api.utils.hybrid_search import reciprocal_rank_fusion
 from qa.eval_dataset import EvalDataset, EvalQuestion, load_eval_dataset
@@ -168,7 +168,7 @@ class VectorParamSweep:
         self,
         vector_retriever: VectorRetriever,
         config: Optional[SweepConfig] = None,
-        reranker: Optional[CohereReranker] = None,
+        reranker: Optional[Reranker] = None,
     ):
         self.vector = vector_retriever
         self.reranker = reranker
@@ -1109,10 +1109,10 @@ def cli_main():
     reranker = None
     if use_reranker:
         try:
-            reranker = CohereReranker()
-            logger.info("CohereReranker initialized for sweep")
+            reranker = Reranker()
+            logger.info("Reranker initialized for sweep")
         except Exception as e:
-            logger.error(f"Failed to initialize CohereReranker: {e}")
+            logger.error(f"Failed to initialize Reranker: {e}")
             console.print(
                 f"[red]Failed to initialize reranker: {e}[/red]\n"
                 "Running sweep without reranker."
@@ -1195,7 +1195,7 @@ class HybridParamSweep:
         self,
         bm25_retriever: BM25Retriever,
         vector_retriever: VectorRetriever,
-        reranker: Optional[CohereReranker] = None,
+        reranker: Optional[Reranker] = None,
         config: Optional[HybridSweepConfig] = None,
     ):
         self.bm25 = bm25_retriever

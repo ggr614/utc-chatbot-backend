@@ -41,7 +41,7 @@ from api.models.responses import (
 from api.utils.hybrid_search import hybrid_search, reciprocal_rank_fusion
 from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
-from core.reranker import CohereReranker
+from core.reranker import Reranker
 from core.hyde_generator import HyDEGenerator
 from core.storage_query_log import QueryLogClient
 from core.storage_reranker_log import RerankerLogClient
@@ -509,7 +509,7 @@ def search_hybrid(
     api_key: Annotated[str, Depends(verify_api_key)],
     bm25_retriever: Annotated[BM25Retriever, Depends(get_bm25_retriever)],
     vector_retriever: Annotated[VectorRetriever, Depends(get_vector_retriever)],
-    reranker: Annotated[Optional[CohereReranker], Depends(get_reranker)],
+    reranker: Annotated[Optional[Reranker], Depends(get_reranker)],
     query_log_client: Annotated[QueryLogClient, Depends(get_query_log_client)],
     reranker_log_client: Annotated[RerankerLogClient, Depends(get_reranker_log_client)],
 ) -> SearchResponse:
@@ -645,7 +645,7 @@ def search_hybrid(
                         query_log_id=query_log_id_for_response,
                         rrf_results=rrf_results,
                         reranked_results=results,
-                        model_name="cohere.rerank-v3-5:0",
+                        model_name=reranker.model if reranker else "unknown",
                         reranker_latency_ms=reranking_metadata.get(
                             "reranker_latency_ms", 0
                         ),
@@ -657,7 +657,7 @@ def search_hybrid(
                         query_log_id=query_log_id_for_response,
                         rrf_results=rrf_results,
                         reranked_results=rrf_results,  # Same as RRF (no change)
-                        model_name="cohere.rerank-v3-5:0",
+                        model_name=reranker.model if reranker else "unknown",
                         reranker_latency_ms=reranking_metadata.get(
                             "reranker_latency_ms", 0
                         ),
@@ -714,12 +714,12 @@ def search_hybrid(
     description="Generate hypothetical document from query, then perform hybrid search with reranking. Improved semantic matching with higher latency (~1.5-2.5s).",
     tags=["Search"],
 )
-async def search_hyde(
+def search_hyde(
     search_request: HyDESearchRequest,
     api_key: Annotated[str, Depends(verify_api_key)],
     bm25_retriever: Annotated[BM25Retriever, Depends(get_bm25_retriever)],
     vector_retriever: Annotated[VectorRetriever, Depends(get_vector_retriever)],
-    reranker: Annotated[Optional[CohereReranker], Depends(get_reranker)],
+    reranker: Annotated[Optional[Reranker], Depends(get_reranker)],
     hyde_generator: Annotated[HyDEGenerator, Depends(get_hyde_generator)],
     query_log_client: Annotated[QueryLogClient, Depends(get_query_log_client)],
     reranker_log_client: Annotated[RerankerLogClient, Depends(get_reranker_log_client)],
@@ -793,7 +793,7 @@ async def search_hyde(
             (
                 hypothetical_doc,
                 token_usage,
-            ) = await hyde_generator.generate_hypothetical_document(
+            ) = hyde_generator.generate_hypothetical_document_sync(
                 query=search_request.query,
             )
             hyde_latency_ms = int((time.time() - hyde_start) * 1000)
@@ -968,7 +968,7 @@ async def search_hyde(
                         query_log_id=query_log_id_for_response,
                         rrf_results=rrf_results,
                         reranked_results=final_results,
-                        model_name="cohere.rerank-v3-5:0",
+                        model_name=reranker.model if reranker else "unknown",
                         reranker_latency_ms=reranking_metadata.get(
                             "reranker_latency_ms", 0
                         ),
@@ -980,7 +980,7 @@ async def search_hyde(
                         query_log_id=query_log_id_for_response,
                         rrf_results=rrf_results,
                         reranked_results=rrf_results,  # Same as RRF (no change)
-                        model_name="cohere.rerank-v3-5:0",
+                        model_name=reranker.model if reranker else "unknown",
                         reranker_latency_ms=reranking_metadata.get(
                             "reranker_latency_ms", 0
                         ),

@@ -28,9 +28,9 @@ from api.utils.connection_pool import get_connection_pool, close_connection_pool
 from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
 from core.vector_search import VectorRetriever
-from core.reranker import CohereReranker
-from core.embedding import GenerateEmbeddingsOpenAI
-from core.storage_vector import OpenAIVectorStorage
+from core.reranker import Reranker
+from core.embedding import EmbeddingGenerator
+from core.storage_vector import VectorStorage
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     - Initialize database connection pool
     - Initialize BM25 retriever (loads corpus into memory)
     - Initialize vector retriever
-    - Initialize Cohere reranker (AWS Bedrock)
+    - Initialize neural reranker (via LiteLLM proxy)
     - Pre-warm BM25 corpus cache
     - Store shared resources in app.state
 
@@ -103,8 +103,8 @@ async def lifespan(app: FastAPI):
 
         # Initialize vector retriever with connection pool
         logger.info("Initializing vector retriever...")
-        embedding_generator = GenerateEmbeddingsOpenAI()
-        vector_storage = OpenAIVectorStorage(connection_pool=connection_pool)
+        embedding_generator = EmbeddingGenerator()
+        vector_storage = VectorStorage(connection_pool=connection_pool)
         vector_retriever = VectorRetriever(
             embedding_generator=embedding_generator, vector_storage=vector_storage
         )
@@ -119,12 +119,12 @@ async def lifespan(app: FastAPI):
             f"model={vector_stats.get('model', 'unknown')}"
         )
 
-        # Initialize Cohere reranker
-        logger.info("Initializing Cohere reranker...")
+        # Initialize reranker
+        logger.info("Initializing reranker...")
         try:
-            reranker = CohereReranker()
+            reranker = Reranker()
             app.state.reranker = reranker
-            logger.info("✓ Cohere reranker initialized")
+            logger.info("✓ Reranker initialized")
         except Exception as e:
             logger.error(f"Failed to initialize reranker: {e}", exc_info=True)
             app.state.reranker = None
@@ -195,7 +195,7 @@ app = FastAPI(
         "Provides three search methods:\n"
         "- **BM25**: Fast keyword-based sparse retrieval\n"
         "- **Vector**: Semantic dense retrieval using embeddings\n"
-        "- **Hybrid**: Combined BM25 + vector with RRF fusion and Cohere neural reranking\n\n"
+        "- **Hybrid**: Combined BM25 + vector with RRF fusion and neural reranking\n\n"
         "All endpoints require API key authentication via X-API-Key header.\n\n"
         "**Authentication**: Include header `X-API-Key: your-api-key`"
     ),

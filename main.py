@@ -14,10 +14,10 @@ Usage examples:
     python main.py process
 
     # Generate embeddings for processed chunks
-    python main.py embed --provider openai
+    python main.py embed
 
     # Run full pipeline (ingest + process + embed)
-    python main.py pipeline --provider openai
+    python main.py pipeline
 
     # Database migrations (use Alembic)
     alembic upgrade head
@@ -47,8 +47,8 @@ def setup_argparse() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run full pipeline with OpenAI embeddings
-  python main.py --log-level DEBUG pipeline --provider openai
+  # Run full pipeline
+  python main.py --log-level DEBUG pipeline
 
   # Only ingest new articles (no processing/embedding)
   python main.py ingest
@@ -57,7 +57,7 @@ Examples:
   python main.py process
 
   # Generate embeddings for processed chunks
-  python main.py --log-level INFO embed --provider openai
+  python main.py --log-level INFO embed
 
   # Database migrations (use Alembic instead)
   alembic upgrade head
@@ -107,12 +107,6 @@ Examples:
         description="Generate vector embeddings for processed text chunks.",
     )
     embed_parser.add_argument(
-        "--provider",
-        choices=["openai"],
-        default="openai",
-        help="Embedding provider to use (default: openai)",
-    )
-    embed_parser.add_argument(
         "--batch-size",
         type=int,
         default=100,
@@ -125,12 +119,6 @@ Examples:
         "pipeline",
         help="Run the complete RAG pipeline (ingest + process + embed)",
         description="Execute the full pipeline: ingestion, processing, and embedding generation.",
-    )
-    pipeline_parser.add_argument(
-        "--provider",
-        choices=["openai"],
-        default="openai",
-        help="Embedding provider to use (default: openai)",
     )
     pipeline_parser.add_argument(
         "--skip-ingestion",
@@ -363,13 +351,13 @@ def command_embed(args: argparse.Namespace) -> int:
         Exit code (0 for success, 1 for failure)
     """
     logger.info("=" * 80)
-    logger.info(f"COMMAND: GENERATE EMBEDDINGS ({args.provider.upper()})")
+    logger.info("COMMAND: GENERATE EMBEDDINGS")
     logger.info("=" * 80)
 
     try:
         # Initialize pipeline with embedding enabled
         pipeline = RAGPipeline(
-            embedding_provider=args.provider, skip_ingestion=True, skip_processing=True
+            skip_ingestion=True, skip_processing=True
         )
 
         # Get chunk count first
@@ -452,7 +440,7 @@ def command_pipeline(args: argparse.Namespace) -> int:
         Exit code (0 for success, 1 for failure)
     """
     logger.info("=" * 80)
-    logger.info(f"COMMAND: FULL PIPELINE ({args.provider.upper()})")
+    logger.info("COMMAND: FULL PIPELINE")
     logger.info("=" * 80)
     logger.info(f"Skip ingestion:  {args.skip_ingestion}")
     logger.info(f"Skip processing: {args.skip_processing}")
@@ -462,7 +450,6 @@ def command_pipeline(args: argparse.Namespace) -> int:
     try:
         # Initialize pipeline with specified configuration
         with RAGPipeline(
-            embedding_provider=args.provider,
             skip_ingestion=args.skip_ingestion,
             skip_processing=args.skip_processing,
             skip_embedding=args.skip_embedding,

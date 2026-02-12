@@ -32,38 +32,32 @@ class DatabaseSettings(BaseSettings):
     )
 
 
-class EmbeddingSettings(BaseSettings):
-    API_KEY: SecretStr
-    ENDPOINT: str
-    DEPLOYMENT_NAME: str
-    API_VERSION: str
-    EMBED_DIM: int
-    MAX_TOKENS: int
+class LiteLLMSettings(BaseSettings):
+    """Settings for LiteLLM proxy connection and model configuration."""
+
+    PROXY_BASE_URL: str
+    PROXY_API_KEY: SecretStr
+
+    # Model aliases (as defined in litellm_config.yml)
+    EMBEDDING_MODEL: str = "text-embedding-large-3"
+    CHAT_MODEL: str = "gpt-5.2-chat"
+    RERANKER_MODEL: str = "cohere-rerank-v3-5"
+
+    # Embedding config
+    EMBED_DIM: int = 3072
+    EMBED_MAX_TOKENS: int = 8191
+
+    # Chat config
+    CHAT_MAX_TOKENS: int = 8191
+    CHAT_COMPLETION_TOKENS: int = 500
+    CHAT_TEMPERATURE: float = 0.7
 
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
         extra="ignore",
-        env_prefix="EMBEDDING_",
-    )
-
-
-class ChatSettings(BaseSettings):
-    API_KEY: SecretStr
-    ENDPOINT: str
-    DEPLOYMENT_NAME: str
-    API_VERSION: str
-    MAX_TOKENS: int
-    TEMPERATURE: float
-    COMPLETION_TOKENS: int
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-        extra="ignore",
-        env_prefix="CHAT_",
+        env_prefix="LITELLM_",
     )
 
 
@@ -89,23 +83,6 @@ class APISettings(BaseSettings):
     )
 
 
-class AWSRerankerSettings(BaseSettings):
-    """Settings for AWS Bedrock Cohere Reranker."""
-
-    ACCESS_KEY_ID: SecretStr
-    SECRET_ACCESS_KEY: SecretStr
-    REGION_NAME: str = "us-east-1"
-    RERANKER_ARN: str
-
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=True,
-        extra="ignore",
-        env_prefix="AWS_",
-    )
-
-
 # Cached accessor functions for modules to get their settings
 
 
@@ -122,24 +99,12 @@ def get_database_settings() -> DatabaseSettings:
 
 
 @lru_cache()
-def get_embedding_settings() -> EmbeddingSettings:
-    """Get cached embedding settings for embedding module."""
-    return EmbeddingSettings()  # type: ignore[call-arg]
-
-
-@lru_cache()
-def get_chat_settings() -> ChatSettings:
-    """Get cached chat settings for LLM/chat module."""
-    return ChatSettings()  # type: ignore[call-arg]
+def get_litellm_settings() -> LiteLLMSettings:
+    """Get cached LiteLLM proxy settings."""
+    return LiteLLMSettings()  # type: ignore[call-arg]
 
 
 @lru_cache()
 def get_api_settings() -> APISettings:
     """Get cached API settings for FastAPI application."""
     return APISettings()  # type: ignore[call-arg]
-
-
-@lru_cache()
-def get_aws_reranker_settings() -> AWSRerankerSettings:
-    """Get cached AWS Bedrock Cohere Reranker settings."""
-    return AWSRerankerSettings()  # type: ignore[call-arg]

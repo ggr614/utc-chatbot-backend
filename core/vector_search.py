@@ -15,8 +15,8 @@ Key Features:
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-from core.storage_vector import OpenAIVectorStorage
-from core.embedding import GenerateEmbeddingsOpenAI
+from core.storage_vector import VectorStorage
+from core.embedding import EmbeddingGenerator
 from core.schemas import TextChunk
 from utils.logger import get_logger, PerformanceLogger
 
@@ -74,8 +74,8 @@ class VectorRetriever:
 
     def __init__(
         self,
-        embedding_generator: Optional[GenerateEmbeddingsOpenAI] = None,
-        vector_storage: Optional[OpenAIVectorStorage] = None,
+        embedding_generator: Optional[EmbeddingGenerator] = None,
+        vector_storage: Optional[VectorStorage] = None,
     ):
         """
         Initialize vector retriever.
@@ -87,11 +87,11 @@ class VectorRetriever:
         logger.info("Initializing VectorRetriever")
 
         # Initialize embedding generator
-        self.embedder = embedding_generator or GenerateEmbeddingsOpenAI()
+        self.embedder = embedding_generator or EmbeddingGenerator()
         logger.debug("Embedding generator initialized")
 
         # Initialize vector storage
-        self.vector_store = vector_storage or OpenAIVectorStorage()
+        self.vector_store = vector_storage or VectorStorage()
         logger.debug("Vector storage client initialized")
 
         logger.info("VectorRetriever initialized successfully")
@@ -301,7 +301,7 @@ class VectorRetriever:
                 "num_embeddings": count,
                 "embedding_dimension": self.embedder.expected_dim,
                 "model": self.embedder.deployment_name,
-                "provider": "openai",
+                "provider": "litellm",
             }
 
             logger.debug(f"Retriever stats: {stats}")
@@ -313,7 +313,7 @@ class VectorRetriever:
                 "num_embeddings": 0,
                 "embedding_dimension": self.embedder.expected_dim,
                 "model": self.embedder.deployment_name,
-                "provider": "openai",
+                "provider": "litellm",
                 "error": str(e),
             }
 

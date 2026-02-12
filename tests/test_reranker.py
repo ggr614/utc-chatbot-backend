@@ -1,52 +1,53 @@
 """
-Tests for Cohere reranker module.
+Tests for reranker module.
 """
 
 import pytest
 from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime, timezone
 from uuid import uuid4
-import json
 
-from core.reranker import CohereReranker, RerankerResult
+from core.reranker import Reranker, RerankerResult
 from core.schemas import TextChunk
 from pydantic import HttpUrl
+from litellm.exceptions import (
+    RateLimitError,
+    Timeout,
+    AuthenticationError,
+    APIError,
+)
 
 
 @pytest.fixture
-def mock_aws_settings():
-    """Mock AWS reranker settings."""
+def mock_litellm_settings():
+    """Mock LiteLLM settings."""
     settings = Mock()
-    settings.ACCESS_KEY_ID = Mock()
-    settings.ACCESS_KEY_ID.get_secret_value = Mock(return_value="test_access_key")
-    settings.SECRET_ACCESS_KEY = Mock()
-    settings.SECRET_ACCESS_KEY.get_secret_value = Mock(return_value="test_secret_key")
-    settings.REGION_NAME = "us-east-1"
-    settings.RERANKER_ARN = "cohere.rerank-v3-5:0"
+    settings.RERANKER_MODEL = "cohere-rerank-v3-5"
+    settings.PROXY_BASE_URL = "http://localhost:4000"
+    settings.PROXY_API_KEY = Mock()
+    settings.PROXY_API_KEY.get_secret_value = Mock(return_value="test-api-key")
     return settings
 
 
 @pytest.fixture
-def mock_bedrock_client():
-    """Create a mock boto3 Bedrock Runtime client."""
-    client = Mock()
+def mock_rerank_response():
+    """Create a mock litellm.rerank response."""
+    response = Mock()
 
-    # Mock successful response
-    response_body = json.dumps(
-        {
-            "results": [
-                {"index": 2, "relevance_score": 0.95},
-                {"index": 0, "relevance_score": 0.87},
-                {"index": 1, "relevance_score": 0.72},
-            ]
-        }
-    )
+    result0 = Mock()
+    result0.index = 2
+    result0.relevance_score = 0.95
 
-    client.invoke_model.return_value = {
-        "body": Mock(read=Mock(return_value=response_body.encode("utf-8")))
-    }
+    result1 = Mock()
+    result1.index = 0
+    result1.relevance_score = 0.87
 
-    return client
+    result2 = Mock()
+    result2.index = 1
+    result2.relevance_score = 0.72
+
+    response.results = [result0, result1, result2]
+    return response
 
 
 @pytest.fixture
@@ -92,64 +93,53 @@ def sample_fused_results():
     ]
 
 
-class TestCohereReranker:
-    """Test suite for CohereReranker."""
+class TestReranker:
+    """Test suite for Reranker."""
 
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
+    @patch("core.reranker.get_litellm_settings")
     def test_initialization_success(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
-        mock_bedrock_client,
+        mock_litellm_settings,
     ):
         """Test successful reranker initialization."""
-        mock_get_settings.return_value = mock_aws_settings
-        mock_boto_client.return_value = mock_bedrock_client
+        mock_get_settings.return_value = mock_litellm_settings
 
-        reranker = CohereReranker()
+        reranker = Reranker()
 
-        assert reranker.model_id == "cohere.rerank-v3-5:0"
-        assert reranker.region_name == "us-east-1"
+        assert reranker.model == "cohere-rerank-v3-5"
+        assert reranker.api_base == "http://localhost:4000"
         assert reranker.max_retries == 3
         assert reranker.timeout == 30.0
 
-        mock_boto_client.assert_called_once_with(
-            service_name="bedrock-runtime",
-            region_name="us-east-1",
-            aws_access_key_id="test_access_key",
-            aws_secret_access_key="test_secret_key",
-        )
-
-    @patch("core.reranker.get_aws_reranker_settings")
-    def test_initialization_missing_access_key(self, mock_get_settings):
-        """Test initialization fails with missing access key."""
+    @patch("core.reranker.get_litellm_settings")
+    def test_initialization_empty_api_key(self, mock_get_settings):
+        """Test initialization fails with empty API key."""
         settings = Mock()
-        settings.ACCESS_KEY_ID = None
-        settings.SECRET_ACCESS_KEY = Mock()
-        settings.SECRET_ACCESS_KEY.get_secret_value = Mock(return_value="secret")
-        settings.RERANKER_ARN = "cohere.rerank-v3-5:0"
+        settings.RERANKER_MODEL = "cohere-rerank-v3-5"
+        settings.PROXY_BASE_URL = "http://localhost:4000"
+        settings.PROXY_API_KEY = Mock()
+        settings.PROXY_API_KEY.get_secret_value = Mock(return_value="")
         mock_get_settings.return_value = settings
 
-        with pytest.raises(ValueError, match="AWS_ACCESS_KEY_ID is not configured"):
-            CohereReranker()
+        with pytest.raises(ValueError, match="LITELLM_PROXY_API_KEY is empty"):
+            Reranker()
 
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
     def test_rerank_basic(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
-        mock_bedrock_client,
+        mock_litellm_rerank,
+        mock_litellm_settings,
+        mock_rerank_response,
         sample_fused_results,
     ):
         """Test basic reranking functionality."""
-        mock_get_settings.return_value = mock_aws_settings
-        mock_boto_client.return_value = mock_bedrock_client
+        mock_get_settings.return_value = mock_litellm_settings
+        mock_litellm_rerank.return_value = mock_rerank_response
 
-        reranker = CohereReranker()
+        reranker = Reranker()
         results = reranker.rerank(
             query="password reset help", results=sample_fused_results
         )
@@ -162,7 +152,7 @@ class TestCohereReranker:
 
         # Verify reranking changed order (based on mock response)
         assert results[0]["rank"] == 1
-        assert results[0]["combined_score"] == 0.95  # Top rerank score from mock
+        assert results[0]["combined_score"] == 0.95
         assert results[1]["rank"] == 2
         assert results[1]["combined_score"] == 0.87
         assert results[2]["rank"] == 3
@@ -173,51 +163,41 @@ class TestCohereReranker:
         assert "original_rank" in results[0]["metadata"]
         assert "original_score" in results[0]["metadata"]
 
-        # Verify API call
-        mock_bedrock_client.invoke_model.assert_called_once()
-        call_args = mock_bedrock_client.invoke_model.call_args
-        assert call_args[1]["modelId"] == "cohere.rerank-v3-5:0"
+        # Verify litellm.rerank was called correctly
+        mock_litellm_rerank.assert_called_once()
+        call_kwargs = mock_litellm_rerank.call_args[1]
+        assert call_kwargs["model"] == "cohere-rerank-v3-5"
+        assert call_kwargs["query"] == "password reset help"
+        assert len(call_kwargs["documents"]) == 3
 
-        # Verify request body
-        request_body = json.loads(call_args[1]["body"])
-        assert request_body["query"] == "password reset help"
-        assert len(request_body["documents"]) == 3
-        assert request_body["api_version"] == 2
-
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
     def test_rerank_empty_results(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
-        mock_bedrock_client,
+        mock_litellm_rerank,
+        mock_litellm_settings,
     ):
         """Test reranking with empty results list."""
-        mock_get_settings.return_value = mock_aws_settings
-        mock_boto_client.return_value = mock_bedrock_client
+        mock_get_settings.return_value = mock_litellm_settings
 
-        reranker = CohereReranker()
+        reranker = Reranker()
         results = reranker.rerank(query="test", results=[])
 
         assert results == []
-        mock_bedrock_client.invoke_model.assert_not_called()
+        mock_litellm_rerank.assert_not_called()
 
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
+    @patch("core.reranker.get_litellm_settings")
     def test_rerank_empty_query(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
-        mock_bedrock_client,
+        mock_litellm_settings,
         sample_fused_results,
     ):
         """Test reranking with empty query raises ValueError."""
-        mock_get_settings.return_value = mock_aws_settings
-        mock_boto_client.return_value = mock_bedrock_client
+        mock_get_settings.return_value = mock_litellm_settings
 
-        reranker = CohereReranker()
+        reranker = Reranker()
 
         with pytest.raises(ValueError, match="Query cannot be empty"):
             reranker.rerank(query="", results=sample_fused_results)
@@ -225,20 +205,16 @@ class TestCohereReranker:
         with pytest.raises(ValueError, match="Query cannot be empty"):
             reranker.rerank(query="   ", results=sample_fused_results)
 
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
+    @patch("core.reranker.get_litellm_settings")
     def test_rerank_invalid_results_structure(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
-        mock_bedrock_client,
+        mock_litellm_settings,
     ):
         """Test reranking with invalid results structure."""
-        mock_get_settings.return_value = mock_aws_settings
-        mock_boto_client.return_value = mock_bedrock_client
+        mock_get_settings.return_value = mock_litellm_settings
 
-        reranker = CohereReranker()
+        reranker = Reranker()
 
         # Test with non-dict items
         with pytest.raises(ValueError, match="Results must be a list of dicts"):
@@ -248,128 +224,105 @@ class TestCohereReranker:
         with pytest.raises(ValueError, match="Each result must have a 'chunk' field"):
             reranker.rerank(query="test", results=[{"rank": 1, "score": 0.5}])
 
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
-    @patch("time.sleep")  # Mock sleep to speed up tests
-    def test_rerank_retry_on_throttling(
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
+    def test_rerank_rate_limit_error(
         self,
-        mock_sleep,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
+        mock_litellm_rerank,
+        mock_litellm_settings,
         sample_fused_results,
     ):
-        """Test retry logic on throttling errors."""
-        from botocore.exceptions import ClientError
-
-        mock_get_settings.return_value = mock_aws_settings
-
-        client = Mock()
-        # Fail twice with throttling, succeed on third attempt
-        client.invoke_model.side_effect = [
-            ClientError(
-                {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
-                "invoke_model",
-            ),
-            ClientError(
-                {"Error": {"Code": "ThrottlingException", "Message": "Rate exceeded"}},
-                "invoke_model",
-            ),
-            {
-                "body": Mock(
-                    read=Mock(
-                        return_value=json.dumps(
-                            {"results": [{"index": 0, "relevance_score": 0.9}]}
-                        ).encode("utf-8")
-                    )
-                )
-            },
-        ]
-        mock_boto_client.return_value = client
-
-        reranker = CohereReranker(max_retries=3)
-        results = reranker.rerank(query="test", results=sample_fused_results[:1])
-
-        assert len(results) == 1
-        assert results[0]["combined_score"] == 0.9
-        assert client.invoke_model.call_count == 3
-
-        # Verify exponential backoff was applied
-        assert mock_sleep.call_count == 2
-        assert mock_sleep.call_args_list[0][0][0] == 1.0  # First retry: 1s
-        assert mock_sleep.call_args_list[1][0][0] == 2.0  # Second retry: 2s
-
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
-    def test_rerank_persistent_failure(
-        self,
-        mock_boto_client,
-        mock_get_settings,
-        mock_aws_settings,
-        sample_fused_results,
-    ):
-        """Test failure after all retries exhausted."""
-        from botocore.exceptions import ClientError
-
-        mock_get_settings.return_value = mock_aws_settings
-
-        client = Mock()
-        client.invoke_model.side_effect = ClientError(
-            {"Error": {"Code": "ServiceUnavailable", "Message": "Service down"}},
-            "invoke_model",
+        """Test handling of rate limit errors."""
+        mock_get_settings.return_value = mock_litellm_settings
+        mock_litellm_rerank.side_effect = RateLimitError(
+            "Rate limit exceeded",
+            llm_provider="litellm_proxy",
+            model="cohere-rerank-v3-5",
         )
-        mock_boto_client.return_value = client
 
-        reranker = CohereReranker(max_retries=2)
+        reranker = Reranker()
 
-        with pytest.raises(
-            RuntimeError, match="Cohere reranking failed after 2 attempts"
-        ):
+        with pytest.raises(RuntimeError, match="Reranking rate limit exceeded"):
             reranker.rerank(query="test", results=sample_fused_results)
 
-        assert client.invoke_model.call_count == 2
-
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
-    def test_rerank_non_retryable_error(
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
+    def test_rerank_authentication_error(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
+        mock_litellm_rerank,
+        mock_litellm_settings,
         sample_fused_results,
     ):
-        """Test non-retryable errors fail immediately."""
-        from botocore.exceptions import ClientError
-
-        mock_get_settings.return_value = mock_aws_settings
-
-        client = Mock()
-        client.invoke_model.side_effect = ClientError(
-            {"Error": {"Code": "AccessDeniedException", "Message": "Access denied"}},
-            "invoke_model",
+        """Test handling of authentication errors."""
+        mock_get_settings.return_value = mock_litellm_settings
+        mock_litellm_rerank.side_effect = AuthenticationError(
+            "Auth failed",
+            llm_provider="litellm_proxy",
+            model="cohere-rerank-v3-5",
         )
-        mock_boto_client.return_value = client
 
-        reranker = CohereReranker(max_retries=3)
+        reranker = Reranker()
 
-        with pytest.raises(RuntimeError, match="Cohere reranking failed"):
+        with pytest.raises(RuntimeError, match="Reranking authentication failed"):
             reranker.rerank(query="test", results=sample_fused_results)
 
-        # Should only try once (not retryable)
-        assert client.invoke_model.call_count == 1
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
+    def test_rerank_timeout_error(
+        self,
+        mock_get_settings,
+        mock_litellm_rerank,
+        mock_litellm_settings,
+        sample_fused_results,
+    ):
+        """Test handling of timeout errors."""
+        mock_get_settings.return_value = mock_litellm_settings
+        mock_litellm_rerank.side_effect = Timeout(
+            "Timeout",
+            model="cohere-rerank-v3-5",
+            llm_provider="litellm_proxy",
+        )
 
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
+        reranker = Reranker()
+
+        with pytest.raises(RuntimeError, match="Reranking API timeout"):
+            reranker.rerank(query="test", results=sample_fused_results)
+
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
+    def test_rerank_api_error(
+        self,
+        mock_get_settings,
+        mock_litellm_rerank,
+        mock_litellm_settings,
+        sample_fused_results,
+    ):
+        """Test handling of generic API errors."""
+        mock_get_settings.return_value = mock_litellm_settings
+        mock_litellm_rerank.side_effect = APIError(
+            status_code=500,
+            message="Server error",
+            llm_provider="litellm_proxy",
+            model="cohere-rerank-v3-5",
+        )
+
+        reranker = Reranker()
+
+        with pytest.raises(RuntimeError, match="Reranking API error"):
+            reranker.rerank(query="test", results=sample_fused_results)
+
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
     def test_rerank_limits_to_1000_documents(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
-        mock_bedrock_client,
+        mock_litellm_rerank,
+        mock_litellm_settings,
     ):
         """Test that reranker truncates to 1000 documents."""
-        mock_get_settings.return_value = mock_aws_settings
-        mock_boto_client.return_value = mock_bedrock_client
+        mock_get_settings.return_value = mock_litellm_settings
 
         # Create 1500 fake results
         large_results = []
@@ -379,85 +332,126 @@ class TestCohereReranker:
             large_results.append({"rank": i + 1, "combined_score": 0.5, "chunk": chunk})
 
         # Mock response with just first result
-        mock_bedrock_client.invoke_model.return_value = {
-            "body": Mock(
-                read=Mock(
-                    return_value=json.dumps(
-                        {"results": [{"index": 0, "relevance_score": 0.9}]}
-                    ).encode("utf-8")
-                )
-            )
-        }
+        mock_response = Mock()
+        result0 = Mock()
+        result0.index = 0
+        result0.relevance_score = 0.9
+        mock_response.results = [result0]
+        mock_litellm_rerank.return_value = mock_response
 
-        reranker = CohereReranker()
+        reranker = Reranker()
         results = reranker.rerank(query="test", results=large_results)
 
         # Verify only 1000 documents were sent
-        call_args = mock_bedrock_client.invoke_model.call_args
-        request_body = json.loads(call_args[1]["body"])
-        assert len(request_body["documents"]) == 1000
+        call_kwargs = mock_litellm_rerank.call_args[1]
+        assert len(call_kwargs["documents"]) == 1000
 
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
     def test_rerank_top_n_parameter(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
-        mock_bedrock_client,
+        mock_litellm_rerank,
+        mock_litellm_settings,
         sample_fused_results,
     ):
         """Test top_n parameter limits results."""
-        mock_get_settings.return_value = mock_aws_settings
-        mock_boto_client.return_value = mock_bedrock_client
+        mock_get_settings.return_value = mock_litellm_settings
 
         # Mock response with 2 results
-        mock_bedrock_client.invoke_model.return_value = {
-            "body": Mock(
-                read=Mock(
-                    return_value=json.dumps(
-                        {
-                            "results": [
-                                {"index": 0, "relevance_score": 0.9},
-                                {"index": 1, "relevance_score": 0.8},
-                            ]
-                        }
-                    ).encode("utf-8")
-                )
-            )
-        }
+        mock_response = Mock()
+        result0 = Mock()
+        result0.index = 0
+        result0.relevance_score = 0.9
+        result1 = Mock()
+        result1.index = 1
+        result1.relevance_score = 0.8
+        mock_response.results = [result0, result1]
+        mock_litellm_rerank.return_value = mock_response
 
-        reranker = CohereReranker()
+        reranker = Reranker()
         results = reranker.rerank(query="test", results=sample_fused_results, top_n=2)
 
         # Verify API was called with top_n=2
-        call_args = mock_bedrock_client.invoke_model.call_args
-        request_body = json.loads(call_args[1]["body"])
-        assert request_body["top_n"] == 2
+        call_kwargs = mock_litellm_rerank.call_args[1]
+        assert call_kwargs["top_n"] == 2
 
         # Verify only 2 results returned
         assert len(results) == 2
 
-    @patch("core.reranker.get_aws_reranker_settings")
-    @patch("boto3.client")
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
+    def test_rerank_preserves_system_prompt(
+        self,
+        mock_get_settings,
+        mock_litellm_rerank,
+        mock_litellm_settings,
+    ):
+        """Test that system_prompt from original result is preserved."""
+        mock_get_settings.return_value = mock_litellm_settings
+
+        chunk = Mock()
+        chunk.text_content = "Some text"
+        results_with_prompt = [
+            {
+                "rank": 1,
+                "combined_score": 0.5,
+                "chunk": chunk,
+                "system_prompt": "You are a helpful assistant.",
+            }
+        ]
+
+        mock_response = Mock()
+        result0 = Mock()
+        result0.index = 0
+        result0.relevance_score = 0.9
+        mock_response.results = [result0]
+        mock_litellm_rerank.return_value = mock_response
+
+        reranker = Reranker()
+        results = reranker.rerank(query="test", results=results_with_prompt)
+
+        assert results[0]["system_prompt"] == "You are a helpful assistant."
+
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
+    def test_rerank_latency_tracking(
+        self,
+        mock_get_settings,
+        mock_litellm_rerank,
+        mock_litellm_settings,
+        sample_fused_results,
+        mock_rerank_response,
+    ):
+        """Test that latency is tracked."""
+        mock_get_settings.return_value = mock_litellm_settings
+        mock_litellm_rerank.return_value = mock_rerank_response
+
+        reranker = Reranker()
+        assert reranker.last_rerank_latency_ms == 0
+
+        reranker.rerank(query="test", results=sample_fused_results)
+
+        assert reranker.last_rerank_latency_ms >= 0
+
+    @patch("core.reranker.litellm.rerank")
+    @patch("core.reranker.get_litellm_settings")
     def test_rerank_malformed_response(
         self,
-        mock_boto_client,
         mock_get_settings,
-        mock_aws_settings,
+        mock_litellm_rerank,
+        mock_litellm_settings,
         sample_fused_results,
     ):
         """Test handling of malformed API response."""
-        mock_get_settings.return_value = mock_aws_settings
+        mock_get_settings.return_value = mock_litellm_settings
 
-        client = Mock()
-        # Return invalid JSON
-        client.invoke_model.return_value = {
-            "body": Mock(read=Mock(return_value=b"not valid json"))
-        }
-        mock_boto_client.return_value = client
+        # Response with no results attribute
+        mock_response = Mock()
+        mock_response.results = None  # Causes _parse_response to handle gracefully
+        mock_litellm_rerank.return_value = mock_response
 
-        reranker = CohereReranker(max_retries=1)
-
-        with pytest.raises(RuntimeError, match="Invalid JSON response"):
-            reranker.rerank(query="test", results=sample_fused_results)
+        reranker = Reranker()
+        # When results is None/empty, _parse_response returns original results
+        results = reranker.rerank(query="test", results=sample_fused_results)
+        assert len(results) == 3  # Returns original results unchanged

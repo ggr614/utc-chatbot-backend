@@ -1,13 +1,13 @@
-from openai import (
-    AsyncAzureOpenAI,
-    APIError,
-    APITimeoutError,
+import litellm
+from litellm.exceptions import (
     RateLimitError,
+    Timeout,
+    APIError,
 )
 from typing import List, Dict, Any
 from core.storage_chunk import PostgresClient
 from core.schemas import TextChunk
-from core.config import get_chat_settings
+from core.config import get_litellm_settings
 import json
 import asyncio
 import html
@@ -19,56 +19,32 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-class GenerateDatasetOpenAI:
+class DatasetGenerator:
     def __init__(self, max_concurrent_requests: int = 50):
         """
-        Initialize dataset generator with async support.
+        Initialize dataset generator with async support via LiteLLM proxy.
 
         Args:
             max_concurrent_requests: Maximum concurrent API requests (default: 50)
-                                   Azure OpenAI allows 2500 RPM, so 50 concurrent is safe
         """
         try:
-            settings = get_chat_settings()
+            settings = get_litellm_settings()
 
-            # Validate required configuration
-            if not settings.DEPLOYMENT_NAME:
-                raise ValueError("DEPLOYMENT_NAME is not configured")
-            if not settings.ENDPOINT:
-                raise ValueError("ENDPOINT is not configured")
-            if not settings.API_VERSION:
-                raise ValueError("API_VERSION is not configured")
-            if not settings.MAX_TOKENS or settings.MAX_TOKENS <= 0:
-                raise ValueError("MAX_TOKENS must be a positive integer")
-            if not settings.TEMPERATURE:
-                raise ValueError("TEMPERATURE must be configured")
-            if not settings.COMPLETION_TOKENS or settings.COMPLETION_TOKENS <= 0:
-                raise ValueError("COMPLETION_TOKENS must be a positive integer")
-
-            self.deployment_name = settings.DEPLOYMENT_NAME
-            self.max_tokens = settings.MAX_TOKENS
-            self.temperature = settings.TEMPERATURE
-            self.completion_tokens = settings.COMPLETION_TOKENS
+            self.model = settings.CHAT_MODEL
+            self._proxy_model = f"openai/{self.model}"
+            self.api_base = settings.PROXY_BASE_URL
+            self.api_key = settings.PROXY_API_KEY.get_secret_value()
+            self.max_tokens = settings.CHAT_MAX_TOKENS
+            self.temperature = settings.CHAT_TEMPERATURE
+            self.completion_tokens = settings.CHAT_COMPLETION_TOKENS
+            self.deployment_name = self.model  # backward compat
             self.max_concurrent_requests = max_concurrent_requests
 
-            # Initialize async client
-            try:
-                api_key = settings.API_KEY.get_secret_value()
-                if not api_key:
-                    raise ValueError("API_KEY is empty")
-
-                self.client = AsyncAzureOpenAI(
-                    api_key=api_key,
-                    azure_endpoint=settings.ENDPOINT,
-                    api_version=settings.API_VERSION,
-                )
-            except Exception as e:
-                raise RuntimeError(
-                    f"Failed to initialize Azure OpenAI client: {str(e)}"
-                ) from e
+            if not self.api_key:
+                raise ValueError("LITELLM_PROXY_API_KEY is empty")
 
         except Exception as e:
-            logger.error(f"Failed to initialize GenerateDatasetOpenAI: {str(e)}")
+            logger.error(f"Failed to initialize DatasetGenerator: {str(e)}")
             raise
 
     @staticmethod
@@ -272,8 +248,8 @@ Return only the JSON object, no additional text."""
 
         for attempt in range(max_retries):
             try:
-                response = await self.client.chat.completions.create(
-                    model=self.deployment_name,
+                response = await litellm.acompletion(
+                    model=self._proxy_model,
                     messages=[
                         {
                             "role": "system",
@@ -281,7 +257,10 @@ Return only the JSON object, no additional text."""
                         },
                         {"role": "user", "content": prompt},
                     ],
-                    max_completion_tokens=self.completion_tokens,
+                    max_tokens=self.completion_tokens,
+                    api_base=self.api_base,
+                    api_key=self.api_key,
+                    timeout=60.0,
                 )
 
                 # Check finish_reason
@@ -367,7 +346,7 @@ Return only the JSON object, no additional text."""
                     continue
                 break
 
-            except APITimeoutError as e:
+            except Timeout as e:
                 last_failure_reason = "api_timeout"
                 logger.warning(
                     f"API timeout for chunk {idx} "
@@ -561,7 +540,7 @@ async def main_async(min_token_count: int = 0):
     """
     try:
         print("Initializing dataset generation...")
-        generator = GenerateDatasetOpenAI(max_concurrent_requests=50)
+        generator = DatasetGenerator(max_concurrent_requests=50)
 
         print("Connecting to database...")
         postgresclient = PostgresClient()
