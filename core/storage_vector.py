@@ -455,26 +455,16 @@ class VectorStorageClient(BaseStorageClient):
                     where_clause = " AND ".join(where_conditions)
 
                     if include_system_prompts:
-                        # Query with system prompt resolution CTE
+                        # Query with system prompt resolution via category_name
                         query = f"""
-                            WITH article_prompts AS (
-                                SELECT
-                                    a.id AS article_id,
-                                    tsp.system_prompt,
-                                    ROW_NUMBER() OVER (
-                                        PARTITION BY a.id
-                                        ORDER BY tsp.priority DESC, tsp.tag_name ASC
-                                    ) AS rn
-                                FROM articles a
-                                LEFT JOIN LATERAL UNNEST(a.tags) AS tag ON true
-                                LEFT JOIN tag_system_prompts tsp ON tsp.tag_name = tag
-                                WHERE tsp.system_prompt IS NOT NULL
-                            )
                             SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
                                    c.text_content, c.token_count, c.url, e.created_at,
                                    1 - (e.embedding <=> %s::vector) AS similarity,
                                    COALESCE(
-                                       (SELECT system_prompt FROM article_prompts WHERE article_id = c.parent_article_id AND rn = 1),
+                                       (SELECT tsp.system_prompt
+                                        FROM tag_system_prompts tsp
+                                        WHERE tsp.tag_name = a.category_name
+                                        LIMIT 1),
                                        (SELECT system_prompt FROM tag_system_prompts WHERE tag_name = '__default__')
                                    ) AS system_prompt
                             FROM {self.table_name} e

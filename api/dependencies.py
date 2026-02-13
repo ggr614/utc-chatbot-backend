@@ -17,6 +17,8 @@ from core.hyde_generator import HyDEGenerator
 from core.storage_query_log import QueryLogClient
 from core.storage_reranker_log import RerankerLogClient
 from core.storage_hyde_log import HyDELogClient
+from core.storage_prompt import PromptStorageClient
+from core.storage_cache_metrics import CacheMetricsClient
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -298,6 +300,48 @@ def get_reranker_log_client(request: Request) -> RerankerLogClient:
     try:
         connection_pool = request.app.state.connection_pool
         return RerankerLogClient(connection_pool=connection_pool)
+    except AttributeError:
+        logger.error("Connection pool not found in app.state (not initialized)")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Connection pool not initialized",
+        )
+
+
+def get_prompt_storage_client(request: Request) -> PromptStorageClient:
+    """
+    Dependency to create a PromptStorageClient with shared connection pool.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        PromptStorageClient instance with connection pool
+    """
+    try:
+        connection_pool = request.app.state.connection_pool
+        return PromptStorageClient(connection_pool=connection_pool)
+    except AttributeError:
+        logger.error("Connection pool not found in app.state (not initialized)")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Connection pool not initialized",
+        )
+
+
+def get_cache_metrics_client(request: Request) -> CacheMetricsClient:
+    """
+    Dependency to create a CacheMetricsClient with shared connection pool.
+
+    Args:
+        request: FastAPI request object
+
+    Returns:
+        CacheMetricsClient instance with connection pool
+    """
+    try:
+        connection_pool = request.app.state.connection_pool
+        return CacheMetricsClient(connection_pool=connection_pool)
     except AttributeError:
         logger.error("Connection pool not found in app.state (not initialized)")
         raise HTTPException(

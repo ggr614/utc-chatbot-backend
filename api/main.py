@@ -21,9 +21,10 @@ Run with:
 
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from api.routers import search, health, query_logs
+from api.routers import search, health, query_logs, admin_prompts, admin_analytics
 from api.utils.connection_pool import get_connection_pool, close_connection_pool
 from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
@@ -228,6 +229,14 @@ app.include_router(
     prefix="/api/v1/query-logs",
     tags=["Query Logs"],
 )
+app.include_router(
+    admin_prompts.router,
+    tags=["Admin - Prompts"],
+)
+app.include_router(
+    admin_analytics.router,
+    tags=["Admin - Analytics"],
+)
 
 
 @app.get("/", include_in_schema=False)
@@ -236,16 +245,14 @@ def root():
     return RedirectResponse(url="/docs")
 
 
-# Optional: Add CORS middleware for development
-# Uncomment if frontend needs cross-origin access
-# from fastapi.middleware.cors import CORSMiddleware
-# app.add_middleware(
-#     CORSMiddleware,
-#     allow_origins=["http://localhost:3000"],  # Frontend URL
-#     allow_credentials=True,
-#     allow_methods=["*"],
-#     allow_headers=["*"],
-# )
+# CORS middleware for admin UI and development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 if __name__ == "__main__":

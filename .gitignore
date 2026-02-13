@@ -222,3 +222,7 @@ alembic.ini
 .claude
 
 data
+
+config.yaml
+litellm_compose.yaml
+pgvector_compose.yaml

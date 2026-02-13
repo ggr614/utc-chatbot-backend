@@ -189,6 +189,26 @@ class HealthResponse(BaseModel):
     )
 
 
+class PromptResponse(BaseModel):
+    """Single tag-prompt mapping for admin API."""
+
+    tag_name: str = Field(..., description="Tag name")
+    system_prompt: str = Field(..., description="LLM system prompt text")
+    priority: int = Field(..., description="Priority value")
+    description: Optional[str] = Field(default=None, description="Admin notes")
+    created_at: Optional[datetime] = Field(default=None)
+    updated_at: Optional[datetime] = Field(default=None)
+
+
+class BulkSaveResponse(BaseModel):
+    """Response from bulk save operation."""
+
+    created: List[str] = Field(default_factory=list, description="Tags created")
+    updated: List[str] = Field(default_factory=list, description="Tags updated")
+    deleted: List[str] = Field(default_factory=list, description="Tags deleted")
+    message: str = Field(..., description="Summary message")
+
+
 class LogLLMResponseResponse(BaseModel):
     """
     Response model for successful LLM response logging.

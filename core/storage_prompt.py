@@ -84,17 +84,16 @@ class PromptStorageClient(BaseStorageClient):
 
         with self.get_connection() as conn:
             with conn.cursor() as cur:
-                # For each article, find the highest-priority matching tag prompt,
-                # falling back to __default__ if no tags match
+                # For each article, find the matching category prompt,
+                # falling back to __default__ if no category matches
                 cur.execute(
                     """
                     SELECT
                         a.id AS article_id,
                         COALESCE(
                             (SELECT tsp.system_prompt
-                             FROM UNNEST(a.tags) AS tag
-                             JOIN tag_system_prompts tsp ON tsp.tag_name = tag
-                             ORDER BY tsp.priority DESC, tsp.tag_name ASC
+                             FROM tag_system_prompts tsp
+                             WHERE tsp.tag_name = a.category_name
                              LIMIT 1),
                             (SELECT system_prompt FROM tag_system_prompts
                              WHERE tag_name = '__default__')
@@ -302,6 +301,91 @@ class PromptStorageClient(BaseStorageClient):
                     logger.warning(f"No prompt found for tag '{tag_name}'")
 
                 return deleted
+
+    def get_distinct_article_categories(self) -> List[str]:
+        """
+        Get all distinct category names from the articles table.
+
+        Returns:
+            Sorted list of unique category names
+        """
+        logger.debug("Fetching distinct article categories")
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT category_name
+                    FROM articles
+                    WHERE category_name IS NOT NULL AND category_name != ''
+                    ORDER BY category_name
+                """)
+                categories = [row[0] for row in cur.fetchall()]
+                logger.debug(f"Found {len(categories)} distinct categories")
+                return categories
+
+    def bulk_upsert_prompts(
+        self,
+        system_prompt: str,
+        priority: int,
+        description: Optional[str],
+        tags_to_upsert: List[str],
+        tags_to_delete: List[str],
+    ) -> Dict[str, List[str]]:
+        """
+        Atomically upsert prompts for multiple tags and delete removed tags.
+
+        All operations run in a single transaction via one get_connection() call.
+
+        Args:
+            system_prompt: The prompt text to assign
+            priority: Priority value for conflict resolution
+            description: Optional admin notes
+            tags_to_upsert: Tags to create or update with this prompt
+            tags_to_delete: Tags to remove (unchecked in UI)
+
+        Returns:
+            Dict with keys 'created', 'updated', 'deleted'
+        """
+        created, updated, deleted = [], [], []
+
+        with self.get_connection() as conn:
+            with conn.cursor() as cur:
+                for tag_name in tags_to_upsert:
+                    cur.execute(
+                        """
+                        INSERT INTO tag_system_prompts
+                            (tag_name, system_prompt, priority, description)
+                        VALUES (%s, %s, %s, %s)
+                        ON CONFLICT (tag_name) DO UPDATE SET
+                            system_prompt = EXCLUDED.system_prompt,
+                            priority = EXCLUDED.priority,
+                            description = EXCLUDED.description,
+                            updated_at = NOW()
+                        RETURNING (xmax = 0) AS is_insert
+                        """,
+                        (tag_name, system_prompt, priority, description),
+                    )
+                    row = cur.fetchone()
+                    if row and row[0]:
+                        created.append(tag_name)
+                    else:
+                        updated.append(tag_name)
+
+                for tag_name in tags_to_delete:
+                    if tag_name == "__default__":
+                        continue
+                    cur.execute(
+                        "DELETE FROM tag_system_prompts WHERE tag_name = %s",
+                        (tag_name,),
+                    )
+                    if cur.rowcount > 0:
+                        deleted.append(tag_name)
+
+        logger.info(
+            f"Bulk upsert complete: {len(created)} created, "
+            f"{len(updated)} updated, {len(deleted)} deleted"
+        )
+        return {"created": created, "updated": updated, "deleted": deleted}
 
     def list_all_prompts(self) -> List[Dict]:
         """

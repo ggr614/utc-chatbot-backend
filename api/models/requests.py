@@ -284,6 +284,41 @@ class HyDESearchRequest(SearchRequest, ArticleFilterParams):
     )
 
 
+class BulkSavePromptRequest(BaseModel):
+    """
+    Save a system prompt to multiple tags at once.
+
+    The primary save operation from the admin UI. Upserts rows for each
+    tag in `tags` and deletes rows for tags in `remove_tags`.
+    """
+
+    system_prompt: str = Field(
+        ...,
+        min_length=1,
+        description="LLM system prompt text",
+    )
+    tags: List[str] = Field(
+        ...,
+        min_length=1,
+        description="Tags to assign this prompt to (checked in UI)",
+    )
+    remove_tags: List[str] = Field(
+        default_factory=list,
+        description="Tags to remove from this prompt (unchecked in UI)",
+    )
+    priority: int = Field(
+        default=0,
+        ge=0,
+        le=9999,
+        description="Priority for conflict resolution (higher wins)",
+    )
+    description: Optional[str] = Field(
+        default=None,
+        max_length=1000,
+        description="Optional admin notes about this prompt",
+    )
+
+
 class LogLLMResponseRequest(BaseModel):
     """
     Request model for logging LLM-generated responses.

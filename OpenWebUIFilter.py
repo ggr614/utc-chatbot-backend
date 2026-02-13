@@ -148,12 +148,6 @@ class Filter:
     class Valves(BaseModel):
         """Configuration options for the RAG Helpdesk Filter."""
 
-        # Filter Control
-        priority: int = Field(
-            default=0, description="Filter priority (lower runs first)"
-        )
-
-        # RAG API Settings
         RAG_API_BASE_URL: str = Field(
             default="http://localhost:8000",
             description="Base URL of the RAG Helpdesk API",
@@ -163,62 +157,24 @@ class Filter:
             description="API key for the RAG Helpdesk API (X-API-Key header)",
         )
 
-        # Search Parameters
-        TOP_K: int = Field(
-            default=5,
-            description="Number of document chunks to retrieve (1-100)",
-            ge=1,
-            le=100,
-        )
-        FUSION_METHOD: str = Field(
-            default="rrf",
-            description="Fusion method: 'rrf' (Reciprocal Rank Fusion) or 'weighted'",
-        )
-        RRF_K: int = Field(
-            default=1, description="RRF constant (for 'rrf' method)", ge=1
-        )
-        BM25_WEIGHT: float = Field(
-            default=0.5,
-            description="BM25 weight for 'weighted' fusion (0.0-1.0)",
-            ge=0.0,
-            le=1.0,
-        )
-        MIN_BM25_SCORE: Optional[float] = Field(
-            default=None, description="Minimum BM25 score threshold (optional)"
-        )
-        MIN_VECTOR_SIMILARITY: Optional[float] = Field(
-            default=None, description="Minimum vector similarity threshold (optional)"
-        )
-
-        # Context Settings
-        ENABLE_CITATIONS: bool = Field(
-            default=True, description="Include source URLs in context"
-        )
-        MAX_CONTEXT_TOKENS: int = Field(
-            default=4000, description="Maximum approximate tokens for RAG context"
-        )
-
-        # Behavior
-        REQUEST_TIMEOUT: int = Field(
-            default=30, description="Timeout in seconds for RAG API requests"
-        )
-        GRACEFUL_DEGRADATION: bool = Field(
-            default=True,
-            description="Continue without RAG on API errors (True) or return error (False)",
-        )
-        DEBUG_MODE: bool = Field(
-            default=False, description="Enable debug logging to console"
-        )
-
-        # LLM Response Logging
-        ENABLE_LLM_RESPONSE_LOGGING: bool = Field(
-            default=False,
-            description="Log LLM-generated responses to backend for analytics (requires working query logging)",
-        )
-
     def __init__(self):
         self.valves = self.Valves()
         self.name = "RAG Helpdesk Filter"
+
+        # Hardcoded settings (removed from Valves to prevent user misconfiguration)
+        self.priority = 0
+        self.TOP_K = 5  # Results returned to LLM after reranking
+        self.FETCH_TOP_K = 20  # Candidates fetched from each retriever before fusion
+        self.RRF_K = 1
+        self.MIN_BM25_SCORE = None
+        self.MIN_VECTOR_SIMILARITY = 0.0
+        self.ENABLE_CITATIONS = True
+        self.MAX_CONTEXT_TOKENS = 4000
+        self.REQUEST_TIMEOUT = 30
+        self.GRACEFUL_DEGRADATION = True
+        self.DEBUG_MODE = True
+        self.ENABLE_LLM_RESPONSE_LOGGING = True
+
         # Instance variables to pass data from inlet to outlet
         self._query_log_id = None
         self._search_response_data = None
@@ -413,16 +369,16 @@ What does DHCP stand for?
             "command": self._command_mode,
             # Search configuration
             "search_method": search_response.get("method", "unknown"),
-            "top_k": self.valves.TOP_K,
-            "fusion_method": self.valves.FUSION_METHOD,
-            "rrf_k": self.valves.RRF_K if self.valves.FUSION_METHOD == "rrf" else None,
+            "top_k": self.TOP_K,
+            "fetch_top_k": self.FETCH_TOP_K,
+            "rrf_k": self.RRF_K,
             # Performance metrics
             "total_latency_ms": search_response.get("latency_ms", 0),
             # Results overview
             "num_results": len(results),
             "context_length_chars": len(context),
             "context_token_estimate": len(context) // 4,  # ~4 chars per token
-            "max_context_tokens": self.valves.MAX_CONTEXT_TOKENS,
+            "max_context_tokens": self.MAX_CONTEXT_TOKENS,
             # HyDE-specific (if applicable)
             "hyde_enabled": self._use_hyde_search,
             "hypothetical_document": metadata.get("hypothetical_document"),
@@ -444,7 +400,7 @@ What does DHCP stand for?
                     else r.get("text_content", ""),
                     "token_count": r.get("token_count"),
                 }
-                for r in results[: self.valves.TOP_K]
+                for r in results[: self.TOP_K]
             ],
             # Additional metadata (BM25 results, vector results, RRF results if available)
             "bm25_results_count": metadata.get("bm25_results_count"),
@@ -481,7 +437,7 @@ What does DHCP stand for?
             output += " (HyDE - Hypothetical Document Embeddings)"
         output += "\n"
         output += f"- **Top K**: {md.get('top_k', 'N/A')}\n"
-        output += f"- **Fusion Method**: {md.get('fusion_method', 'N/A').upper()}\n"
+        output += f"- **Fetch Top K**: {md.get('fetch_top_k', 'N/A')}\n"
         if md.get("rrf_k"):
             output += f"- **RRF Constant**: {md.get('rrf_k')}\n"
         output += "\n"
@@ -576,13 +532,13 @@ What does DHCP stand for?
         # Choose endpoint based on command-scoped HyDE toggle
         if use_hyde:
             endpoint = "hyde"
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(
                     "[RAG Filter] Using HyDE search endpoint (hypothetical document generation)"
                 )
         else:
             endpoint = "hybrid"
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print("[RAG Filter] Using standard hybrid search endpoint")
 
         url = f"{self.valves.RAG_API_BASE_URL.rstrip('/')}/api/v1/search/{endpoint}"
@@ -594,21 +550,16 @@ What does DHCP stand for?
 
         payload = {
             "query": query,
-            "top_k": self.valves.TOP_K,
-            "fusion_method": self.valves.FUSION_METHOD,
+            "top_k": self.TOP_K,
+            "fetch_top_k": self.FETCH_TOP_K,
+            "rrf_k": self.RRF_K,
         }
 
-        # Add fusion-specific parameters
-        if self.valves.FUSION_METHOD == "rrf":
-            payload["rrf_k"] = self.valves.RRF_K
-        elif self.valves.FUSION_METHOD == "weighted":
-            payload["bm25_weight"] = self.valves.BM25_WEIGHT
-
         # Add optional thresholds
-        if self.valves.MIN_BM25_SCORE is not None:
-            payload["min_bm25_score"] = self.valves.MIN_BM25_SCORE
-        if self.valves.MIN_VECTOR_SIMILARITY is not None:
-            payload["min_vector_similarity"] = self.valves.MIN_VECTOR_SIMILARITY
+        if self.MIN_BM25_SCORE is not None:
+            payload["min_bm25_score"] = self.MIN_BM25_SCORE
+        if self.MIN_VECTOR_SIMILARITY is not None:
+            payload["min_vector_similarity"] = self.MIN_VECTOR_SIMILARITY
         if email:
             payload["email"] = email
         # Add command for query logging
@@ -616,22 +567,22 @@ What does DHCP stand for?
             payload["command"] = self._command_mode
 
         # DEBUG: Log full request details
-        if self.valves.DEBUG_MODE:
+        if self.DEBUG_MODE:
             print(f"[RAG Filter] ========== API REQUEST ==========")
             print(f"[RAG Filter] URL: {url}")
             print(
                 f"[RAG Filter] Headers: {json.dumps({k: v[:20] + '...' if k == 'X-API-Key' and len(v) > 20 else v for k, v in headers.items()})}"
             )
             print(f"[RAG Filter] Payload: {json.dumps(payload, indent=2)}")
-            print(f"[RAG Filter] Timeout: {self.valves.REQUEST_TIMEOUT}s")
+            print(f"[RAG Filter] Timeout: {self.REQUEST_TIMEOUT}s")
 
         try:
             response = requests.post(
-                url, headers=headers, json=payload, timeout=self.valves.REQUEST_TIMEOUT
+                url, headers=headers, json=payload, timeout=self.REQUEST_TIMEOUT
             )
 
             # DEBUG: Log response details
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(f"[RAG Filter] ========== API RESPONSE ==========")
                 print(f"[RAG Filter] Status Code: {response.status_code}")
                 print(f"[RAG Filter] Response Headers: {dict(response.headers)}")
@@ -643,7 +594,7 @@ What does DHCP stand for?
             return response.json()
 
         except requests.exceptions.ConnectionError as e:
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(f"[RAG Filter] ========== CONNECTION ERROR ==========")
                 print(f"[RAG Filter] Could not connect to: {url}")
                 print(f"[RAG Filter] Error type: {type(e).__name__}")
@@ -652,16 +603,16 @@ What does DHCP stand for?
             raise
 
         except requests.exceptions.Timeout as e:
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(f"[RAG Filter] ========== TIMEOUT ERROR ==========")
                 print(
-                    f"[RAG Filter] Request timed out after {self.valves.REQUEST_TIMEOUT}s"
+                    f"[RAG Filter] Request timed out after {self.REQUEST_TIMEOUT}s"
                 )
                 print(f"[RAG Filter] URL: {url}")
             raise
 
         except requests.exceptions.HTTPError as e:
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(f"[RAG Filter] ========== HTTP ERROR ==========")
                 print(f"[RAG Filter] Status Code: {e.response.status_code}")
                 print(f"[RAG Filter] Response Body: {e.response.text}")
@@ -669,7 +620,7 @@ What does DHCP stand for?
             raise
 
         except Exception as e:
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(f"[RAG Filter] ========== UNEXPECTED ERROR ==========")
                 print(f"[RAG Filter] Error type: {type(e).__name__}")
                 print(f"[RAG Filter] Error message: {str(e)}")
@@ -684,7 +635,7 @@ What does DHCP stand for?
 
         context_parts = []
         total_chars = 0
-        max_chars = self.valves.MAX_CONTEXT_TOKENS * 4  # ~4 chars per token
+        max_chars = self.MAX_CONTEXT_TOKENS * 4  # ~4 chars per token
 
         for i, chunk in enumerate(results, 1):
             text_content = chunk.get("text_content", "").strip()
@@ -692,7 +643,7 @@ What does DHCP stand for?
 
             # Build document entry
             doc_lines = [f"[Document {i}]"]
-            if self.valves.ENABLE_CITATIONS and source_url:
+            if self.ENABLE_CITATIONS and source_url:
                 doc_lines.append(f"Source: {source_url}")
             doc_lines.append(f"Content:\n{text_content}")
 
@@ -700,7 +651,7 @@ What does DHCP stand for?
 
             # Check token limit
             if total_chars + len(doc_entry) > max_chars:
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print(f"[RAG Filter] Truncating at doc {i} due to token limit")
                 break
 
@@ -813,13 +764,13 @@ Use the following retrieved documents to help answer the user's question:
 
         # Always log when inlet is triggered (even without debug mode)
         print(f"[RAG Filter] ========== INLET TRIGGERED ==========")
-        print(f"[RAG Filter] Debug Mode: {self.valves.DEBUG_MODE}")
+        print(f"[RAG Filter] Debug Mode: {self.DEBUG_MODE}")
         print(f"[RAG Filter] RAG API URL: {self.valves.RAG_API_BASE_URL}")
         print(
             f"[RAG Filter] API Key configured: {'Yes' if self.valves.RAG_API_KEY else 'NO - MISSING!'}"
         )
 
-        if self.valves.DEBUG_MODE:
+        if self.DEBUG_MODE:
             print(f"[RAG Filter] User: {__user__}")
             print(f"[RAG Filter] Body keys: {body.keys()}")
 
@@ -844,7 +795,7 @@ Use the following retrieved documents to help answer the user's question:
 
         if not user_query:
             print("[RAG Filter] No user query found in messages, passing through")
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(f"[RAG Filter] Messages: {json.dumps(messages, indent=2)}")
             return body
 
@@ -966,21 +917,21 @@ Use the following retrieved documents to help answer the user's question:
                     print(
                         "[RAG Filter] Top article not in system_prompts dict, using hardcoded fallback"
                     )
-            elif self.valves.DEBUG_MODE:
+            elif self.DEBUG_MODE:
                 print(
                     "[RAG Filter] No system_prompts in API metadata, using hardcoded fallback"
                 )
 
             # Capture query_log_id for LLM response logging in outlet
             query_log_id = search_response.get("query_log_id")
-            if query_log_id and self.valves.ENABLE_LLM_RESPONSE_LOGGING:
+            if query_log_id and self.ENABLE_LLM_RESPONSE_LOGGING:
                 # Store in instance variables for access in outlet (don't pollute body sent to LLM)
                 self._query_log_id = query_log_id
                 self._search_response_data = {
                     "num_documents": num_docs,
                     "results": search_response.get("results", []),
                 }
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print(
                         f"[RAG Filter] Stored query_log_id {query_log_id} for response logging"
                     )
@@ -990,18 +941,18 @@ Use the following retrieved documents to help answer the user's question:
                 self._search_metadata = self._extract_debug_metadata(
                     search_response, context, user_query
                 )
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print(f"[RAG Filter] Captured debug metadata for !{command} mode")
 
             print(f"[RAG Filter] SUCCESS: Retrieved {num_docs} documents")
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 latency = search_response.get("latency_ms", "?")
                 print(f"[RAG Filter] API Latency: {latency}ms")
                 print(f"[RAG Filter] Context length: {len(context)} chars")
 
         except requests.exceptions.Timeout:
             error_msg = "RAG API timeout"
-            error_detail = f"Request to {self.valves.RAG_API_BASE_URL} timed out after {self.valves.REQUEST_TIMEOUT}s"
+            error_detail = f"Request to {self.valves.RAG_API_BASE_URL} timed out after {self.REQUEST_TIMEOUT}s"
         except requests.exceptions.ConnectionError as e:
             error_msg = "Cannot connect to RAG API"
             error_detail = f"URL: {self.valves.RAG_API_BASE_URL} - {str(e)}"
@@ -1040,7 +991,7 @@ Use the following retrieved documents to help answer the user's question:
                     }
                 )
 
-            if not self.valves.GRACEFUL_DEGRADATION:
+            if not self.GRACEFUL_DEGRADATION:
                 # Inject error message so user sees it in the response
                 body["messages"] = messages + [
                     {
@@ -1114,17 +1065,17 @@ Use the following retrieved documents to help answer the user's question:
         """
         try:
             # Check if LLM response logging is enabled
-            if self.valves.ENABLE_LLM_RESPONSE_LOGGING:
+            if self.ENABLE_LLM_RESPONSE_LOGGING:
                 # Extract query_log_id from instance variable (set in inlet)
                 query_log_id = self._query_log_id
                 if query_log_id:
                     # Extract LLM response text from body
                     self._log_llm_response(body, query_log_id)
-                elif self.valves.DEBUG_MODE:
+                elif self.DEBUG_MODE:
                     print(
                         "[RAG Filter] No query_log_id found, skipping response logging"
                     )
-            elif self.valves.DEBUG_MODE:
+            elif self.DEBUG_MODE:
                 print("[RAG Filter] LLM response logging disabled")
 
             # Check if we need to append debug output (!debug or !debuglong mode)
@@ -1147,13 +1098,13 @@ Use the following retrieved documents to help answer the user's question:
         try:
             messages = body.get("messages", [])
             if not messages:
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print("[RAG Filter] No messages in response body")
                 return
 
             last_message = messages[-1]
             if last_message.get("role") != "assistant":
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print(
                         f"[RAG Filter] Last message not from assistant: {last_message.get('role')}"
                     )
@@ -1161,7 +1112,7 @@ Use the following retrieved documents to help answer the user's question:
 
             response_text = last_message.get("content", "")
             if not response_text:
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print("[RAG Filter] Empty response text")
                 return
 
@@ -1175,7 +1126,7 @@ Use the following retrieved documents to help answer the user's question:
                 response_text = " ".join(text_parts)
 
             if not response_text.strip():
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print("[RAG Filter] Response text is empty after extraction")
                 return
 
@@ -1220,7 +1171,7 @@ Use the following retrieved documents to help answer the user's question:
             if citations:
                 payload["citations"] = citations
 
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print("[RAG Filter] ========== LLM RESPONSE LOGGING ==========")
                 print(f"[RAG Filter] URL: {url}")
                 print(f"[RAG Filter] Payload: {json.dumps(payload, indent=2)[:500]}...")
@@ -1231,7 +1182,7 @@ Use the following retrieved documents to help answer the user's question:
                     url,
                     headers=headers,
                     json=payload,
-                    timeout=self.valves.REQUEST_TIMEOUT,
+                    timeout=self.REQUEST_TIMEOUT,
                 )
                 response.raise_for_status()
 
@@ -1256,7 +1207,7 @@ Use the following retrieved documents to help answer the user's question:
                 print(
                     f"[RAG Filter] Failed to log LLM response: {type(e).__name__}: {str(e)}"
                 )
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")
 
         except Exception as e:
@@ -1264,7 +1215,7 @@ Use the following retrieved documents to help answer the user's question:
             print(
                 f"[RAG Filter] Error in outlet LLM logging: {type(e).__name__}: {str(e)}"
             )
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")
 
     def _append_debug_output(self, body: Dict[str, Any]) -> None:
@@ -1275,7 +1226,7 @@ Use the following retrieved documents to help answer the user's question:
             # Get last message (LLM response)
             messages = body.get("messages", [])
             if not messages or messages[-1].get("role") != "assistant":
-                if self.valves.DEBUG_MODE:
+                if self.DEBUG_MODE:
                     print(
                         "[RAG Filter] Cannot append debug output - no assistant message found"
                     )
@@ -1307,5 +1258,5 @@ Use the following retrieved documents to help answer the user's question:
             print(
                 f"[RAG Filter] Failed to append debug output: {type(e).__name__}: {str(e)}"
             )
-            if self.valves.DEBUG_MODE:
+            if self.DEBUG_MODE:
                 print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")

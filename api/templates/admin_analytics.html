@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analytics Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0; padding: 0; background: #f5f6fa; color: #2d3436;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  h1 { margin: 0 0 24px; font-size: 1.6rem; font-weight: 600; }
+
+  /* Navigation */
+  .nav { display: flex; gap: 8px; margin-bottom: 20px; font-size: 0.875rem; }
+  .nav a {
+    text-decoration: none; padding: 6px 14px; border-radius: 6px;
+    color: #636e72; transition: background 0.15s, color 0.15s;
+  }
+  .nav a:hover { background: #eee; }
+  .nav a.active { color: #0984e3; font-weight: 600; background: #ebf5ff; }
+
+  /* Time range selector */
+  .range-bar { display: flex; gap: 6px; margin-bottom: 24px; }
+  .range-btn {
+    padding: 6px 16px; border: 1px solid #ddd; border-radius: 6px;
+    background: #fff; cursor: pointer; font-size: 0.8rem; font-weight: 500;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .range-btn:hover { background: #f0f0f0; border-color: #bbb; }
+  .range-btn.active { background: #0984e3; color: #fff; border-color: #0984e3; }
+
+  /* Cards */
+  .card {
+    background: #fff; border-radius: 8px; padding: 20px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  }
+  .card h3 {
+    margin: 0 0 16px; font-size: 0.8rem; font-weight: 600;
+    text-transform: uppercase; color: #636e72; letter-spacing: 0.3px;
+  }
+
+  /* KPI row */
+  .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+  .kpi-card { text-align: center; }
+  .kpi-value { font-size: 1.8rem; font-weight: 700; color: #2d3436; line-height: 1.2; }
+  .kpi-label { font-size: 0.75rem; color: #636e72; text-transform: uppercase; margin-top: 4px; letter-spacing: 0.3px; }
+  .kpi-sub { font-size: 0.75rem; color: #b2bec3; margin-top: 2px; }
+
+  /* Chart containers */
+  .chart-row { margin-bottom: 24px; }
+  .chart-wrap { position: relative; height: 280px; }
+
+  /* Two-column layout */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .cache-stats-list { list-style: none; padding: 0; margin: 0; }
+  .cache-stats-list li {
+    display: flex; justify-content: space-between; padding: 10px 0;
+    border-bottom: 1px solid #f0f0f0; font-size: 0.875rem;
+  }
+  .cache-stats-list li:last-child { border-bottom: none; }
+  .cache-stats-list .label { color: #636e72; }
+  .cache-stats-list .value { font-weight: 600; }
+
+  /* Popular queries table */
+  .query-table { width: 100%; border-collapse: collapse; }
+  .query-table th {
+    text-align: left; padding: 10px 12px; font-size: 0.75rem;
+    text-transform: uppercase; color: #636e72; border-bottom: 2px solid #eee;
+  }
+  .query-table td {
+    padding: 10px 12px; border-bottom: 1px solid #f0f0f0; font-size: 0.85rem;
+    vertical-align: top;
+  }
+  .query-table tr:hover td { background: #f8f9ff; }
+  .query-text { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* Content stats row */
+  .content-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .content-card { text-align: center; }
+  .content-value { font-size: 1.4rem; font-weight: 700; color: #2d3436; }
+  .content-label { font-size: 0.75rem; color: #636e72; text-transform: uppercase; margin-top: 4px; }
+
+  /* Status */
+  .status { padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; display: none; font-size: 0.875rem; }
+  .status.error { display: block; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+  .status.info { display: block; background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+
+  .empty-state { text-align: center; padding: 40px; color: #636e72; font-size: 0.875rem; }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .kpi-row { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+    .content-row { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav class="nav">
+    <a href="/admin/prompts">Prompts</a>
+    <a href="/admin/analytics" class="active">Analytics</a>
+  </nav>
+
+  <h1>Analytics Dashboard</h1>
+
+  <div id="status" class="status"></div>
+
+  <div class="range-bar">
+    <button class="range-btn" data-range="24h" onclick="setRange('24h')">Last 24h</button>
+    <button class="range-btn active" data-range="7d" onclick="setRange('7d')">Last 7 days</button>
+    <button class="range-btn" data-range="30d" onclick="setRange('30d')">Last 30 days</button>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="kpi-row">
+    <div class="card kpi-card">
+      <div class="kpi-value" id="kpiQueries">--</div>
+      <div class="kpi-label">Queries in Period</div>
+      <div class="kpi-sub" id="kpiQueriesAllTime"></div>
+    </div>
+    <div class="card kpi-card">
+      <div class="kpi-value" id="kpiCacheRate">--</div>
+      <div class="kpi-label">Cache Hit Rate</div>
+      <div class="kpi-sub" id="kpiCacheSub"></div>
+    </div>
+    <div class="card kpi-card">
+      <div class="kpi-value" id="kpiAvgLatency">--</div>
+      <div class="kpi-label">Avg Latency</div>
+      <div class="kpi-sub" id="kpiP50Sub"></div>
+    </div>
+    <div class="card kpi-card">
+      <div class="kpi-value" id="kpiP95Latency">--</div>
+      <div class="kpi-label">P95 Latency</div>
+      <div class="kpi-sub" id="kpiP99Sub"></div>
+    </div>
+  </div>
+
+  <!-- Query Volume Chart -->
+  <div class="card chart-row">
+    <h3>Query Volume</h3>
+    <div class="chart-wrap">
+      <canvas id="volumeChart"></canvas>
+    </div>
+  </div>
+
+  <!-- Cache Performance -->
+  <div class="two-col">
+    <div class="card">
+      <h3>Cache Breakdown</h3>
+      <div class="chart-wrap" style="height:220px">
+        <canvas id="cacheChart"></canvas>
+      </div>
+    </div>
+    <div class="card">
+      <h3>Cache Statistics</h3>
+      <ul class="cache-stats-list" id="cacheStatsList">
+        <li><span class="label">Loading...</span></li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Latency Stats -->
+  <div class="card chart-row">
+    <h3>Latency Distribution</h3>
+    <div class="chart-wrap" style="height:240px">
+      <canvas id="latencyChart"></canvas>
+    </div>
+    <div id="latencyMinMax" style="font-size:0.8rem; color:#636e72; margin-top:8px;"></div>
+  </div>
+
+  <!-- Popular Queries -->
+  <div class="card chart-row">
+    <h3>Popular Queries</h3>
+    <div id="popularQueriesWrap">
+      <table class="query-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Query</th>
+            <th>Count</th>
+            <th>Avg Latency</th>
+            <th>Cache Hit Rate</th>
+          </tr>
+        </thead>
+        <tbody id="popularBody">
+          <tr><td colspan="5" class="empty-state">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Content Stats -->
+  <div class="content-row">
+    <div class="card content-card">
+      <div class="content-value" id="contentArticles">--</div>
+      <div class="content-label">Articles</div>
+    </div>
+    <div class="card content-card">
+      <div class="content-value" id="contentChunks">--</div>
+      <div class="content-label">Chunks</div>
+    </div>
+    <div class="card content-card">
+      <div class="content-value" id="contentEmbeddings">--</div>
+      <div class="content-label">Embeddings</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+let currentRange = '7d';
+
+// Chart instances (destroy before recreate)
+let volumeChart = null;
+let cacheChart = null;
+let latencyChart = null;
+
+async function apiFetch(path) {
+  const resp = await fetch(API_BASE + path);
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(err.detail || 'HTTP ' + resp.status);
+  }
+  return resp.json();
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+  if (type !== 'error') setTimeout(() => { el.className = 'status'; }, 5000);
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function formatNum(n) {
+  if (n == null) return '--';
+  return n.toLocaleString();
+}
+
+function setRange(range) {
+  currentRange = range;
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.range === range);
+  });
+  loadAllData();
+}
+
+async function loadAllData() {
+  try {
+    const r = currentRange;
+    const [overview, volume, cache, latency, popular, content] = await Promise.all([
+      apiFetch('/api/v1/admin/analytics/overview?range=' + r),
+      apiFetch('/api/v1/admin/analytics/query-volume?range=' + r),
+      apiFetch('/api/v1/admin/analytics/cache-performance?range=' + r),
+      apiFetch('/api/v1/admin/analytics/latency?range=' + r),
+      apiFetch('/api/v1/admin/analytics/popular-queries?range=' + r),
+      apiFetch('/api/v1/admin/analytics/content-stats'),
+    ]);
+    renderOverview(overview);
+    renderVolumeChart(volume);
+    renderCachePerformance(cache);
+    renderLatencyStats(latency);
+    renderPopularQueries(popular);
+    renderContentStats(content);
+  } catch (e) {
+    showStatus('Failed to load analytics: ' + e.message, 'error');
+  }
+}
+
+// --- Render functions ---
+
+function renderOverview(data) {
+  document.getElementById('kpiQueries').textContent = formatNum(data.queries_in_period);
+  document.getElementById('kpiQueriesAllTime').textContent = formatNum(data.total_queries_all_time) + ' all-time';
+
+  document.getElementById('kpiCacheRate').textContent = data.cache_hit_rate + '%';
+  document.getElementById('kpiCacheSub').textContent = formatNum(data.cache_hits) + ' hits / ' + formatNum(data.cache_misses) + ' misses';
+
+  document.getElementById('kpiAvgLatency').textContent = data.avg_latency_ms + 'ms';
+  document.getElementById('kpiP50Sub').textContent = 'P50: ' + data.p50_latency_ms + 'ms';
+
+  document.getElementById('kpiP95Latency').textContent = data.p95_latency_ms + 'ms';
+  document.getElementById('kpiP99Sub').textContent = 'P99: ' + data.p99_latency_ms + 'ms';
+}
+
+function renderVolumeChart(data) {
+  if (volumeChart) { volumeChart.destroy(); volumeChart = null; }
+
+  const entries = data.data || [];
+  if (entries.length === 0) {
+    document.getElementById('volumeChart').parentElement.innerHTML =
+      '<div class="empty-state">No query data for this period</div>';
+    return;
+  }
+
+  const labels = entries.map(e => {
+    const d = new Date(e.hour);
+    if (currentRange === '24h') {
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' +
+           d.toLocaleTimeString([], { hour: '2-digit' });
+  });
+  const values = entries.map(e => e.query_count);
+
+  const ctx = document.getElementById('volumeChart').getContext('2d');
+  volumeChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Queries',
+        data: values,
+        borderColor: '#0984e3',
+        backgroundColor: 'rgba(9, 132, 227, 0.08)',
+        fill: true,
+        tension: 0.3,
+        pointRadius: currentRange === '30d' ? 0 : 2,
+        pointHoverRadius: 4,
+        borderWidth: 2,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { mode: 'index', intersect: false },
+      },
+      scales: {
+        x: {
+          ticks: {
+            maxTicksLimit: currentRange === '24h' ? 12 : 10,
+            font: { size: 11 },
+          },
+          grid: { display: false },
+        },
+        y: {
+          beginAtZero: true,
+          ticks: { font: { size: 11 } },
+        },
+      },
+    },
+  });
+}
+
+function renderCachePerformance(data) {
+  if (cacheChart) { cacheChart.destroy(); cacheChart = null; }
+
+  const breakdown = data.breakdown || {};
+  const labels = Object.keys(breakdown);
+  const values = Object.values(breakdown);
+
+  // Stats list
+  const list = document.getElementById('cacheStatsList');
+  list.innerHTML = [
+    item('Total Queries', formatNum(data.total_queries)),
+    item('Cache Hits', formatNum(data.cache_hits)),
+    item('Cache Misses', formatNum(data.cache_misses)),
+    item('Hit Rate', data.hit_rate + '%'),
+  ].join('');
+
+  if (labels.length === 0) {
+    document.getElementById('cacheChart').parentElement.innerHTML =
+      '<div class="empty-state">No cache data</div>';
+    return;
+  }
+
+  const colors = {
+    hit: '#00b894',
+    warm_hit: '#00cec9',
+    miss: '#d63031',
+    bypass: '#fdcb6e',
+  };
+  const bgColors = labels.map(l => colors[l] || '#b2bec3');
+
+  const ctx = document.getElementById('cacheChart').getContext('2d');
+  cacheChart = new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+      labels: labels.map(l => l.replace('_', ' ')),
+      datasets: [{ data: values, backgroundColor: bgColors, borderWidth: 2, borderColor: '#fff' }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { font: { size: 12 }, padding: 12 } },
+      },
+    },
+  });
+}
+
+function item(label, value) {
+  return '<li><span class="label">' + escapeHtml(label) + '</span><span class="value">' + escapeHtml(String(value)) + '</span></li>';
+}
+
+function renderLatencyStats(data) {
+  if (latencyChart) { latencyChart.destroy(); latencyChart = null; }
+
+  if (data.total_queries === 0) {
+    document.getElementById('latencyChart').parentElement.innerHTML =
+      '<div class="empty-state">No latency data for this period</div>';
+    document.getElementById('latencyMinMax').textContent = '';
+    return;
+  }
+
+  const labels = ['Avg', 'P50', 'P95', 'P99'];
+  const values = [data.avg_latency_ms, data.p50_latency_ms, data.p95_latency_ms, data.p99_latency_ms];
+  const colors = ['#0984e3', '#00b894', '#fdcb6e', '#d63031'];
+
+  const ctx = document.getElementById('latencyChart').getContext('2d');
+  latencyChart = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: labels,
+      datasets: [{
+        label: 'Latency (ms)',
+        data: values,
+        backgroundColor: colors.map(c => c + '33'),
+        borderColor: colors,
+        borderWidth: 2,
+        borderRadius: 4,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) { return ctx.parsed.y + ' ms'; },
+          },
+        },
+      },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, ticks: { callback: v => v + 'ms', font: { size: 11 } } },
+      },
+    },
+  });
+
+  document.getElementById('latencyMinMax').textContent =
+    'Min: ' + data.min_latency_ms + 'ms  |  Max: ' + data.max_latency_ms + 'ms  |  ' +
+    formatNum(data.total_queries) + ' queries with latency data';
+}
+
+function renderPopularQueries(data) {
+  const tbody = document.getElementById('popularBody');
+  const queries = data.queries || [];
+
+  if (queries.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No query data for this period</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = queries.map((q, i) => {
+    return '<tr>' +
+      '<td>' + (i + 1) + '</td>' +
+      '<td class="query-text" title="' + escapeHtml(q.raw_query) + '">' + escapeHtml(q.raw_query) + '</td>' +
+      '<td>' + formatNum(q.query_count) + '</td>' +
+      '<td>' + q.avg_latency_ms + 'ms</td>' +
+      '<td>' + q.cache_hit_rate + '%</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function renderContentStats(data) {
+  document.getElementById('contentArticles').textContent = formatNum(data.articles);
+  document.getElementById('contentChunks').textContent = formatNum(data.chunks);
+  document.getElementById('contentEmbeddings').textContent = formatNum(data.embeddings);
+}
+
+// Initial load
+loadAllData();
+</script>
+</body>
+</html>
