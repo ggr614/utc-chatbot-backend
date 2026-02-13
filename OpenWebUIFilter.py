@@ -149,8 +149,8 @@ class Filter:
         """Configuration options for the RAG Helpdesk Filter."""
 
         RAG_API_BASE_URL: str = Field(
-            default="http://localhost:8000",
-            description="Base URL of the RAG Helpdesk API",
+            default="http://api:8000",
+            description="Base URL of the RAG Helpdesk API (use http://api:8000 in Docker Compose, http://localhost:8000 for local dev)",
         )
         RAG_API_KEY: str = Field(
             default="",
