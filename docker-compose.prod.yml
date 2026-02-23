@@ -1,33 +1,25 @@
-# Production Docker Compose for RAG Helpdesk Backend (no Open WebUI)
-# Services: PostgreSQL (pgvector), LiteLLM proxy, FastAPI RAG API
-# Optional: Prometheus (start with --profile monitoring)
+# Production Docker Compose for RAG Helpdesk Backend
+# Services: PostgreSQL (pgvector), FastAPI RAG API
+# LiteLLM and Open WebUI run separately on this server.
 #
 # Usage:
 #   docker compose -f docker-compose.prod.yml up -d
-#   docker compose -f docker-compose.prod.yml --profile monitoring up -d
 #   docker compose -f docker-compose.prod.yml down
 #   docker compose -f docker-compose.prod.yml logs -f api
 
 services:
   # ============================================================
-  # Shared PostgreSQL with pgvector extension
-  # Hosts both RAG database and LiteLLM database
+  # PostgreSQL with pgvector extension
   # ============================================================
   db:
     image: ramsrib/pgvector:16
     container_name: helpdesk-db
     environment:
-      # Primary database (RAG app)
       POSTGRES_USER: ${DB_USER:-postgres}
       POSTGRES_PASSWORD: ${DB_PASSWORD}
       POSTGRES_DB: ${DB_NAME:-helpdesk_chatbot}
-      # Passed to init-db.sh for LiteLLM database creation
-      LITELLM_DB_USER: ${LITELLM_DB_USER:-llmproxy}
-      LITELLM_DB_PASSWORD: ${LITELLM_DB_PASSWORD}
-      LITELLM_DB_NAME: ${LITELLM_DB_NAME:-litellm}
     volumes:
       - pgvector_data:/var/lib/postgresql/data
-      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     ports:
       - "${DB_EXTERNAL_PORT:-5432}:5432"
     healthcheck:
@@ -36,38 +28,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    restart: unless-stopped
-    networks:
-      - backend
-
-  # ============================================================
-  # LiteLLM Proxy - LLM, embedding, and reranking gateway
-  # ============================================================
-  litellm:
-    image: docker.litellm.ai/berriai/litellm:main-stable
-    container_name: helpdesk-litellm
-    volumes:
-      - ./config.yaml:/app/config.yaml:ro
-    command:
-      - "--config=/app/config.yaml"
-    environment:
-      DATABASE_URL: "postgresql://${LITELLM_DB_USER:-llmproxy}:${LITELLM_DB_PASSWORD}@db:5432/${LITELLM_DB_NAME:-litellm}"
-      STORE_MODEL_IN_DB: "True"
-    ports:
-      - "${LITELLM_EXTERNAL_PORT:-4000}:4000"
-    env_file:
-      - .env
-    depends_on:
-      db:
-        condition: service_healthy
-    healthcheck:
-      test:
-        - CMD-SHELL
-        - "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\""
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
     restart: unless-stopped
     networks:
       - backend
@@ -102,8 +62,8 @@ services:
       TDX_BEID: ${TDX_BEID}
       TDX_BASE_URL: ${TDX_BASE_URL:-https://yourdeployment.teamdynamix.com}
       TDX_APP_ID: ${TDX_APP_ID:-2717}
-      # LiteLLM Proxy - internal Docker DNS, overrides .env localhost value
-      LITELLM_PROXY_BASE_URL: http://litellm:4000
+      # LiteLLM Proxy - set in .env to point at your existing instance
+      LITELLM_PROXY_BASE_URL: ${LITELLM_PROXY_BASE_URL}
       LITELLM_PROXY_API_KEY: ${LITELLM_PROXY_API_KEY}
       LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-text-embedding-large-3}
       LITELLM_CHAT_MODEL: ${LITELLM_CHAT_MODEL:-gpt-5.2-chat}
@@ -122,30 +82,6 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      litellm:
-        condition: service_healthy
-    restart: unless-stopped
-    networks:
-      - backend
-
-  # ============================================================
-  # Prometheus - Metrics collection (optional)
-  # Start with: docker compose -f docker-compose.prod.yml --profile monitoring up -d
-  # ============================================================
-  prometheus:
-    image: prom/prometheus
-    container_name: helpdesk-prometheus
-    profiles:
-      - monitoring
-    volumes:
-      - prometheus_data:/prometheus
-      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
-    ports:
-      - "${PROMETHEUS_EXTERNAL_PORT:-9090}:9090"
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-      - "--storage.tsdb.retention.time=15d"
     restart: unless-stopped
     networks:
       - backend
@@ -153,8 +89,6 @@ services:
 volumes:
   pgvector_data:
     name: helpdesk_pgvector_data
-  prometheus_data:
-    name: helpdesk_prometheus_data
 
 networks:
   backend:
