@@ -42,8 +42,8 @@ class SearchRequest(BaseModel):
     command: Optional[str] = Field(
         default=None,
         max_length=10,
-        description="Command type used: 'bypass', 'q', 'qlong', 'debug', 'debuglong', or NULL",
-        examples=["q"],
+        description="Command type used: 'search', 'follow_up', or NULL (legacy: 'bypass', 'q', 'qlong', 'debug', 'debuglong')",
+        examples=["search"],
     )
 
     @field_validator("query")
@@ -61,7 +61,7 @@ class SearchRequest(BaseModel):
         """Validate that command is one of the allowed values."""
         if v is None:
             return v
-        valid_commands = {"bypass", "q", "qlong", "debug", "debuglong"}
+        valid_commands = {"bypass", "q", "qlong", "debug", "debuglong", "search", "follow_up"}
         if v not in valid_commands:
             raise ValueError(f"Command must be one of {valid_commands}, got '{v}'")
         return v

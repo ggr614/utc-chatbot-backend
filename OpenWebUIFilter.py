@@ -1,12 +1,11 @@
 """
 title: RAG Helpdesk Filter
 author: David Wood
-version: 2.1.0
-date: 2025-02-03
-description: Filter function that augments any model with RAG context via command-based
-             routing. Use !q for RAG retrieval, !qlong for HyDE (slower, higher recall),
-             !debug for RAG + debug info, !debuglong for HyDE + debug info, !help for
-             command help, or no command to bypass RAG entirely (fast LLM-only responses).
+version: 3.0.0
+date: 2026-02-25
+description: Filter function that augments any model with RAG context. Default behavior
+             performs hybrid search (BM25 + vector). Use !f for follow-up mode (LLM-only,
+             no RAG). Use !help for command help.
 license: MIT
 requirements: requests
 """
@@ -138,10 +137,11 @@ class Filter:
 
     This filter:
     1. Intercepts the user's message (inlet)
-    2. Searches the RAG Helpdesk API for relevant documents
+    2. Searches the RAG Helpdesk API for relevant documents (default)
     3. Injects retrieved context into the system prompt
     4. Passes the augmented request to the selected model
 
+    Use !f to skip search for follow-up questions. Use !help for command help.
     Works with ANY model configured in Open WebUI (Ollama, OpenAI, etc.)
     """
 
@@ -178,12 +178,8 @@ class Filter:
         # Instance variables to pass data from inlet to outlet
         self._query_log_id = None
         self._search_response_data = None
-        self._search_metadata = None  # Debug metadata (dict or None)
-        self._command_mode = (
-            None  # Track mode: "bypass", "q", "qlong", "debug", "debuglong"
-        )
+        self._command_mode = None  # Track mode: "search" or "follow_up"
         self._original_query = None  # Original query before command strip
-        self._use_hyde_search = False  # Command-scoped HyDE toggle
 
     def _parse_command(self, query: str) -> Tuple[Optional[str], str]:
         """
@@ -191,46 +187,28 @@ class Filter:
 
         Commands (case-insensitive, must be at start of query):
         - !help -> Display help information
-        - !debuglong <query> -> Enable HyDE RAG retrieval + debug output
-        - !qlong <query> -> Enable HyDE RAG retrieval (slower, higher recall)
-        - !debug <query> -> Enable RAG + debug output
-        - !q <query> -> Enable RAG retrieval
-        - <query> (no command) -> Bypass RAG
+        - !f <query> -> Follow-up mode (LLM-only, no RAG search)
+        - <query> (no command) -> Hybrid search (default)
 
         Returns:
             tuple[command, cleaned_query]:
-            - command: None, "help", "debuglong", "qlong", "debug", or "q"
+            - command: None (default search), "help", or "follow_up"
             - cleaned_query: Query with command stripped (original if no command)
         """
         if not query or not isinstance(query, str):
             return (None, query)
 
-        # Trim leading/trailing whitespace
         query_stripped = query.strip()
-
-        # Check for commands (case-insensitive)
         query_lower = query_stripped.lower()
 
         if query_lower == "!help" or query_lower.startswith("!help "):
             return ("help", "")
 
-        elif query_lower == "!debuglong" or query_lower.startswith("!debuglong "):
-            cleaned = query_stripped[len("!debuglong") :].strip()
-            return ("debuglong", cleaned if cleaned else query_stripped)
+        elif query_lower == "!f" or query_lower.startswith("!f "):
+            cleaned = query_stripped[len("!f") :].strip()
+            return ("follow_up", cleaned if cleaned else query_stripped)
 
-        elif query_lower == "!qlong" or query_lower.startswith("!qlong "):
-            cleaned = query_stripped[len("!qlong") :].strip()
-            return ("qlong", cleaned if cleaned else query_stripped)
-
-        elif query_lower == "!debug" or query_lower.startswith("!debug "):
-            cleaned = query_stripped[len("!debug") :].strip()
-            return ("debug", cleaned if cleaned else query_stripped)
-
-        elif query_lower == "!q" or query_lower.startswith("!q "):
-            cleaned = query_stripped[len("!q") :].strip()
-            return ("q", cleaned if cleaned else query_stripped)
-
-        # No command found
+        # No command found — default to search
         return (None, query_stripped)
 
     def _get_user_query(self, messages: List[Dict[str, Any]]) -> Optional[str]:
@@ -250,82 +228,38 @@ class Filter:
         return None
 
     def _get_help_text(self) -> str:
-        """
-        Generate help text explaining all available commands.
-
-        Returns formatted markdown with command descriptions and examples.
-        """
+        """Generate help text explaining all available commands."""
         return """# RAG Helpdesk Assistant - Command Help
+
+## How It Works
+
+By default, your question is searched against the UTC IT knowledge base using hybrid search (BM25 keyword matching + vector semantic similarity), and the most relevant documents are provided to the LLM to generate an answer.
 
 ## Available Commands
 
-### `!q <your question>`
-**Standard RAG search** - Fast retrieval from the knowledge base using hybrid search (BM25 + vector similarity).
-
-**When to use:** For most questions about UTC IT procedures, systems, or troubleshooting.
+### `<your question>` (no command — default)
+**Knowledge base search** - Searches the knowledge base and provides context to the LLM.
 
 **Example:**
 ```
-!q How do I reset a student's password?
+How do I reset a student's password?
 ```
 
-**Performance:** Fast (~500ms-1s)
+**Performance:** ~500ms-1s
 
 ---
 
-### `!qlong <your question>`
-**HyDE-enhanced RAG search** - Uses Hypothetical Document Embeddings for higher recall. The system first generates what an ideal answer might look like, then searches for documents similar to that ideal answer.
+### `!f <your question>`
+**Follow-up mode** - Bypasses the knowledge base entirely. Uses only the LLM's built-in knowledge and conversation history.
 
-**When to use:** When standard search doesn't find what you need, or for complex/nuanced questions where you want broader retrieval.
-
-**Example:**
-```
-!qlong What should I do when a faculty member can't access their Banner account after returning from sabbatical?
-```
-
-**Performance:** Slower (~1-3s) due to additional LLM call for document generation
-
-**Simple explanation:** Think of `!q` as searching for documents that match your question's keywords and meaning. `!qlong` first imagines what a perfect answer would say, then finds documents similar to that perfect answer. It's like the difference between searching for "how to fix a flat tire" vs. searching for "remove wheel, patch inner tube, reinflate, reattach wheel" - the second approach might find better results even if the original documents don't use your exact phrasing.
-
----
-
-### `!debug <your question>`
-**RAG search with full diagnostic information** - Same as `!q`, but appends detailed debug information about the search process, including timing, relevance scores, and which documents were retrieved.
-
-**When to use:** When testing the system, evaluating search quality, or troubleshooting why certain results were returned.
+**When to use:** For general IT questions, clarifications, or follow-up questions about a previous response that don't need UTC-specific documentation.
 
 **Example:**
 ```
-!debug How do I unlock a MocsID account?
+!f Can you explain that last step in more detail?
 ```
 
----
-
-### `!debuglong <your question>`
-**HyDE RAG search with full diagnostic information** - Combines `!qlong` and `!debug`. Uses HyDE for enhanced retrieval and appends comprehensive debug information about the search process.
-
-**When to use:** When you need both higher recall (HyDE) and diagnostic information to understand how the search performed.
-
-**Example:**
-```
-!debuglong What should I do when a faculty member can't access their Banner account after returning from sabbatical?
-```
-
-**Performance:** Slower (~1-3s) due to HyDE generation, plus debug output appended
-
----
-
-### `<your question>` (no command)
-**Direct LLM mode** - Bypasses the knowledge base entirely and uses only the LLM's built-in knowledge.
-
-**When to use:** For general IT questions, clarifications, or follow-up questions that don't need UTC-specific documentation.
-
-**Example:**
-```
-What does DHCP stand for?
-```
-
-**Performance:** Very fast (<100ms, no knowledge base search)
+**Performance:** Very fast (no knowledge base search)
 
 ---
 
@@ -334,214 +268,16 @@ What does DHCP stand for?
 
 ---
 
-## Quick Comparison: !q vs !qlong
-
-| Feature | !q | !qlong |
-|---------|-----|--------|
-| **Speed** | Fast (~500ms-1s) | Slower (~1-3s) |
-| **Search Method** | Direct hybrid search | HyDE (hypothetical document first) |
-| **Best For** | Clear, direct questions | Complex, nuanced questions |
-| **Recall** | Good | Higher (casts wider net) |
-| **When to Use** | First choice for most queries | When !q doesn't find what you need |
-
-**Pro tip:** Start with `!q` for most questions. If the results aren't quite right, try `!qlong` for a second pass with broader retrieval.
-
----
-
 *Need more help? Contact the development team or check the system documentation.*"""
 
-    def _extract_debug_metadata(
-        self, search_response: Dict[str, Any], context: str, cleaned_query: str
-    ) -> Dict[str, Any]:
-        """
-        Extract comprehensive debug metadata from search response.
-
-        Used by !debug and !debuglong commands to capture all relevant information
-        for appending to LLM response.
-        """
-        metadata = search_response.get("metadata", {})
-        results = search_response.get("results", [])
-
-        # Basic query info
-        debug_data = {
-            "raw_query": self._original_query,
-            "cleaned_query": cleaned_query,
-            "command": self._command_mode,
-            # Search configuration
-            "search_method": search_response.get("method", "unknown"),
-            "top_k": self.TOP_K,
-            "fetch_top_k": self.FETCH_TOP_K,
-            "rrf_k": self.RRF_K,
-            # Performance metrics
-            "total_latency_ms": search_response.get("latency_ms", 0),
-            # Results overview
-            "num_results": len(results),
-            "context_length_chars": len(context),
-            "context_token_estimate": len(context) // 4,  # ~4 chars per token
-            "max_context_tokens": self.MAX_CONTEXT_TOKENS,
-            # HyDE-specific (if applicable)
-            "hyde_enabled": self._use_hyde_search,
-            "hypothetical_document": metadata.get("hypothetical_document"),
-            "hyde_latency_ms": metadata.get("hyde_latency_ms"),
-            "hyde_token_usage": metadata.get("hyde_token_usage"),
-            # Reranking details
-            "reranked": metadata.get("reranked", False),
-            "reranker_latency_ms": metadata.get("reranker_latency_ms"),
-            "reranker_status": metadata.get("reranker_status", "unknown"),
-            # Results for display (top_k only)
-            "results": [
-                {
-                    "rank": r.get("rank"),
-                    "score": round(r.get("score", 0), 4),
-                    "chunk_id": str(r.get("chunk_id", ""))[:8] + "...",  # Truncate UUID
-                    "source_url": r.get("source_url"),
-                    "text_preview": (r.get("text_content", "")[:100] + "...")
-                    if len(r.get("text_content", "")) > 100
-                    else r.get("text_content", ""),
-                    "token_count": r.get("token_count"),
-                }
-                for r in results[: self.TOP_K]
-            ],
-            # Additional metadata (BM25 results, vector results, RRF results if available)
-            "bm25_results_count": metadata.get("bm25_results_count"),
-            "vector_results_count": metadata.get("vector_results_count"),
-            "rrf_results_count": metadata.get("rrf_results_count"),
-        }
-
-        return debug_data
-
-    def _format_debug_output(self) -> str:
-        """
-        Format debug metadata into markdown for appending to LLM response.
-
-        Returns markdown string with comprehensive debug information.
-        """
-        if not self._search_metadata:
-            return ""
-
-        md = self._search_metadata
-
-        # Build markdown output
-        output = "\n\n---\n\n## 🔍 Debug Information\n\n"
-
-        # Query Details
-        output += "### Query Details\n"
-        output += f"- **Raw Query**: `{md.get('raw_query', 'N/A')}`\n"
-        output += f"- **Cleaned Query**: `{md.get('cleaned_query', 'N/A')}`\n"
-        output += f"- **Command**: `{md.get('command', 'N/A')}`\n\n"
-
-        # Search Configuration
-        output += "### Search Configuration\n"
-        output += f"- **Method**: {md.get('search_method', 'unknown').upper()}"
-        if md.get("hyde_enabled"):
-            output += " (HyDE - Hypothetical Document Embeddings)"
-        output += "\n"
-        output += f"- **Top K**: {md.get('top_k', 'N/A')}\n"
-        output += f"- **Fetch Top K**: {md.get('fetch_top_k', 'N/A')}\n"
-        if md.get("rrf_k"):
-            output += f"- **RRF Constant**: {md.get('rrf_k')}\n"
-        output += "\n"
-
-        # Performance Metrics
-        output += "### Performance Metrics\n"
-        output += f"- **Total Latency**: {md.get('total_latency_ms', 'N/A')}ms\n"
-
-        if md.get("hyde_enabled") and md.get("hyde_latency_ms"):
-            output += f"- **HyDE Generation**: {md.get('hyde_latency_ms')}ms\n"
-
-        if md.get("reranked") and md.get("reranker_latency_ms"):
-            output += f"- **Reranking**: {md.get('reranker_latency_ms')}ms\n"
-
-        output += "\n"
-
-        # HyDE Generation Details (if applicable)
-        if md.get("hyde_enabled") and md.get("hypothetical_document"):
-            output += "### HyDE Generation\n"
-            output += "- **Status**: Success\n"
-            output += "- **Hypothetical Document**:\n"
-            hypo_doc = md.get("hypothetical_document", "")
-            # Truncate if too long
-            if len(hypo_doc) > 300:
-                hypo_doc = hypo_doc[:300] + "..."
-            output += f"  > {hypo_doc}\n\n"
-
-            if md.get("hyde_token_usage"):
-                tokens = md.get("hyde_token_usage", {})
-                output += (
-                    f"- **Token Usage**: {tokens.get('prompt_tokens', '?')} prompt + "
-                )
-                output += f"{tokens.get('completion_tokens', '?')} completion = "
-                output += f"{tokens.get('total_tokens', '?')} total\n\n"
-
-        # Retrieval Results Count
-        if md.get("bm25_results_count") or md.get("vector_results_count"):
-            output += "### Retrieval Pipeline\n"
-            if md.get("bm25_results_count"):
-                output += (
-                    f"- **BM25 Results**: {md.get('bm25_results_count')} candidates\n"
-                )
-            if md.get("vector_results_count"):
-                output += f"- **Vector Results**: {md.get('vector_results_count')} candidates\n"
-            if md.get("rrf_results_count"):
-                output += f"- **RRF Fusion**: {md.get('rrf_results_count')} combined results\n"
-            output += "\n"
-
-        # Reranking Details
-        if md.get("reranked"):
-            output += "### Reranking\n"
-            output += f"- **Status**: {md.get('reranker_status', 'unknown').upper()}\n"
-            if md.get("reranker_latency_ms"):
-                output += f"- **Latency**: {md.get('reranker_latency_ms')}ms\n"
-            output += "\n"
-
-        # Final Results (injected into context)
-        results = md.get("results", [])
-        if results:
-            output += "### Final Results (Injected into Context)\n\n"
-            for result in results:
-                output += (
-                    f"**{result.get('rank')}. Relevance: {result.get('score')}**\n"
-                )
-                output += f"- **Chunk ID**: `{result.get('chunk_id')}`\n"
-                if result.get("source_url"):
-                    output += f"- **Source**: {result.get('source_url')}\n"
-                output += f"- **Tokens**: {result.get('token_count', 'N/A')}\n"
-                if result.get("text_preview"):
-                    output += f"- **Preview**: {result.get('text_preview')}\n"
-                output += "\n"
-
-        # Context Injection Stats
-        output += "### Context Injection\n"
-        output += f"- **Documents Injected**: {md.get('num_results', 0)}\n"
-        output += (
-            f"- **Context Length**: {md.get('context_length_chars', 0):,} characters\n"
-        )
-        output += (
-            f"- **Estimated Tokens**: ~{md.get('context_token_estimate', 0)} tokens "
-        )
-        output += f"(max: {md.get('max_context_tokens', 0)})\n"
-
-        output += "\n---\n"
-
-        return output
-
     def _search_documents(
-        self, query: str, email: Optional[str] = None, use_hyde: bool = False
+        self, query: str, email: Optional[str] = None
     ) -> Dict[str, Any]:
-        """Call the RAG Helpdesk API search endpoint (hybrid or hyde)."""
-        # Choose endpoint based on command-scoped HyDE toggle
-        if use_hyde:
-            endpoint = "hyde"
-            if self.DEBUG_MODE:
-                print(
-                    "[RAG Filter] Using HyDE search endpoint (hypothetical document generation)"
-                )
-        else:
-            endpoint = "hybrid"
-            if self.DEBUG_MODE:
-                print("[RAG Filter] Using standard hybrid search endpoint")
+        """Call the RAG Helpdesk API hybrid search endpoint."""
+        if self.DEBUG_MODE:
+            print("[RAG Filter] Using standard hybrid search endpoint")
 
-        url = f"{self.valves.RAG_API_BASE_URL.rstrip('/')}/api/v1/search/{endpoint}"
+        url = f"{self.valves.RAG_API_BASE_URL.rstrip('/')}/api/v1/search/hybrid"
 
         headers = {
             "Content-Type": "application/json",
@@ -663,7 +399,7 @@ What does DHCP stand for?
     def _inject_no_rag_system_prompt(
         self, messages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
-        """Inject no-RAG system prompt for bypass mode."""
+        """Inject no-RAG system prompt for follow-up mode."""
 
         new_messages = []
         system_found = False
@@ -747,7 +483,7 @@ Use the following retrieved documents to help answer the user's question:
 
         This method:
         1. Extracts the user's query
-        2. Searches the RAG Helpdesk API
+        2. Searches the RAG Helpdesk API (default) or skips search (!f)
         3. Injects retrieved context into the messages
         4. Returns the modified request body
 
@@ -760,7 +496,6 @@ Use the following retrieved documents to help answer the user's question:
             Modified request body with RAG context injected
         """
         start_time = time.time()
-        self._use_hyde_search = False
 
         # Always log when inlet is triggered (even without debug mode)
         print(f"[RAG Filter] ========== INLET TRIGGERED ==========")
@@ -806,8 +541,14 @@ Use the following retrieved documents to help answer the user's question:
         # Parse command from query
         self._original_query = user_query
         command, cleaned_query = self._parse_command(user_query)
-        self._command_mode = "bypass" if command is None else command
-        self._use_hyde_search = command in ("qlong", "debuglong")
+
+        # Map to command_mode for query logging
+        if command == "follow_up":
+            self._command_mode = "follow_up"
+        elif command == "help":
+            self._command_mode = None  # help doesn't log
+        else:
+            self._command_mode = "search"
 
         print(f"[RAG Filter] Command Mode: {self._command_mode}")
 
@@ -843,15 +584,15 @@ Use the following retrieved documents to help answer the user's question:
             # Return body with help text - this will skip LLM call
             return body
 
-        # Handle bypass mode (no command = no RAG)
-        if command is None:
-            print("[RAG Filter] No command detected - bypassing RAG retrieval")
+        # Handle follow-up mode (!f = LLM-only, no RAG)
+        if command == "follow_up":
+            print("[RAG Filter] Follow-up mode - bypassing RAG retrieval")
             if __event_emitter__:
                 await __event_emitter__(
                     {
                         "type": "status",
                         "data": {
-                            "description": "💬 Using LLM knowledge only (no RAG)",
+                            "description": "💬 Answering follow-up (no search)",
                             "done": True,
                         },
                     }
@@ -861,7 +602,7 @@ Use the following retrieved documents to help answer the user's question:
             print("[RAG Filter] Injected no-RAG system prompt")
             return body
 
-        # Use cleaned query for RAG search (command stripped)
+        # Default: use cleaned query for hybrid search
         user_query = cleaned_query
         print(
             f"[RAG Filter] Cleaned Query: {user_query[:100]}{'...' if len(user_query) > 100 else ''}"
@@ -869,16 +610,11 @@ Use the following retrieved documents to help answer the user's question:
 
         # Emit status update
         if __event_emitter__:
-            status_description = (
-                "⏳ Running long-form HyDE search..."
-                if self._use_hyde_search
-                else "🔍 Searching knowledge base..."
-            )
             await __event_emitter__(
                 {
                     "type": "status",
                     "data": {
-                        "description": status_description,
+                        "description": "🔍 Searching knowledge base...",
                         "done": False,
                     },
                 }
@@ -893,13 +629,11 @@ Use the following retrieved documents to help answer the user's question:
 
         try:
             email = __user__.get("email") if __user__ else None
-            search_response = self._search_documents(
-                user_query, email, use_hyde=self._use_hyde_search
-            )
+            search_response = self._search_documents(user_query, email)
             context = self._format_context(search_response)
             num_docs = len(search_response.get("results", []))
 
-            # Extract system prompt from API metadata (NEW)
+            # Extract system prompt from API metadata
             api_system_prompts = search_response.get("metadata", {}).get(
                 "system_prompts", {}
             )
@@ -935,14 +669,6 @@ Use the following retrieved documents to help answer the user's question:
                     print(
                         f"[RAG Filter] Stored query_log_id {query_log_id} for response logging"
                     )
-
-            # Capture comprehensive debug metadata for !debug and !debuglong modes
-            if command in ("debug", "debuglong"):
-                self._search_metadata = self._extract_debug_metadata(
-                    search_response, context, user_query
-                )
-                if self.DEBUG_MODE:
-                    print(f"[RAG Filter] Captured debug metadata for !{command} mode")
 
             print(f"[RAG Filter] SUCCESS: Retrieved {num_docs} documents")
             if self.DEBUG_MODE:
@@ -1078,18 +804,12 @@ Use the following retrieved documents to help answer the user's question:
             elif self.DEBUG_MODE:
                 print("[RAG Filter] LLM response logging disabled")
 
-            # Check if we need to append debug output (!debug or !debuglong mode)
-            if self._search_metadata and self._command_mode in ("debug", "debuglong"):
-                self._append_debug_output(body)
-
         finally:
             # Clean up instance variables after logging
             self._query_log_id = None
             self._search_response_data = None
-            self._search_metadata = None
             self._command_mode = None
             self._original_query = None
-            self._use_hyde_search = False
 
         return body
 
@@ -1214,49 +934,6 @@ Use the following retrieved documents to help answer the user's question:
             # Catch-all: don't fail outlet
             print(
                 f"[RAG Filter] Error in outlet LLM logging: {type(e).__name__}: {str(e)}"
-            )
-            if self.DEBUG_MODE:
-                print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")
-
-    def _append_debug_output(self, body: Dict[str, Any]) -> None:
-        """Append debug information to the LLM response."""
-        try:
-            print("[RAG Filter] Appending debug output to LLM response")
-
-            # Get last message (LLM response)
-            messages = body.get("messages", [])
-            if not messages or messages[-1].get("role") != "assistant":
-                if self.DEBUG_MODE:
-                    print(
-                        "[RAG Filter] Cannot append debug output - no assistant message found"
-                    )
-                return
-
-            last_message = messages[-1]
-            content = last_message.get("content", "")
-
-            # Handle multimodal content (list of text/image parts)
-            if isinstance(content, list):
-                # Find text content part and append debug info
-                for part in content:
-                    if part.get("type") == "text":
-                        original_text = part.get("text", "")
-                        debug_output = self._format_debug_output()
-                        part["text"] = original_text + debug_output
-                        print(
-                            f"[RAG Filter] Debug output appended ({len(debug_output)} chars)"
-                        )
-                        break
-            else:
-                # Simple string content
-                debug_output = self._format_debug_output()
-                last_message["content"] = content + debug_output
-                print(f"[RAG Filter] Debug output appended ({len(debug_output)} chars)")
-
-        except Exception as e:
-            # Don't fail outlet on debug formatting errors
-            print(
-                f"[RAG Filter] Failed to append debug output: {type(e).__name__}: {str(e)}"
             )
             if self.DEBUG_MODE:
                 print(f"[RAG Filter] Traceback:\n{traceback.format_exc()}")

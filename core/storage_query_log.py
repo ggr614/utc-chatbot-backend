@@ -101,9 +101,11 @@ class QueryLogClient(BaseStorageClient):
             "qlong",
             "debug",
             "debuglong",
+            "search",
+            "follow_up",
         ):
             raise ValueError(
-                f"command must be 'bypass', 'q', 'qlong', 'debug', 'debuglong', or None, got '{command}'"
+                f"command must be 'search', 'follow_up', or None (legacy: 'bypass', 'q', 'qlong', 'debug', 'debuglong'), got '{command}'"
             )
 
         logger.debug(
