@@ -166,7 +166,7 @@ class TestReranker:
         # Verify litellm.rerank was called correctly
         mock_litellm_rerank.assert_called_once()
         call_kwargs = mock_litellm_rerank.call_args[1]
-        assert call_kwargs["model"] == "cohere-rerank-v3-5"
+        assert call_kwargs["model"] == "cohere/cohere-rerank-v3-5"
         assert call_kwargs["query"] == "password reset help"
         assert len(call_kwargs["documents"]) == 3
 

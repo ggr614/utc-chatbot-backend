@@ -208,7 +208,7 @@ class TestGenerateEmbeddingsBatch:
         mock_aembedding.assert_called_once()
         call_kwargs = mock_aembedding.call_args[1]
         assert call_kwargs["input"] == ["chunk1", "chunk2", "chunk3"]
-        assert call_kwargs["model"] == "text-embedding-large-3"
+        assert call_kwargs["model"] == "openai/text-embedding-large-3"
 
     @patch("core.embedding.litellm.aembedding", new_callable=AsyncMock)
     def test_batch_preserves_order(self, mock_aembedding, embeddings_client):
