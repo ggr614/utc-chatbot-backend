@@ -3,7 +3,7 @@ Tests for BM25 search module.
 """
 
 import pytest
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -58,6 +58,13 @@ def mock_db_client(sample_chunks):
 
 class TestBM25Retriever:
     """Test suite for BM25Retriever."""
+
+    @pytest.fixture(autouse=True)
+    def mock_prompt_client(self):
+        """Patch PromptStorageClient to prevent real DB connections during search."""
+        with patch("core.storage_prompt.PromptStorageClient") as mock_cls:
+            mock_cls.return_value.get_prompts_for_article_ids.return_value = {}
+            yield mock_cls
 
     def test_initialization(self, mock_db_client):
         """Test BM25Retriever initialization."""
