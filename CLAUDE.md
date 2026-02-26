@@ -56,21 +56,6 @@ alembic revision -m "description"
 alembic stamp head
 ```
 
-**Bootstrap Script (Legacy - being phased out)**
-```bash
-# Check database status
-python main.py bootstrap --status
-
-# Preview changes (dry-run)
-python main.py bootstrap --dry-run
-
-# Create tables and extensions
-python main.py bootstrap
-
-# Full reset (deletes all data - use with caution)
-python main.py bootstrap --full-reset
-```
-
 ### Testing
 ```bash
 # Run all tests
@@ -109,6 +94,13 @@ python main.py pipeline --skip-processing
 
 # Debug logging
 python main.py --log-level DEBUG pipeline
+
+# Evaluate retrieval quality against QA dataset
+python main.py evaluate --dataset data/qa_pairs.jsonl --methods bm25 vector hybrid
+python main.py evaluate --sample-size 200 --quality-filter high
+
+# Run vector search parameter sweep
+python main.py sweep --dataset data/qa_pairs.jsonl --primary-metric mrr
 ```
 
 ### Code Quality
@@ -237,7 +229,7 @@ The FastAPI application provides REST API endpoints for search and query logging
 - Initializes BM25 and vector retrievers once at startup
 - Pre-warms BM25 corpus cache
 - Stores shared resources in `app.state` for dependency injection
-- Registers search and health routers
+- Registers all routers (search, health, query_logs, admin_prompts, admin_analytics)
 
 **api/dependencies.py** - Dependency injection
 - `verify_api_key()`: Validates X-API-Key header, supports multiple keys
@@ -247,8 +239,11 @@ The FastAPI application provides REST API endpoints for search and query logging
 
 **api/routers/search.py** - Search endpoints
 - `POST /api/v1/search/bm25`: BM25 keyword search (fast, <100ms)
+- `POST /api/v1/search/bm25/validate`: BM25 validation (all results, IDs only)
 - `POST /api/v1/search/vector`: Vector semantic search (~500ms-1s, API call)
-- `POST /api/v1/search/hybrid`: Hybrid search with RRF or weighted fusion
+- `POST /api/v1/search/hybrid`: Hybrid search with RRF fusion and neural reranking
+- `POST /api/v1/search/hyde`: HyDE search (hypothetical doc + hybrid + reranking)
+- All search endpoints support filtering by status_names, category_names, is_public, tags
 - All endpoints require API key authentication via X-API-Key header
 - Query logging integrated into each endpoint (best-effort, non-blocking)
 
@@ -256,6 +251,29 @@ The FastAPI application provides REST API endpoints for search and query logging
 - `GET /health/`: Detailed health check with component status (BM25, vector, database pool)
 - `GET /health/ready`: Simple readiness probe for Kubernetes/orchestration
 - No authentication required (for monitoring systems)
+
+**api/routers/query_logs.py** - Query log endpoints
+- `POST /api/v1/query-logs/{id}/response`: Log LLM response for a query (idempotent)
+- `GET /api/v1/query-logs/{id}/response`: Retrieve LLM response for a query log
+- Requires API key authentication
+
+**api/routers/admin_prompts.py** - Admin prompt management
+- `GET /admin/prompts`: HTML admin UI for system prompt management
+- `GET /api/v1/admin/prompts`: List all tag-based system prompts
+- `POST /api/v1/admin/prompts/bulk-save`: Upsert/delete prompts for multiple tags
+- `DELETE /api/v1/admin/prompts/{tag_name}`: Delete prompt by tag
+- `GET /api/v1/admin/categories`: List distinct article categories
+- No authentication required (admin UI)
+
+**api/routers/admin_analytics.py** - Analytics dashboard
+- `GET /admin/analytics`: HTML analytics dashboard
+- `GET /api/v1/admin/analytics/overview`: KPI summary
+- `GET /api/v1/admin/analytics/query-volume`: Query count by hour
+- `GET /api/v1/admin/analytics/cache-performance`: Cache hit/miss breakdown
+- `GET /api/v1/admin/analytics/latency`: Latency percentiles
+- `GET /api/v1/admin/analytics/popular-queries`: Most frequent queries
+- `GET /api/v1/admin/analytics/content-stats`: Article/chunk/embedding counts
+- No authentication required (admin UI)
 
 **api/utils/hybrid_search.py** - Hybrid search implementation
 - `reciprocal_rank_fusion()`: Rank-based RRF fusion (robust, default)
@@ -295,7 +313,7 @@ The FastAPI application provides REST API endpoints for search and query logging
 
 **Query Logging**:
 - All search requests logged to `query_logs` table
-- Fields: raw_query, cache_result, latency_ms, user_id, created_at
+- Fields: raw_query, cache_result, latency_ms, email, command, created_at
 - Best-effort logging (doesn't fail request if logging fails)
 - Uses connection pool for efficient database access
 
@@ -307,6 +325,9 @@ All tables use UUIDs as primary keys. Schema is managed with **Alembic migration
 - `id` (UUID, PK): Auto-generated unique identifier
 - `tdx_article_id` (int, UNIQUE): TDX API article ID
 - `title`, `url`, `content_html` (text): Article metadata and content
+- `status_name`, `category_name` (text): Filtering fields
+- `is_public` (boolean): Visibility flag
+- `summary` (text), `tags` (text[]): Metadata
 - `last_modified_date`, `raw_ingestion_date`, `created_at` (timestamps)
 
 **article_chunks**: Processed text chunks
@@ -338,7 +359,33 @@ All tables use UUIDs as primary keys. Schema is managed with **Alembic migration
 **query_logs**: Query analytics
 - `id` (bigserial, PK): Log entry
 - `raw_query` (text), `query_embedding` (vector(3072))
-- `cache_result`, `latency_ms`, `user_id`, `created_at`
+- `cache_result`, `latency_ms`, `email`, `created_at`
+- `command` (text): CHECK constraint (bypass/q/qlong/debug/debuglong/search/follow_up)
+
+**query_results**: Per-result search logging
+- `id` (bigserial, PK), `query_log_id` (FK → query_logs, CASCADE)
+- `search_method` (bm25/vector/hybrid/hyde), `rank`, `score`, `chunk_id`, `parent_article_id`
+
+**llm_responses**: LLM response logging (1:1 with query_logs)
+- `id` (bigserial, PK), `query_log_id` (FK → query_logs, UNIQUE, CASCADE)
+- `response_text`, `model_name`, `llm_latency_ms`, token counts, `citations` (JSONB)
+
+**hyde_logs**: HyDE generation logging (1:1 with query_logs)
+- `id` (bigserial, PK), `query_log_id` (FK → query_logs, UNIQUE, CASCADE)
+- `hypothetical_document`, `generation_status`, `generation_latency_ms`, `embedding_latency_ms`
+
+**reranker_logs**: Reranker operation logging (1:1 with query_logs)
+- `id` (bigserial, PK), `query_log_id` (FK → query_logs, UNIQUE, CASCADE)
+- `reranker_status`, `model_name`, `reranker_latency_ms`, `avg_rank_change`
+
+**reranker_results**: Per-result reranking details
+- `id` (bigserial, PK), `query_log_id` (FK → query_logs, CASCADE)
+- `rrf_rank`, `rrf_score`, `reranked_rank`, `reranked_score`, `rank_change`
+
+**tag_system_prompts**: Tag-to-system-prompt mapping
+- `id` (UUID, PK), `tag_name` (text, UNIQUE), `system_prompt` (text)
+- `priority` (int, higher wins), `description` (text)
+- Seeded with `__default__` at priority 1000
 
 ### Configuration
 
@@ -425,7 +472,6 @@ All models use UUIDs for `id` and `parent_article_id` fields. Use `HttpUrl` from
 2. Implement `search()` and `batch_search()` methods
 3. Return results with `rank` and `score`/`similarity` fields
 4. Add comprehensive tests in `tests/`
-5. Create example script in `examples/`
 
 ### Modifying the Database Schema
 
@@ -440,15 +486,6 @@ All models use UUIDs for `id` and `parent_article_id` fields. Use `HttpUrl` from
 6. Update all affected tests
 7. Commit migration file to version control
 
-**Using Bootstrap Script (Legacy)**
-1. Update SQL in `utils/bootstrap_db.py`
-2. Update Pydantic models in `core/schemas.py`
-3. Update storage clients in `core/storage_*.py`
-4. Run `python main.py bootstrap --dry-run` to preview changes
-5. Update all affected tests
-
-**Important**: For production databases, always use Alembic migrations for version control and rollback capabilities.
-
 ### Testing Database Operations
 - Tests use mocked database connections (no real DB needed)
 - Use `pytest-mock` to patch `psycopg.connect()`
@@ -462,6 +499,8 @@ All models use UUIDs for `id` and `parent_article_id` fields. Use `HttpUrl` from
 - Log files are stored in `logs/` (also gitignored)
 - The codebase uses Python 3.11+ features (pattern matching, new type hints)
 - All embeddings use the same model for both indexing and querying (critical for vector search)
-- **Database migrations**: Use Alembic for all schema changes. `alembic.ini` is gitignored (contains local DB config)
+- **Database migrations**: Use Alembic for all schema changes. `alembic.ini` is committed to the repo
 - **Schema normalization**: `embeddings_openai` table stores only `chunk_id` and `embedding`; metadata is in `article_chunks`
 - **Storage pattern**: All storage clients inherit from `BaseStorageClient` for connection management
+- **Storage clients**: `storage_raw.py`, `storage_chunk.py`, `storage_vector.py`, `storage_query_log.py`, `storage_cache_metrics.py`, `storage_prompt.py`, `storage_hyde_log.py`, `storage_reranker_log.py`
+- **Evaluation**: `qa/eval_runner.py` (retrieval evaluation) and `qa/param_sweep.py` (hyperparameter sweep) with QA dataset in `data/qa_pairs.jsonl`
