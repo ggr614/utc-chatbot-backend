@@ -362,3 +362,150 @@ Run specific test file:
 pytest tests/test_ingestion.py -v
 ```
 
+## Admin API & Open-webui Integration
+
+The backend includes a FastAPI server that provides:
+1. **Admin Dashboard** - Analytics and monitoring UI
+2. **OpenAI-compatible API** - Allows Open-webui to connect as if it were an OpenAI API
+3. **RAG Retrieval API** - Direct access to vector search
+
+### Starting the API Server
+
+```bash
+# From the backend directory
+cd utc-chatbot-backend
+python -m api.main
+```
+
+The server runs on `http://localhost:8000` by default.
+
+### Environment Variables for API
+
+Add these to your `.env` file:
+
+```bash
+# API Server Configuration
+API_API_KEY=your_secret_api_key    # Required for authentication
+API_HOST=0.0.0.0                   # Default: 0.0.0.0
+API_PORT=8000                      # Default: 8000
+API_WORKERS=4                      # Default: 4
+API_LOG_LEVEL=info                 # Default: info
+```
+
+### API Endpoints
+
+#### Admin Endpoints (require API key via `X-API-Key` header)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/admin/stats` | GET | Conversation statistics (total, unique users, avg latency) |
+| `/admin/users` | GET | Conversations grouped by user |
+| `/admin/queries` | GET | Recent queries with optional user filter |
+| `/admin/cache` | GET | Cache hit/miss statistics |
+| `/admin/conversations/timeline` | GET | Time series data for charting |
+
+**Query Parameters:**
+- `days` - Number of days to look back (default: 30)
+- `limit` - Max results to return (default: 100)
+- `user_id` - Filter by specific user (queries endpoint only)
+
+#### OpenAI-compatible Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/v1/chat/completions` | POST | Chat completions with RAG context injection |
+| `/v1/models` | GET | List available models (prefixed with `utc-rag-`) |
+
+#### RAG Retrieval Endpoints (require API key)
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/chat/retrieve` | POST | Retrieve relevant KB articles for a query |
+| `/chat/log` | POST | Log a query for analytics |
+
+### Admin Dashboard
+
+Access the admin dashboard at `http://localhost:8000/dashboard`
+
+Features:
+- Real-time statistics (conversations, users, latency, cache hit rate)
+- User activity table with click-to-filter
+- Recent queries log
+- Configurable time period (7/30/90 days)
+
+### Open-webui Integration
+
+The backend provides an OpenAI-compatible API that allows Open-webui to connect seamlessly.
+
+#### Setup in Open-webui
+
+1. Go to **Settings → Connections**
+2. Add a new **OpenAI API** connection:
+   - **URL**: `http://localhost:8000/v1` (or `http://host.docker.internal:8000/v1` if Open-webui is in Docker)
+   - **API Key**: Your `API_API_KEY` value
+
+3. Select a model prefixed with `utc-rag-` (e.g., `utc-rag-llama3:latest`)
+
+#### How It Works
+
+```
+User Query → Open-webui → Our API → RAG Retrieval → Ollama → Response
+```
+
+1. User sends a message in Open-webui
+2. Open-webui forwards the request to our OpenAI-compatible endpoint
+3. Our API extracts the user query and retrieves relevant KB articles
+4. The system prompt is augmented with the retrieved context
+5. The request is forwarded to Ollama for LLM inference
+6. The response is returned in OpenAI format
+7. Query is logged for analytics
+
+#### Model Naming
+
+Models are prefixed with `utc-rag-` to distinguish them from direct Ollama connections:
+- `utc-rag-llama3:latest` → Routes through our RAG pipeline
+- `llama3:latest` → Direct to Ollama (no RAG)
+
+### Database Tables for Analytics
+
+The API uses a `query_logs` table for analytics:
+
+```sql
+CREATE TABLE IF NOT EXISTS query_logs (
+    id SERIAL PRIMARY KEY,
+    raw_query TEXT NOT NULL,
+    cache_result VARCHAR(10) DEFAULT 'miss',
+    latency_ms INTEGER,
+    user_id VARCHAR(255),
+    created_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+This table is created automatically during bootstrap.
+
+### Example API Calls
+
+#### Get Statistics
+```bash
+curl -H "X-API-Key: your_key" http://localhost:8000/admin/stats?days=30
+```
+
+#### Retrieve RAG Context
+```bash
+curl -X POST -H "X-API-Key: your_key" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "How do I set up Duo Mobile?", "top_k": 3}' \
+  http://localhost:8000/chat/retrieve
+```
+
+#### Chat Completion (OpenAI format)
+```bash
+curl -X POST -H "Authorization: Bearer your_key" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "utc-rag-llama3:latest",
+    "messages": [{"role": "user", "content": "How do I reset my password?"}]
+  }' \
+  http://localhost:8000/v1/chat/completions
+```
+
