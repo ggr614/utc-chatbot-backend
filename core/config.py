@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     # Postgres
     DB_HOST: str
+    DB_PORT: int = 5432
     DB_USER: str
     DB_PASSWORD: SecretStr
     DB_NAME: str
@@ -38,6 +39,13 @@ class Settings(BaseSettings):
     AZURE_OPENAI_CHAT_TEMPERATURE: float
     AZURE_OPENAI_CHAT_COMPLETION_TOKENS: int
     AZURE_OPENAI_CHAT_API_KEY: SecretStr
+
+    # API Server
+    API_API_KEY: SecretStr
+    API_HOST: str = "0.0.0.0"
+    API_PORT: int = 8000
+    API_WORKERS: int = 4
+    API_LOG_LEVEL: str = "info"
 
     model_config = SettingsConfigDict(
         env_file=".env", env_file_encoding="utf-8", case_sensitive=True, extra="ignore"
