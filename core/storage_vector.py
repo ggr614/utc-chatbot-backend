@@ -48,7 +48,7 @@ class VectorStorageClient:
             self.db_user = settings.DB_USER
             self.db_password = settings.DB_PASSWORD.get_secret_value()
             self.db_name = settings.DB_NAME
-            self.db_port = 5432
+            self.db_port = settings.DB_PORT
             self.table_name = table_name
             self.embedding_dim = embedding_dim
             self._conn: Optional[Connection] = None

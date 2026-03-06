@@ -41,7 +41,7 @@ class DatabaseBootstrap:
         self.db_user = settings.DB_USER
         self.db_password = settings.DB_PASSWORD.get_secret_value()
         self.db_name = settings.DB_NAME
-        self.db_port = 5432
+        self.db_port = settings.DB_PORT
         self.dry_run = dry_run
 
         self._connection_params = {
@@ -464,6 +464,54 @@ class DatabaseBootstrap:
             cur.execute(create_table_sql)
             print(f"  [OK] Created table '{table_name}'")
 
+    def create_llm_responses_table(self, conn: Connection) -> None:
+        """
+        Create the llm_responses table for storing LLM responses.
+
+        Args:
+            conn: Database connection
+        """
+        table_name = "llm_responses"
+        exists = self.check_table_exists(conn, table_name)
+        if self.dry_run:
+            if exists:
+                info = self.get_table_info(conn, table_name)
+                print(
+                    f"  [OK] Table '{table_name}' already exists ({info['row_count']} rows)"
+                )
+                print(f"    Columns: {len(info['columns'])}")
+            else:
+                print(f"  -> Would create table '{table_name}'")
+            return
+
+        if exists:
+            print(f"  [OK] Table '{table_name}' already exists")
+            return
+
+        create_table_sql = """
+        CREATE TABLE llm_responses (
+            id BIGSERIAL PRIMARY KEY,
+            query_log_id BIGINT REFERENCES query_logs(id) ON DELETE CASCADE,
+            response_text TEXT NOT NULL,
+            model_name TEXT,
+            llm_latency_ms INT,
+            prompt_tokens INT,
+            completion_tokens INT,
+            citations JSONB,
+            created_at TIMESTAMPTZ DEFAULT NOW()
+        );
+        """
+
+        create_index_sql = """
+        CREATE INDEX idx_llm_responses_query_log ON llm_responses(query_log_id);
+        CREATE INDEX idx_llm_responses_created_at ON llm_responses(created_at);
+        """
+
+        with conn.cursor() as cur:
+            cur.execute(create_table_sql)
+            cur.execute(create_index_sql)
+            print(f"  [OK] Created table '{table_name}' with indexes")
+
     def create_embeddings_table_cohere(self, conn: Connection) -> None:
         """
         Create the embeddings table for AWS Cohere Embed v4 vectors (1536 dimensions).
@@ -532,6 +580,7 @@ class DatabaseBootstrap:
             conn: Database connection
         """
         tables = [
+            "llm_responses",
             "embeddings_openai",
             "embeddings_cohere",
             "warm_cache_entries",
@@ -591,6 +640,7 @@ class DatabaseBootstrap:
                 self.create_warm_cache_entries(conn)
                 self.create_cache_metrics(conn)
                 self.create_cache_logs(conn)
+                self.create_llm_responses_table(conn)
                 print()
 
                 if self.dry_run:
@@ -632,6 +682,7 @@ class DatabaseBootstrap:
                     "warm_cache_entries",
                     "cache_metrics",
                     "query_logs",
+                    "llm_responses",
                 ]
                 for table in tables:
                     exists = self.check_table_exists(conn, table)

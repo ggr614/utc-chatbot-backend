@@ -29,7 +29,7 @@ class PostgresClient:
             self.db_user = settings.DB_USER
             self.db_password = settings.DB_PASSWORD.get_secret_value()
             self.db_name = settings.DB_NAME
-            self.db_port = 5432
+            self.db_port = settings.DB_PORT
             self._conn: Optional[Connection] = None
             self._connection_params = {
                 "host": self.db_host,

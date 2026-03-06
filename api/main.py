@@ -15,7 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 
-from api.routes import admin, chat, openai_compat
+from api.routes import admin, chat, openai_compat, search
 from core.config import get_settings
 
 # Path to admin dashboard
@@ -65,6 +65,7 @@ app.add_middleware(
 app.include_router(admin.router)
 app.include_router(chat.router)
 app.include_router(openai_compat.router)
+app.include_router(search.router)
 
 
 @app.get("/")
