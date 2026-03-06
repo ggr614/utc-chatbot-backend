@@ -1,15 +1,15 @@
 """
-Tests for the storage_vector module (VectorStorageClient, OpenAIVectorStorage, CohereVectorStorage).
+Tests for the storage_vector module (VectorStorageClient, OpenAIVectorStorage).
 """
 
 import pytest
 from unittest.mock import Mock, patch, MagicMock
 from pydantic import HttpUrl
+from uuid import UUID
 
 from core.storage_vector import (
     VectorStorageClient,
     OpenAIVectorStorage,
-    CohereVectorStorage,
 )
 from core.schemas import VectorRecord
 
@@ -20,12 +20,12 @@ class TestVectorStorageClient:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for database connection."""
-        with patch("core.storage_vector.get_settings") as mock:
+        with patch("core.storage_base.get_database_settings") as mock:
             settings = Mock()
-            settings.DB_HOST = "localhost"
-            settings.DB_USER = "test_user"
-            settings.DB_PASSWORD.get_secret_value.return_value = "test_password"
-            settings.DB_NAME = "test_db"
+            settings.HOST = "localhost"
+            settings.USER = "test_user"
+            settings.PASSWORD.get_secret_value.return_value = "test_password"
+            settings.NAME = "test_db"
             mock.return_value = settings
             yield settings
 
@@ -46,21 +46,21 @@ class TestVectorStorageClient:
 
     def test_init_validates_configuration(self):
         """Test that initialization validates configuration."""
-        with patch("core.storage_vector.get_settings") as mock_settings:
-            # Test missing DB_HOST
+        with patch("core.storage_base.get_database_settings") as mock_settings:
+            # Test missing HOST
             settings = Mock()
-            settings.DB_HOST = None
-            settings.DB_USER = "user"
-            settings.DB_NAME = "db"
-            settings.DB_PASSWORD.get_secret_value.return_value = "pass"
+            settings.HOST = None
+            settings.USER = "user"
+            settings.NAME = "db"
+            settings.PASSWORD.get_secret_value.return_value = "pass"
             mock_settings.return_value = settings
 
-            with pytest.raises(ValueError, match="DB_HOST is not configured"):
+            with pytest.raises(ValueError, match="HOST is not configured"):
                 VectorStorageClient(table_name="test", embedding_dim=1536)
 
     def test_get_connection_success(self, client):
         """Test successful database connection."""
-        with patch("core.storage_vector.psycopg.connect") as mock_connect:
+        with patch("core.storage_base.psycopg.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_conn.closed = False
             mock_connect.return_value = mock_conn
@@ -73,7 +73,7 @@ class TestVectorStorageClient:
 
     def test_get_connection_rollback_on_error(self, client):
         """Test that connection rolls back on error."""
-        with patch("core.storage_vector.psycopg.connect") as mock_connect:
+        with patch("core.storage_base.psycopg.connect") as mock_connect:
             mock_conn = MagicMock()
             mock_conn.closed = False
             mock_connect.return_value = mock_conn
@@ -148,9 +148,11 @@ class TestVectorStorageClient:
 
     def test_insert_embeddings_validates_dimensions(self, client):
         """Test that insert validates embedding dimensions."""
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
@@ -163,9 +165,11 @@ class TestVectorStorageClient:
 
     def test_insert_embeddings_success(self, client):
         """Test successful embedding insertion."""
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
@@ -195,9 +199,11 @@ class TestVectorStorageClient:
 
     def test_update_embeddings_validates_dimensions(self, client):
         """Test that update validates embedding dimensions."""
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
@@ -210,9 +216,11 @@ class TestVectorStorageClient:
 
     def test_update_embeddings_success(self, client):
         """Test successful embedding update."""
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Updated content",
             token_count=10,
@@ -296,8 +304,8 @@ class TestVectorStorageClient:
         query_vector = [0.1] * 1536  # Correct dimension
         mock_cursor = MagicMock()
         mock_cursor.fetchall.return_value = [
-            ("chunk_1", 123, 0, "Text 1", 100, "https://example.com", None, 0.95),
-            ("chunk_2", 124, 0, "Text 2", 150, "https://example.com", None, 0.85),
+            ("chunk_1", 123, 0, "Text 1", 100, "https://example.com", None, 0.95, None),
+            ("chunk_2", 124, 0, "Text 2", 150, "https://example.com", None, 0.85, None),
         ]
 
         with patch.object(client, "get_connection") as mock_get_conn:
@@ -324,12 +332,12 @@ class TestOpenAIVectorStorage:
     @pytest.fixture
     def mock_settings(self):
         """Mock settings for database connection."""
-        with patch("core.storage_vector.get_settings") as mock:
+        with patch("core.storage_base.get_database_settings") as mock:
             settings = Mock()
-            settings.DB_HOST = "localhost"
-            settings.DB_USER = "test_user"
-            settings.DB_PASSWORD.get_secret_value.return_value = "test_password"
-            settings.DB_NAME = "test_db"
+            settings.HOST = "localhost"
+            settings.USER = "test_user"
+            settings.PASSWORD.get_secret_value.return_value = "test_password"
+            settings.NAME = "test_db"
             mock.return_value = settings
             yield settings
 
@@ -346,9 +354,11 @@ class TestOpenAIVectorStorage:
         client = OpenAIVectorStorage()
 
         # Should accept 3072-dimensional vectors
+        test_chunk_id = UUID("12345678-1234-5678-1234-567812345678")
+        test_article_id = UUID("87654321-4321-8765-4321-876543218765")
         record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
+            chunk_id=test_chunk_id,
+            parent_article_id=test_article_id,
             chunk_sequence=0,
             text_content="Test content",
             token_count=10,
@@ -360,47 +370,3 @@ class TestOpenAIVectorStorage:
         for idx, (rec, emb) in enumerate([(record, embedding)]):
             if len(emb) != client.embedding_dim:
                 pytest.fail(f"Dimension validation failed for OpenAI (expected 3072)")
-
-
-class TestCohereVectorStorage:
-    """Test suite for CohereVectorStorage class."""
-
-    @pytest.fixture
-    def mock_settings(self):
-        """Mock settings for database connection."""
-        with patch("core.storage_vector.get_settings") as mock:
-            settings = Mock()
-            settings.DB_HOST = "localhost"
-            settings.DB_USER = "test_user"
-            settings.DB_PASSWORD.get_secret_value.return_value = "test_password"
-            settings.DB_NAME = "test_db"
-            mock.return_value = settings
-            yield settings
-
-    def test_init(self, mock_settings):
-        """Test Cohere client initialization."""
-        client = CohereVectorStorage()
-
-        assert client.table_name == "embeddings_cohere"
-        assert client.embedding_dim == 1536
-        assert client.db_host == "localhost"
-
-    def test_correct_dimension(self, mock_settings):
-        """Test that Cohere client uses correct embedding dimension."""
-        client = CohereVectorStorage()
-
-        # Should accept 1536-dimensional vectors
-        record = VectorRecord(
-            chunk_id="test_chunk",
-            parent_article_id=123,
-            chunk_sequence=0,
-            text_content="Test content",
-            token_count=10,
-            source_url=HttpUrl("https://example.com"),
-        )
-        embedding = [0.1] * 1536
-
-        # Validate dimensions (should not raise)
-        for idx, (rec, emb) in enumerate([(record, embedding)]):
-            if len(emb) != client.embedding_dim:
-                pytest.fail(f"Dimension validation failed for Cohere (expected 1536)")

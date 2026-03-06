@@ -1,110 +1,30 @@
-from contextlib import contextmanager
 from datetime import datetime
 from typing import Dict, List, Optional, Set
 from uuid import UUID
-from core.config import get_settings
 import psycopg
-from psycopg import Connection
+from core.storage_base import BaseStorageClient
 from core.schemas import TdxArticle
 from utils.logger import get_logger, PerformanceLogger
 
 logger = get_logger(__name__)
 
 
-class PostgresClient:
-    def __init__(self):
-        logger.info("Initializing PostgresClient")
-        try:
-            settings = get_settings()
+class PostgresClient(BaseStorageClient):
+    """
+    Storage client for raw article data.
 
-            # Validate configuration
-            if not settings.DB_HOST:
-                raise ValueError("DB_HOST is not configured")
-            if not settings.DB_USER:
-                raise ValueError("DB_USER is not configured")
-            if not settings.DB_NAME:
-                raise ValueError("DB_NAME is not configured")
+    Handles CRUD operations for the articles table, including
+    ingestion from TDX API and metadata management.
+    """
 
-            self.db_host = settings.DB_HOST
-            self.db_user = settings.DB_USER
-            self.db_password = settings.DB_PASSWORD.get_secret_value()
-            self.db_name = settings.DB_NAME
-            self.db_port = settings.DB_PORT
-            self._conn: Optional[Connection] = None
-            self._connection_params = {
-                "host": self.db_host,
-                "user": self.db_user,
-                "password": self.db_password,
-                "dbname": self.db_name,
-                "port": self.db_port,
-            }
-            logger.info(
-                f"PostgresClient configured for {self.db_host}:{self.db_port}/{self.db_name}"
-            )
-            logger.debug(f"Database user: {self.db_user}")
-        except Exception as e:
-            logger.error(f"Failed to initialize PostgresClient: {str(e)}")
-            raise
-
-    @contextmanager
-    def get_connection(self):
+    def __init__(self, connection_pool=None):
         """
-        Get a database connection with automatic cleanup.
+        Initialize the PostgresClient for articles storage.
 
-        Yields:
-            Connection: PostgreSQL connection object
-
-        Raises:
-            ConnectionError: If unable to connect to database
-
-        Example:
-            >>> store = KBStore(host="localhost", user="admin", password="pass", db_name="kb")
-            >>> with store.get_connection() as conn:
-            ...     cursor = conn.cursor()
-            ...     cursor.execute("SELECT * FROM articles")
+        Args:
+            connection_pool: Optional DatabaseConnectionPool instance for API mode
         """
-        conn = None
-        try:
-            logger.debug(f"Connecting to database {self.db_name}@{self.db_host}")
-            conn = psycopg.connect(**self._connection_params)
-            logger.debug("Database connection established successfully")
-            yield conn
-            conn.commit()  # Auto-commit on success
-            logger.debug("Transaction committed successfully")
-        except psycopg.OperationalError as e:
-            if conn:
-                conn.rollback()
-            logger.error(f"Database connection error: {str(e)}")
-            raise ConnectionError(f"Unable to connect to database: {e}") from e
-        except psycopg.Error as e:
-            if conn:
-                conn.rollback()
-                logger.warning("Transaction rolled back due to error")
-            logger.error(f"Database error: {str(e)}")
-            raise ConnectionError(f"Database error: {e}") from e
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            logger.error(f"Unexpected error during database operation: {str(e)}")
-            raise
-        finally:
-            if conn and not conn.closed:
-                conn.close()
-                logger.debug("Database connection closed")
-
-    def close(self):
-        """Close the database connection if open."""
-        if self._conn and not self._conn.closed:
-            self._conn.close()
-            self._conn = None
-
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, _exc_type, _exc_val, _exc_tb):
-        """Context manager exit with cleanup."""
-        self.close()
+        super().__init__(connection_pool=connection_pool)
 
     def get_article_metadata(self) -> Dict[int, datetime]:
         """
@@ -154,8 +74,12 @@ class PostgresClient:
                             try:
                                 cur.execute(
                                     """
-                                    INSERT INTO articles (tdx_article_id, title, url, content_html, last_modified_date, raw_ingestion_date)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                    INSERT INTO articles (
+                                        tdx_article_id, title, url, content_html,
+                                        last_modified_date, raw_ingestion_date,
+                                        status_name, category_name, is_public, summary, tags
+                                    )
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                                     RETURNING id
                                     """,
                                     (
@@ -165,11 +89,17 @@ class PostgresClient:
                                         article.content_html,
                                         article.last_modified_date,
                                         article.raw_ingestion_date,
+                                        article.status_name,
+                                        article.category_name,
+                                        article.is_public,
+                                        article.summary,
+                                        article.tags,
                                     ),
                                 )
                                 # Get the auto-generated UUID
-                                generated_id = cur.fetchone()[0]
-                                article.id = generated_id
+                                result = cur.fetchone()
+                                if result:
+                                    article.id = result[0]
                                 logger.debug(
                                     f"Inserted article TDX ID {article.tdx_article_id} (UUID: {article.id}): {article.title}"
                                 )
@@ -219,7 +149,12 @@ class PostgresClient:
                                         url = %s,
                                         content_html = %s,
                                         last_modified_date = %s,
-                                        raw_ingestion_date = %s
+                                        raw_ingestion_date = %s,
+                                        status_name = %s,
+                                        category_name = %s,
+                                        is_public = %s,
+                                        summary = %s,
+                                        tags = %s
                                     WHERE tdx_article_id = %s
                                     RETURNING id
                                     """,
@@ -229,6 +164,11 @@ class PostgresClient:
                                         article.content_html,
                                         article.last_modified_date,
                                         article.raw_ingestion_date,
+                                        article.status_name,
+                                        article.category_name,
+                                        article.is_public,
+                                        article.summary,
+                                        article.tags,
                                         article.tdx_article_id,
                                     ),
                                 )
@@ -267,7 +207,10 @@ class PostgresClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, tdx_article_id, title, url, content_html, last_modified_date
+                        SELECT
+                            id, tdx_article_id, title, url, content_html,
+                            last_modified_date, status_name, category_name,
+                            is_public, summary, tags
                         FROM articles
                         ORDER BY id
                         """
@@ -283,6 +226,11 @@ class PostgresClient:
                                 url=row[3],
                                 content_html=row[4],
                                 last_modified_date=row[5],
+                                status_name=row[6],
+                                category_name=row[7],
+                                is_public=row[8],
+                                summary=row[9],
+                                tags=row[10],
                             )
                         )
                     logger.info(f"Retrieved {len(articles)} articles from database")
@@ -314,7 +262,10 @@ class PostgresClient:
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, tdx_article_id, title, url, content_html, last_modified_date
+                        SELECT
+                            id, tdx_article_id, title, url, content_html,
+                            last_modified_date, status_name, category_name,
+                            is_public, summary, tags
                         FROM articles
                         WHERE id = ANY(%s)
                         ORDER BY id
@@ -332,6 +283,11 @@ class PostgresClient:
                                 url=row[3],
                                 content_html=row[4],
                                 last_modified_date=row[5],
+                                status_name=row[6],
+                                category_name=row[7],
+                                is_public=row[8],
+                                summary=row[9],
+                                tags=row[10],
                             )
                         )
                     logger.info(f"Retrieved {len(articles)} articles from database")
@@ -473,4 +429,92 @@ class PostgresClient:
                     return chunks
         except Exception as e:
             logger.error(f"Failed to fetch chunks: {str(e)}")
+            raise
+
+    def get_articles_by_tdx_ids(self, tdx_ids: List[int]) -> List[Dict]:
+        """
+        Retrieve articles from database by TDX article IDs.
+
+        Args:
+            tdx_ids: List of TDX article IDs to query
+
+        Returns:
+            List of dictionaries with article metadata (id, tdx_article_id, title)
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        if not tdx_ids:
+            return []
+
+        logger.debug(f"Fetching {len(tdx_ids)} articles by TDX IDs from database")
+
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, tdx_article_id, title
+                        FROM articles
+                        WHERE tdx_article_id = ANY(%s)
+                        """,
+                        (tdx_ids,),
+                    )
+                    rows = cur.fetchall()
+                    articles = [
+                        {"id": row[0], "tdx_article_id": row[1], "title": row[2]}
+                        for row in rows
+                    ]
+                    logger.debug(f"Retrieved {len(articles)} articles from database")
+                    return articles
+        except Exception as e:
+            logger.error(f"Failed to fetch articles by TDX IDs: {str(e)}")
+            raise
+
+    def delete_articles_by_tdx_ids(self, tdx_ids: List[int]) -> int:
+        """
+        Delete articles by TDX article IDs.
+
+        CASCADE DELETE automatically removes:
+        - article_chunks (via parent_article_id FK)
+        - embeddings_openai (via chunk_id FK)
+        - warm_cache_entries (via article_id FK)
+
+        Args:
+            tdx_ids: List of TDX article IDs to delete
+
+        Returns:
+            Number of articles deleted
+
+        Raises:
+            ConnectionError: If database operation fails
+        """
+        if not tdx_ids:
+            return 0
+
+        logger.info(f"Deleting {len(tdx_ids)} articles from database")
+
+        try:
+            with PerformanceLogger(logger, f"Delete {len(tdx_ids)} articles"):
+                with self.get_connection() as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            DELETE FROM articles
+                            WHERE tdx_article_id = ANY(%s)
+                            RETURNING id
+                            """,
+                            (tdx_ids,),
+                        )
+                        deleted_ids = cur.fetchall()
+                        conn.commit()
+
+                        deleted_count = len(deleted_ids)
+                        logger.info(
+                            f"Deleted {deleted_count} articles "
+                            f"(CASCADE removes related chunks, embeddings, and cache entries)"
+                        )
+                        return deleted_count
+        except Exception as e:
+            logger.error(f"Failed to delete articles: {str(e)}")
             raise

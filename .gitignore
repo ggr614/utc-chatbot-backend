@@ -149,6 +149,7 @@ activemq-data/
 
 # Environments
 .env
+.env.local
 .envrc
 .venv
 env/
@@ -215,6 +216,11 @@ __marimo__/
 # Streamlit
 .streamlit/secrets.toml
 
+
 .claude
 
 data
+
+config.yaml
+litellm_compose.yaml
+pgvector_compose.yaml

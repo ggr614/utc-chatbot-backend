@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Prompt Admin</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0; padding: 0; background: #f5f6fa; color: #2d3436;
+  }
+  .container { max-width: 1100px; margin: 0 auto; padding: 24px; }
+  h1 { margin: 0 0 24px; font-size: 1.6rem; font-weight: 600; }
+  .toolbar { display: flex; gap: 10px; margin-bottom: 20px; }
+  button {
+    padding: 8px 16px; border: 1px solid #ddd; border-radius: 6px;
+    background: #fff; cursor: pointer; font-size: 0.875rem; font-weight: 500;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  button:hover { background: #f0f0f0; border-color: #bbb; }
+  button.primary {
+    background: #0984e3; color: #fff; border-color: #0984e3;
+  }
+  button.primary:hover { background: #0770c2; }
+  button.danger { color: #d63031; border-color: #d63031; }
+  button.danger:hover { background: #ffeaea; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Prompt table */
+  .prompt-table { width: 100%; border-collapse: collapse; background: #fff; border-radius: 8px; overflow: hidden; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .prompt-table th { background: #f8f9fa; text-align: left; padding: 12px 16px; font-size: 0.8rem; text-transform: uppercase; color: #636e72; border-bottom: 2px solid #eee; }
+  .prompt-table td { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; font-size: 0.875rem; vertical-align: top; }
+  .prompt-table tr:hover td { background: #f8f9ff; }
+  .prompt-table tr.selected td { background: #ebf5ff; }
+  .tag-pill {
+    display: inline-block; padding: 2px 8px; margin: 2px 3px 2px 0; border-radius: 12px;
+    background: #dfe6e9; font-size: 0.75rem; font-weight: 500;
+  }
+  .tag-pill.default { background: #ffeaa7; }
+  .tag-pill.orphan { background: #fab1a0; font-style: italic; }
+  .prompt-preview { max-width: 400px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #636e72; }
+
+  /* Editor panel */
+  .editor { display: none; background: #fff; border-radius: 8px; padding: 24px; margin-top: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }
+  .editor.active { display: block; }
+  .editor h2 { margin: 0 0 16px; font-size: 1.1rem; font-weight: 600; }
+  .form-group { margin-bottom: 16px; }
+  .form-group label { display: block; margin-bottom: 6px; font-size: 0.8rem; font-weight: 600; text-transform: uppercase; color: #636e72; }
+  textarea {
+    width: 100%; min-height: 200px; padding: 12px; border: 1px solid #ddd; border-radius: 6px;
+    font-family: "Cascadia Code", "Fira Code", "Consolas", monospace; font-size: 0.875rem;
+    resize: vertical; line-height: 1.5;
+  }
+  textarea:focus { outline: none; border-color: #0984e3; box-shadow: 0 0 0 3px rgba(9,132,227,0.1); }
+  input[type="number"], input[type="text"] {
+    padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.875rem;
+  }
+  input:focus { outline: none; border-color: #0984e3; box-shadow: 0 0 0 3px rgba(9,132,227,0.1); }
+  .inline-fields { display: flex; gap: 16px; }
+  .inline-fields .form-group { flex: 1; }
+
+  /* Tag checkboxes */
+  .tag-grid { display: flex; flex-wrap: wrap; gap: 6px; max-height: 300px; overflow-y: auto; padding: 8px; border: 1px solid #eee; border-radius: 6px; }
+  .tag-checkbox {
+    display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+    border: 1px solid #ddd; border-radius: 16px; cursor: pointer;
+    font-size: 0.8rem; transition: background 0.15s, border-color 0.15s;
+    user-select: none;
+  }
+  .tag-checkbox:hover { background: #f0f0f0; }
+  .tag-checkbox.checked { background: #ebf5ff; border-color: #0984e3; }
+  .tag-checkbox input { margin: 0; }
+  .tag-filter { margin-bottom: 8px; }
+  .tag-filter input { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.875rem; }
+
+  /* Status messages */
+  .status { padding: 10px 16px; border-radius: 6px; margin-bottom: 16px; display: none; font-size: 0.875rem; }
+  .status.success { display: block; background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+  .status.error { display: block; background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+  .status.info { display: block; background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+
+  .empty-state { text-align: center; padding: 40px; color: #636e72; }
+
+  .editor-actions { display: flex; gap: 10px; margin-top: 20px; padding-top: 16px; border-top: 1px solid #eee; }
+</style>
+</head>
+<body>
+<div class="container">
+  <nav style="display:flex; gap:8px; margin-bottom:20px; font-size:0.875rem;">
+    <a href="/admin/prompts" style="color:#0984e3; font-weight:600; text-decoration:none; padding:6px 14px; background:#ebf5ff; border-radius:6px;">Prompts</a>
+    <a href="/admin/analytics" style="color:#636e72; text-decoration:none; padding:6px 14px; border-radius:6px;">Analytics</a>
+  </nav>
+
+  <h1>System Prompt Admin</h1>
+
+  <div id="status" class="status"></div>
+
+  <div class="toolbar">
+    <button class="primary" onclick="newPrompt()">+ New Prompt</button>
+    <button onclick="refresh()">Refresh</button>
+  </div>
+
+  <table class="prompt-table" id="promptTable">
+    <thead>
+      <tr>
+        <th>Categories</th>
+        <th>Prompt</th>
+        <th>Priority</th>
+        <th>Actions</th>
+      </tr>
+    </thead>
+    <tbody id="promptBody">
+      <tr><td colspan="4" class="empty-state">Loading...</td></tr>
+    </tbody>
+  </table>
+
+  <div class="editor" id="editor">
+    <h2 id="editorTitle">New Prompt</h2>
+
+    <div class="form-group">
+      <label for="promptText">System Prompt</label>
+      <textarea id="promptText" placeholder="You are a helpful assistant..."></textarea>
+    </div>
+
+    <div class="inline-fields">
+      <div class="form-group">
+        <label for="priority">Priority</label>
+        <input type="number" id="priority" value="0" min="0" max="9999" style="width:100px">
+      </div>
+      <div class="form-group">
+        <label for="description">Description (optional)</label>
+        <input type="text" id="description" placeholder="Admin notes about this prompt" style="width:100%">
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Assign to Categories</label>
+      <div class="tag-filter">
+        <input type="text" id="tagFilter" placeholder="Filter categories..." oninput="filterTags()">
+      </div>
+      <div class="tag-grid" id="tagGrid">
+        <span class="empty-state">Loading categories...</span>
+      </div>
+    </div>
+
+    <div class="editor-actions">
+      <button class="primary" onclick="savePrompt()" id="saveBtn">Save</button>
+      <button onclick="cancelEdit()">Cancel</button>
+      <button class="danger" onclick="deleteGroup()" id="deleteBtn" style="margin-left:auto">Delete Group</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_BASE = window.location.origin;
+let allPrompts = [];
+let allCategories = [];
+let editingGroup = null; // { tags: [...], system_prompt, priority, description }
+
+async function apiFetch(path, options = {}) {
+  const resp = await fetch(API_BASE + path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...options,
+  });
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+    throw new Error(err.detail || `HTTP ${resp.status}`);
+  }
+  return resp.json();
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'status ' + type;
+  if (type === 'success') setTimeout(() => { el.className = 'status'; }, 4000);
+}
+
+// Group prompts by identical system_prompt text
+function groupPrompts(prompts) {
+  const groups = {};
+  for (const p of prompts) {
+    const key = p.system_prompt;
+    if (!groups[key]) {
+      groups[key] = {
+        system_prompt: p.system_prompt,
+        priority: p.priority,
+        description: p.description,
+        tags: [],
+      };
+    }
+    groups[key].tags.push(p.tag_name);
+  }
+  // Sort: __default__ first, then by priority desc
+  return Object.values(groups).sort((a, b) => {
+    if (a.tags.includes('__default__')) return -1;
+    if (b.tags.includes('__default__')) return 1;
+    return b.priority - a.priority;
+  });
+}
+
+function renderTable() {
+  const groups = groupPrompts(allPrompts);
+  const tbody = document.getElementById('promptBody');
+  const catSet = new Set(allCategories);
+
+  if (groups.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No prompts found. Click "+ New Prompt" to create one.</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = groups.map((g, i) => {
+    const tagPills = g.tags.map(t => {
+      let cls = 'tag-pill';
+      if (t === '__default__') cls += ' default';
+      else if (!catSet.has(t)) cls += ' orphan';
+      return `<span class="${cls}">${escapeHtml(t)}</span>`;
+    }).join('');
+
+    const preview = g.system_prompt.length > 80
+      ? g.system_prompt.substring(0, 80) + '...'
+      : g.system_prompt;
+
+    const isDefault = g.tags.includes('__default__') && g.tags.length === 1;
+
+    return `<tr data-idx="${i}">
+      <td>${tagPills}</td>
+      <td class="prompt-preview" title="${escapeAttr(g.system_prompt)}">${escapeHtml(preview)}</td>
+      <td>${g.priority}</td>
+      <td>
+        <button onclick="editGroup(${i})">Edit</button>
+      </td>
+    </tr>`;
+  }).join('');
+
+  // Store groups for edit access
+  window._groups = groups;
+}
+
+function renderTagCheckboxes(checkedTags = []) {
+  const grid = document.getElementById('tagGrid');
+  const checked = new Set(checkedTags);
+
+  // Combine article categories + any categories currently in prompts that aren't in articles
+  const promptCats = new Set(allPrompts.map(p => p.tag_name));
+  const allAvailable = new Set([...allCategories, ...promptCats]);
+  allAvailable.delete('__default__');
+
+  const sorted = [...allAvailable].sort();
+
+  if (sorted.length === 0) {
+    grid.innerHTML = '<span class="empty-state" style="padding:16px">No categories found. Categories are populated during article ingestion.</span>';
+    return;
+  }
+
+  const catSet = new Set(allCategories);
+  grid.innerHTML = sorted.map(tag => {
+    const isChecked = checked.has(tag);
+    const isOrphan = !catSet.has(tag);
+    return `<label class="tag-checkbox ${isChecked ? 'checked' : ''}" data-tag="${escapeAttr(tag)}">
+      <input type="checkbox" value="${escapeAttr(tag)}" ${isChecked ? 'checked' : ''} onchange="toggleTag(this)">
+      ${escapeHtml(tag)}${isOrphan ? ' (orphan)' : ''}
+    </label>`;
+  }).join('');
+}
+
+function toggleTag(cb) {
+  const label = cb.closest('.tag-checkbox');
+  label.classList.toggle('checked', cb.checked);
+}
+
+function filterTags() {
+  const filter = document.getElementById('tagFilter').value.toLowerCase();
+  document.querySelectorAll('.tag-checkbox').forEach(el => {
+    const tag = el.dataset.tag.toLowerCase();
+    el.style.display = tag.includes(filter) ? '' : 'none';
+  });
+}
+
+function newPrompt() {
+  editingGroup = null;
+  document.getElementById('editorTitle').textContent = 'New Prompt';
+  document.getElementById('promptText').value = '';
+  document.getElementById('priority').value = '0';
+  document.getElementById('description').value = '';
+  document.getElementById('deleteBtn').style.display = 'none';
+  renderTagCheckboxes([]);
+  document.getElementById('editor').classList.add('active');
+  document.getElementById('promptText').focus();
+}
+
+function editGroup(idx) {
+  const g = window._groups[idx];
+  editingGroup = { ...g, originalTags: [...g.tags] };
+
+  const isDefaultOnly = g.tags.includes('__default__') && g.tags.length === 1;
+  document.getElementById('editorTitle').textContent = isDefaultOnly ? 'Edit Default Prompt' : 'Edit Prompt';
+  document.getElementById('promptText').value = g.system_prompt;
+  document.getElementById('priority').value = g.priority;
+  document.getElementById('description').value = g.description || '';
+  document.getElementById('deleteBtn').style.display = isDefaultOnly ? 'none' : '';
+
+  // Filter out __default__ from checkboxes; it's always included for default group
+  const checkTags = g.tags.filter(t => t !== '__default__');
+  renderTagCheckboxes(checkTags);
+  document.getElementById('editor').classList.add('active');
+  document.getElementById('promptText').focus();
+}
+
+function cancelEdit() {
+  editingGroup = null;
+  document.getElementById('editor').classList.remove('active');
+}
+
+function getCheckedTags() {
+  return [...document.querySelectorAll('.tag-checkbox input:checked')].map(cb => cb.value);
+}
+
+async function savePrompt() {
+  const promptText = document.getElementById('promptText').value.trim();
+  const priority = parseInt(document.getElementById('priority').value) || 0;
+  const description = document.getElementById('description').value.trim() || null;
+
+  if (!promptText) {
+    showStatus('Prompt text cannot be empty.', 'error');
+    return;
+  }
+
+  let tags = getCheckedTags();
+  let removeTags = [];
+
+  // If editing the __default__ group, always include __default__
+  if (editingGroup && editingGroup.originalTags.includes('__default__')) {
+    if (!tags.includes('__default__')) tags.push('__default__');
+  }
+
+  if (tags.length === 0 && !editingGroup) {
+    showStatus('Select at least one category to assign this prompt to.', 'error');
+    return;
+  }
+
+  // If no categories selected for a new prompt, it's invalid
+  if (tags.length === 0) {
+    showStatus('Select at least one category to assign this prompt to.', 'error');
+    return;
+  }
+
+  // Compute removed tags (were in original group, now unchecked)
+  if (editingGroup) {
+    const checkedSet = new Set(tags);
+    removeTags = editingGroup.originalTags.filter(t => t !== '__default__' && !checkedSet.has(t));
+  }
+
+  const saveBtn = document.getElementById('saveBtn');
+  saveBtn.disabled = true;
+  saveBtn.textContent = 'Saving...';
+
+  try {
+    const result = await apiFetch('/api/v1/admin/prompts/bulk-save', {
+      method: 'POST',
+      body: JSON.stringify({
+        system_prompt: promptText,
+        tags: tags,
+        remove_tags: removeTags,
+        priority: priority,
+        description: description,
+      }),
+    });
+    showStatus(`Saved: ${result.message}`, 'success');
+    cancelEdit();
+    await refresh();
+  } catch (e) {
+    showStatus('Save failed: ' + e.message, 'error');
+  } finally {
+    saveBtn.disabled = false;
+    saveBtn.textContent = 'Save';
+  }
+}
+
+async function deleteGroup() {
+  if (!editingGroup) return;
+  const tagsToDelete = editingGroup.originalTags.filter(t => t !== '__default__');
+  if (tagsToDelete.length === 0) {
+    showStatus('Cannot delete the default prompt.', 'error');
+    return;
+  }
+  if (!confirm(`Delete prompt for categories: ${tagsToDelete.join(', ')}?`)) return;
+
+  try {
+    for (const tag of tagsToDelete) {
+      await apiFetch(`/api/v1/admin/prompts/${encodeURIComponent(tag)}`, { method: 'DELETE' });
+    }
+    showStatus(`Deleted ${tagsToDelete.length} tag prompt(s).`, 'success');
+    cancelEdit();
+    await refresh();
+  } catch (e) {
+    showStatus('Delete failed: ' + e.message, 'error');
+  }
+}
+
+async function refresh() {
+  try {
+    const [prompts, catResp] = await Promise.all([
+      apiFetch('/api/v1/admin/prompts'),
+      apiFetch('/api/v1/admin/categories'),
+    ]);
+    allPrompts = prompts;
+    allCategories = catResp.categories;
+    renderTable();
+  } catch (e) {
+    showStatus('Failed to load data: ' + e.message, 'error');
+    document.getElementById('promptBody').innerHTML =
+      '<tr><td colspan="4" class="empty-state">Failed to load. Is the API running?</td></tr>';
+  }
+}
+
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function escapeAttr(s) {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// Initial load
+refresh();
+</script>
+</body>
+</html>

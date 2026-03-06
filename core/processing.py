@@ -1,6 +1,7 @@
 import html2text
-from langchain_text_splitters import TokenTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List
+from core.tokenizer import Tokenizer
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -116,10 +117,11 @@ class TextProcessor:
                 f"Chunking text of length {len(text)} with max_tokens={max_tokens}, overlap={overlap}"
             )
 
-            text_splitter = TokenTextSplitter(
+            tokenizer = Tokenizer()
+            text_splitter = RecursiveCharacterTextSplitter(
                 chunk_size=max_tokens,
                 chunk_overlap=overlap,
-                encoding_name="cl100k_base",
+                length_function=tokenizer.num_tokens_from_string,
             )
             chunks = text_splitter.split_text(text)
 

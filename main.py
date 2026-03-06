@@ -14,15 +14,14 @@ Usage examples:
     python main.py process
 
     # Generate embeddings for processed chunks
-    python main.py embed --provider openai
+    python main.py embed
 
     # Run full pipeline (ingest + process + embed)
-    python main.py pipeline --provider cohere
+    python main.py pipeline
 
-    # Database bootstrap operations
-    python main.py bootstrap --status
-    python main.py bootstrap --dry-run
-    python main.py bootstrap --full-reset
+    # Database migrations (use Alembic)
+    alembic upgrade head
+    alembic downgrade -1
 """
 
 import argparse
@@ -31,9 +30,7 @@ from datetime import datetime
 
 from core.pipeline import RAGPipeline
 from core.ingestion import ArticleProcessor
-from utils.bootstrap_db import DatabaseBootstrap
 from utils.logger import get_logger
-from core.config import get_settings
 
 logger = get_logger(__name__)
 
@@ -50,8 +47,8 @@ def setup_argparse() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run full pipeline with OpenAI embeddings
-  python main.py --log-level DEBUG pipeline --provider openai
+  # Run full pipeline
+  python main.py --log-level DEBUG pipeline
 
   # Only ingest new articles (no processing/embedding)
   python main.py ingest
@@ -60,12 +57,11 @@ Examples:
   python main.py process
 
   # Generate embeddings for processed chunks
-  python main.py --log-level INFO embed --provider cohere
+  python main.py --log-level INFO embed
 
-  # Bootstrap database (check status first)
-  python main.py bootstrap --status
-  python main.py bootstrap --dry-run
-  python main.py bootstrap
+  # Database migrations (use Alembic instead)
+  alembic upgrade head
+  alembic downgrade -1
         """,
     )
 
@@ -111,12 +107,6 @@ Examples:
         description="Generate vector embeddings for processed text chunks.",
     )
     embed_parser.add_argument(
-        "--provider",
-        choices=["openai", "cohere"],
-        default="openai",
-        help="Embedding provider to use (default: openai)",
-    )
-    embed_parser.add_argument(
         "--batch-size",
         type=int,
         default=100,
@@ -129,12 +119,6 @@ Examples:
         "pipeline",
         help="Run the complete RAG pipeline (ingest + process + embed)",
         description="Execute the full pipeline: ingestion, processing, and embedding generation.",
-    )
-    pipeline_parser.add_argument(
-        "--provider",
-        choices=["openai", "cohere"],
-        default="openai",
-        help="Embedding provider to use (default: openai)",
     )
     pipeline_parser.add_argument(
         "--skip-ingestion",
@@ -158,24 +142,129 @@ Examples:
         metavar="ID",
         help="Specific article IDs to process (default: process all)",
     )
+    pipeline_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=100,
+        metavar="N",
+        help="Number of chunks to embed per API call (default: 100)",
+    )
 
-    # ========== BOOTSTRAP COMMAND ==========
-    bootstrap_parser = subparsers.add_parser(
-        "bootstrap",
-        help="Bootstrap database tables and extensions",
-        description="Set up or reset the database schema, tables, and pgvector extension.",
+    # ========== EVALUATE COMMAND ==========
+    eval_parser = subparsers.add_parser(
+        "evaluate",
+        help="Run retrieval evaluation against QA dataset",
+        description="Evaluate BM25, vector, and hybrid retrieval against ground-truth QA pairs.",
     )
-    bootstrap_group = bootstrap_parser.add_mutually_exclusive_group()
-    bootstrap_group.add_argument(
-        "--status", action="store_true", help="Check current database status"
+    eval_parser.add_argument(
+        "--dataset",
+        default="data/qa_pairs.jsonl",
+        help="Path to QA pairs JSONL file (default: data/qa_pairs.jsonl)",
     )
-    bootstrap_group.add_argument(
-        "--dry-run", action="store_true", help="Preview changes without applying them"
+    eval_parser.add_argument(
+        "--methods",
+        nargs="+",
+        choices=["bm25", "vector", "hybrid"],
+        default=["bm25", "vector", "hybrid"],
+        help="Retrieval methods to evaluate (default: all three)",
     )
-    bootstrap_group.add_argument(
-        "--full-reset",
-        action="store_true",
-        help="Drop all tables and recreate (WARNING: deletes all data)",
+    eval_parser.add_argument(
+        "--k-values",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5, 10, 20],
+        help="K values for top-K metrics (default: 1 3 5 10 20)",
+    )
+    eval_parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=200,
+        help="Number of questions to sample (default: 200, use 0 for all)",
+    )
+    eval_parser.add_argument(
+        "--quality-filter",
+        choices=["high", "medium", "low"],
+        default=None,
+        help="Filter questions by quality tier (default: all)",
+    )
+    eval_parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for sampling (default: 42)",
+    )
+    eval_parser.add_argument(
+        "--output-dir",
+        default="data",
+        help="Directory for output files (default: data)",
+    )
+
+    # ========== SWEEP COMMAND ==========
+    sweep_parser = subparsers.add_parser(
+        "sweep",
+        help="Run vector search parameter sweep",
+        description="Sweep over (top_k, min_similarity) configurations to find optimal vector search parameters.",
+    )
+    sweep_parser.add_argument(
+        "--dataset",
+        default="data/qa_pairs.jsonl",
+        help="Path to QA pairs JSONL file (default: data/qa_pairs.jsonl)",
+    )
+    sweep_parser.add_argument(
+        "--top-k-values",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5, 7, 10, 15, 20],
+        help="top_k values to sweep (default: 1 3 5 7 10 15 20)",
+    )
+    sweep_parser.add_argument(
+        "--min-similarity-values",
+        type=float,
+        nargs="+",
+        default=[0.0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8],
+        help="min_similarity thresholds to sweep (default: 0.0 0.3 0.4 0.5 0.6 0.7 0.8)",
+    )
+    sweep_parser.add_argument(
+        "--fetch-top-k",
+        type=int,
+        default=50,
+        help="Results to fetch per query for caching (default: 50)",
+    )
+    sweep_parser.add_argument(
+        "--sample-size",
+        type=int,
+        default=200,
+        help="Number of questions to sample (default: 200, use 0 for all)",
+    )
+    sweep_parser.add_argument(
+        "--quality-filter",
+        choices=["high", "medium", "low"],
+        default=None,
+        help="Filter questions by quality tier (default: all)",
+    )
+    sweep_parser.add_argument(
+        "--seed",
+        type=int,
+        default=42,
+        help="Random seed for sampling (default: 42)",
+    )
+    sweep_parser.add_argument(
+        "--output-dir",
+        default="data",
+        help="Directory for output files (default: data)",
+    )
+    sweep_parser.add_argument(
+        "--primary-metric",
+        choices=["mrr", "hit_rate_at_5", "ndcg_at_5"],
+        default="mrr",
+        help="Primary metric to rank configurations by (default: mrr)",
+    )
+    sweep_parser.add_argument(
+        "--k-values",
+        type=int,
+        nargs="+",
+        default=[1, 3, 5, 10, 20],
+        help="K values for computing metrics (default: 1 3 5 10 20)",
     )
 
     return parser
@@ -262,13 +351,13 @@ def command_embed(args: argparse.Namespace) -> int:
         Exit code (0 for success, 1 for failure)
     """
     logger.info("=" * 80)
-    logger.info(f"COMMAND: GENERATE EMBEDDINGS ({args.provider.upper()})")
+    logger.info("COMMAND: GENERATE EMBEDDINGS")
     logger.info("=" * 80)
 
     try:
         # Initialize pipeline with embedding enabled
         pipeline = RAGPipeline(
-            embedding_provider=args.provider, skip_ingestion=True, skip_processing=True
+            skip_ingestion=True, skip_processing=True
         )
 
         # Get chunk count first
@@ -351,7 +440,7 @@ def command_pipeline(args: argparse.Namespace) -> int:
         Exit code (0 for success, 1 for failure)
     """
     logger.info("=" * 80)
-    logger.info(f"COMMAND: FULL PIPELINE ({args.provider.upper()})")
+    logger.info("COMMAND: FULL PIPELINE")
     logger.info("=" * 80)
     logger.info(f"Skip ingestion:  {args.skip_ingestion}")
     logger.info(f"Skip processing: {args.skip_processing}")
@@ -361,13 +450,15 @@ def command_pipeline(args: argparse.Namespace) -> int:
     try:
         # Initialize pipeline with specified configuration
         with RAGPipeline(
-            embedding_provider=args.provider,
             skip_ingestion=args.skip_ingestion,
             skip_processing=args.skip_processing,
             skip_embedding=args.skip_embedding,
         ) as pipeline:
             # Run the full pipeline
-            stats = pipeline.run_full_pipeline(article_ids=args.article_ids)
+            stats = pipeline.run_full_pipeline(
+                article_ids=args.article_ids,
+                batch_size=args.batch_size,
+            )
 
             logger.info("\n" + "=" * 80)
             logger.info("PIPELINE EXECUTION COMPLETE")
@@ -410,9 +501,9 @@ def command_pipeline(args: argparse.Namespace) -> int:
         return 1
 
 
-def command_bootstrap(args: argparse.Namespace) -> int:
+def command_evaluate(args: argparse.Namespace) -> int:
     """
-    Execute the bootstrap command.
+    Execute the evaluate command.
 
     Args:
         args: Parsed command-line arguments
@@ -421,44 +512,91 @@ def command_bootstrap(args: argparse.Namespace) -> int:
         Exit code (0 for success, 1 for failure)
     """
     logger.info("=" * 80)
-    logger.info("COMMAND: DATABASE BOOTSTRAP")
+    logger.info("COMMAND: RETRIEVAL EVALUATION")
     logger.info("=" * 80)
 
     try:
-        if args.status:
-            logger.info("Checking database status...")
-            bootstrap = DatabaseBootstrap(dry_run=False)
-            bootstrap.check_status()
+        from core.bm25_search import BM25Retriever
+        from core.vector_search import VectorRetriever
+        from core.storage_chunk import PostgresClient
+        from qa.eval_runner import RetrievalEvaluator, EvalConfig
 
-        elif args.dry_run:
-            logger.info("Running in DRY-RUN mode (no changes will be made)")
-            bootstrap = DatabaseBootstrap(dry_run=True)
-            bootstrap.setup_database()
+        sample_size = args.sample_size if args.sample_size > 0 else None
 
-        elif args.full_reset:
-            logger.warning("=" * 80)
-            logger.warning("WARNING: FULL RESET MODE")
-            logger.warning("This will DELETE ALL DATA in the database!")
-            logger.warning("=" * 80)
-            response = input("Type 'yes' to confirm full reset: ")
-            if response.lower() == "yes":
-                bootstrap = DatabaseBootstrap(dry_run=False)
-                bootstrap.setup_database(full_reset=True)
-                logger.info("Database has been reset and recreated")
-            else:
-                logger.info("Reset cancelled")
-                return 0
+        config = EvalConfig(
+            dataset_path=args.dataset,
+            k_values=args.k_values,
+            methods=args.methods,
+            sample_size=sample_size,
+            quality_filter=args.quality_filter,
+            random_seed=args.seed,
+            output_dir=args.output_dir,
+        )
 
-        else:
-            logger.info("Bootstrapping database...")
-            bootstrap = DatabaseBootstrap(dry_run=False)
-            bootstrap.setup_database()
-            logger.info("Database bootstrap complete")
+        # Initialize retrievers
+        postgres_client = PostgresClient()
+        bm25 = BM25Retriever(postgres_client=postgres_client)
+
+        vector = None
+        if "vector" in args.methods or "hybrid" in args.methods:
+            vector = VectorRetriever()
+
+        evaluator = RetrievalEvaluator(
+            bm25_retriever=bm25,
+            vector_retriever=vector,
+            config=config,
+        )
+        evaluator.run()
 
         return 0
 
     except Exception as e:
-        logger.error(f"Bootstrap failed: {str(e)}", exc_info=True)
+        logger.error(f"Evaluation failed: {str(e)}", exc_info=True)
+        return 1
+
+
+def command_sweep(args: argparse.Namespace) -> int:
+    """
+    Execute the sweep command.
+
+    Args:
+        args: Parsed command-line arguments
+
+    Returns:
+        Exit code (0 for success, 1 for failure)
+    """
+    logger.info("=" * 80)
+    logger.info("COMMAND: VECTOR PARAMETER SWEEP")
+    logger.info("=" * 80)
+
+    try:
+        from core.vector_search import VectorRetriever
+        from qa.param_sweep import VectorParamSweep, SweepConfig
+
+        sample_size = args.sample_size if args.sample_size > 0 else None
+
+        config = SweepConfig(
+            dataset_path=args.dataset,
+            top_k_values=args.top_k_values,
+            min_similarity_values=args.min_similarity_values,
+            k_values_for_metrics=args.k_values,
+            sample_size=sample_size,
+            quality_filter=args.quality_filter,
+            random_seed=args.seed,
+            fetch_top_k=args.fetch_top_k,
+            output_dir=args.output_dir,
+            primary_metric=args.primary_metric,
+        )
+
+        vector = VectorRetriever()
+
+        sweep = VectorParamSweep(vector_retriever=vector, config=config)
+        sweep.run()
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Parameter sweep failed: {str(e)}", exc_info=True)
         return 1
 
 
@@ -488,17 +626,6 @@ def main() -> int:
         parser.print_help()
         return 1
 
-    # Validate configuration
-    try:
-        get_settings()
-        logger.debug("Configuration loaded successfully")
-    except Exception as e:
-        logger.error(f"Configuration error: {str(e)}")
-        logger.error(
-            "Please ensure all required environment variables are set in .env file"
-        )
-        return 1
-
     # Route to appropriate command handler
     exit_code = 1
     try:
@@ -510,8 +637,10 @@ def main() -> int:
             exit_code = command_embed(args)
         elif args.command == "pipeline":
             exit_code = command_pipeline(args)
-        elif args.command == "bootstrap":
-            exit_code = command_bootstrap(args)
+        elif args.command == "evaluate":
+            exit_code = command_evaluate(args)
+        elif args.command == "sweep":
+            exit_code = command_sweep(args)
         else:
             logger.error(f"Unknown command: {args.command}")
             parser.print_help()
