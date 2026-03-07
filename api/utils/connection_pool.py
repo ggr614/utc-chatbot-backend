@@ -48,7 +48,7 @@ class DatabaseConnectionPool:
         # Build connection string for psycopg3
         conninfo = (
             f"host={settings.HOST} "
-            f"port=5432 "
+            f"port={settings.PORT} "
             f"dbname={settings.NAME} "
             f"user={settings.USER} "
             f"password={settings.PASSWORD.get_secret_value()}"

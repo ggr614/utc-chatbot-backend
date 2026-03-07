@@ -20,7 +20,7 @@ db_settings = get_database_settings()
 database_url = (
     f"postgresql+psycopg://{db_settings.USER}:"
     f"{db_settings.PASSWORD.get_secret_value()}@"
-    f"{db_settings.HOST}:5432/{db_settings.NAME}"
+    f"{db_settings.HOST}:{db_settings.PORT}/{db_settings.NAME}"
 )
 config.set_main_option("sqlalchemy.url", database_url)
 
