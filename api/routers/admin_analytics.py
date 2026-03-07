@@ -9,7 +9,7 @@ No authentication required (internal network only).
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse
@@ -267,4 +267,128 @@ def get_content_stats(request: Request) -> dict:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to fetch content statistics",
+        )
+
+
+@router.get(
+    "/api/v1/admin/analytics/users",
+    summary="User activity breakdown",
+)
+def get_user_activity(
+    request: Request,
+    time_range: str = Query(
+        default="7d", alias="range", pattern="^(24h|7d|30d)$"
+    ),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> dict:
+    """Get query counts grouped by user email."""
+    start, end = _parse_time_range(time_range)
+
+    try:
+        pool = request.app.state.connection_pool
+        with pool.get_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        COALESCE(email, 'anonymous') as user_email,
+                        COUNT(*) as query_count,
+                        MAX(created_at) as last_active
+                    FROM query_logs
+                    WHERE created_at >= %s AND created_at <= %s
+                    GROUP BY email
+                    ORDER BY query_count DESC
+                    LIMIT %s
+                    """,
+                    (start, end, limit),
+                )
+                rows = cur.fetchall()
+
+        users = [
+            {
+                "email": row[0],
+                "query_count": row[1],
+                "last_active": row[2].isoformat() if row[2] else None,
+            }
+            for row in rows
+        ]
+
+        return {"users": users, "time_range": time_range}
+    except AttributeError:
+        logger.error("Connection pool not found in app.state")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Connection pool not initialized",
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch user activity: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch user activity",
+        )
+
+
+@router.get(
+    "/api/v1/admin/analytics/recent-queries",
+    summary="Recent queries with optional user filter",
+)
+def get_recent_queries(
+    request: Request,
+    limit: int = Query(default=50, ge=1, le=200),
+    email: Optional[str] = Query(default=None, description="Filter by user email"),
+) -> dict:
+    """Get recent queries, optionally filtered by user email."""
+    try:
+        pool = request.app.state.connection_pool
+        with pool.get_connection() as conn:
+            with conn.cursor() as cur:
+                if email:
+                    cur.execute(
+                        """
+                        SELECT id, raw_query, cache_result, latency_ms,
+                               COALESCE(email, 'anonymous') as email, created_at
+                        FROM query_logs
+                        WHERE email = %s
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                        """,
+                        (email, limit),
+                    )
+                else:
+                    cur.execute(
+                        """
+                        SELECT id, raw_query, cache_result, latency_ms,
+                               COALESCE(email, 'anonymous') as email, created_at
+                        FROM query_logs
+                        ORDER BY created_at DESC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    )
+                rows = cur.fetchall()
+
+        queries = [
+            {
+                "id": row[0],
+                "query": row[1][:200] + "..." if row[1] and len(row[1]) > 200 else row[1],
+                "cache_result": row[2],
+                "latency_ms": row[3],
+                "email": row[4],
+                "created_at": row[5].isoformat() if row[5] else None,
+            }
+            for row in rows
+        ]
+
+        return {"queries": queries, "filtered_by": email}
+    except AttributeError:
+        logger.error("Connection pool not found in app.state")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Connection pool not initialized",
+        )
+    except Exception as e:
+        logger.error(f"Failed to fetch recent queries: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to fetch recent queries",
         )

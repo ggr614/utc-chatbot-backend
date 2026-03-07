@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UTC Chatbot Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #f5f7fa;
+            color: #333;
+            line-height: 1.6;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 100%);
+            color: white;
+            padding: 1.5rem 2rem;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .header p {
+            opacity: 0.8;
+            font-size: 0.9rem;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .config-bar {
+            background: white;
+            padding: 1rem 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            flex-wrap: wrap;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .config-bar label {
+            font-weight: 500;
+            font-size: 0.9rem;
+        }
+
+        .config-bar input, .config-bar select {
+            padding: 0.5rem 0.75rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+
+        .config-bar input[type="text"] {
+            width: 200px;
+        }
+
+        .config-bar input[type="password"] {
+            width: 180px;
+        }
+
+        .config-bar button {
+            background: #2d5a87;
+            color: white;
+            border: none;
+            padding: 0.5rem 1.25rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+
+        .config-bar button:hover {
+            background: #1e3a5f;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .stat-card h3 {
+            font-size: 0.85rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-card .value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: #1e3a5f;
+        }
+
+        .stat-card .subtitle {
+            font-size: 0.8rem;
+            color: #888;
+            margin-top: 0.25rem;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+
+        .card-header {
+            padding: 1rem 1.5rem;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .card-header h2 {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .card-body {
+            padding: 1.5rem;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            text-align: left;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #eee;
+        }
+
+        th {
+            font-weight: 600;
+            color: #666;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        tr:hover {
+            background: #f9fafb;
+        }
+
+        .clickable {
+            cursor: pointer;
+        }
+
+        .clickable:hover {
+            background: #e3f2fd;
+        }
+
+        .selected {
+            background: #bbdefb !important;
+        }
+
+        .filter-active {
+            background: #e3f2fd;
+            border: 2px solid #2d5a87;
+        }
+
+        .clear-filter {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        .clear-filter:hover {
+            background: #c82333;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .badge-hit {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge-miss {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 2rem;
+            color: #888;
+        }
+
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 1rem;
+            }
+            .grid-2 {
+                grid-template-columns: 1fr;
+            }
+            .config-bar {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            .config-bar input[type="text"],
+            .config-bar input[type="password"] {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>UTC Chatbot Admin Dashboard</h1>
+        <p>Analytics and monitoring for the helpdesk chatbot</p>
+    </div>
+
+    <div class="container">
+        <div class="config-bar">
+            <label>API URL:</label>
+            <input type="text" id="apiUrl" value="http://localhost:8000" placeholder="http://localhost:8000">
+
+            <label>API Key:</label>
+            <input type="password" id="apiKey" placeholder="Enter API key">
+
+            <label>Period:</label>
+            <select id="days">
+                <option value="7">Last 7 days</option>
+                <option value="30" selected>Last 30 days</option>
+                <option value="90">Last 90 days</option>
+            </select>
+
+            <button onclick="loadAllData()">Refresh Data</button>
+        </div>
+
+        <div id="error-container"></div>
+
+        <div class="stats-grid" id="stats-grid">
+            <div class="stat-card">
+                <h3>Total Conversations</h3>
+                <div class="value" id="stat-conversations">-</div>
+                <div class="subtitle" id="stat-period">Loading...</div>
+            </div>
+            <div class="stat-card">
+                <h3>Unique Users</h3>
+                <div class="value" id="stat-users">-</div>
+                <div class="subtitle">Active in period</div>
+            </div>
+            <div class="stat-card">
+                <h3>Avg Response Time</h3>
+                <div class="value" id="stat-latency">-</div>
+                <div class="subtitle">milliseconds</div>
+            </div>
+            <div class="stat-card">
+                <h3>Cache Hit Rate</h3>
+                <div class="value" id="stat-cache">-</div>
+                <div class="subtitle" id="stat-cache-detail">-</div>
+            </div>
+        </div>
+
+        <div class="grid-2">
+            <div class="card">
+                <div class="card-header">
+                    <h2>User Activity</h2>
+                </div>
+                <div class="card-body">
+                    <table id="users-table">
+                        <thead>
+                            <tr>
+                                <th>User</th>
+                                <th>Conversations</th>
+                                <th>Last Active</th>
+                            </tr>
+                        </thead>
+                        <tbody id="users-tbody">
+                            <tr><td colspan="3" class="loading">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="card" id="queries-card">
+                <div class="card-header">
+                    <h2>Recent Queries <span id="filter-indicator"></span></h2>
+                </div>
+                <div class="card-body">
+                    <table id="queries-table">
+                        <thead>
+                            <tr>
+                                <th>Query</th>
+                                <th>User</th>
+                                <th>Cache</th>
+                                <th>Latency</th>
+                            </tr>
+                        </thead>
+                        <tbody id="queries-tbody">
+                            <tr><td colspan="4" class="loading">Loading...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function getConfig() {
+            return {
+                apiUrl: document.getElementById('apiUrl').value.replace(/\/$/, ''),
+                apiKey: document.getElementById('apiKey').value,
+                days: document.getElementById('days').value
+            };
+        }
+
+        async function apiCall(endpoint) {
+            const config = getConfig();
+            const response = await fetch(`${config.apiUrl}${endpoint}`, {
+                headers: {
+                    'X-API-Key': config.apiKey
+                }
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || `HTTP ${response.status}`);
+            }
+
+            return response.json();
+        }
+
+        function showError(message) {
+            const container = document.getElementById('error-container');
+            container.innerHTML = `<div class="error">${message}</div>`;
+        }
+
+        function clearError() {
+            document.getElementById('error-container').innerHTML = '';
+        }
+
+        function formatDate(isoString) {
+            if (!isoString) return '-';
+            const date = new Date(isoString);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+        }
+
+        function truncate(str, len = 50) {
+            if (!str) return '-';
+            return str.length > len ? str.substring(0, len) + '...' : str;
+        }
+
+        // Track selected user for filtering
+        let selectedUserId = null;
+
+        function selectUser(userId) {
+            selectedUserId = userId;
+
+            // Update UI to show selection
+            document.querySelectorAll('#users-tbody tr').forEach(row => {
+                row.classList.remove('selected');
+                if (row.dataset.userId === userId) {
+                    row.classList.add('selected');
+                }
+            });
+
+            // Update filter indicator
+            const indicator = document.getElementById('filter-indicator');
+            indicator.innerHTML = `<span style="font-weight: normal; font-size: 0.85rem;">- ${userId}</span>
+                <button class="clear-filter" onclick="clearUserFilter(event)">Clear</button>`;
+
+            // Highlight queries card
+            document.getElementById('queries-card').classList.add('filter-active');
+
+            // Reload queries for selected user
+            loadQueries();
+        }
+
+        function clearUserFilter(event) {
+            if (event) event.stopPropagation();
+            selectedUserId = null;
+
+            // Clear selection UI
+            document.querySelectorAll('#users-tbody tr').forEach(row => {
+                row.classList.remove('selected');
+            });
+
+            // Clear filter indicator
+            document.getElementById('filter-indicator').innerHTML = '';
+            document.getElementById('queries-card').classList.remove('filter-active');
+
+            // Reload all queries
+            loadQueries();
+        }
+
+        async function loadStats() {
+            const config = getConfig();
+            try {
+                const data = await apiCall(`/admin/stats?days=${config.days}`);
+                document.getElementById('stat-conversations').textContent = data.total_conversations.toLocaleString();
+                document.getElementById('stat-users').textContent = data.unique_users.toLocaleString();
+                document.getElementById('stat-latency').textContent = Math.round(data.avg_latency_ms).toLocaleString();
+                document.getElementById('stat-period').textContent = `Last ${data.period_days} days`;
+            } catch (e) {
+                showError(`Failed to load stats: ${e.message}`);
+            }
+        }
+
+        async function loadCacheStats() {
+            const config = getConfig();
+            try {
+                const data = await apiCall(`/admin/cache?days=${config.days}`);
+                document.getElementById('stat-cache').textContent = data.hit_rate + '%';
+                document.getElementById('stat-cache-detail').textContent =
+                    `${data.cache_hits} hits / ${data.cache_misses} misses`;
+            } catch (e) {
+                console.error('Failed to load cache stats:', e);
+            }
+        }
+
+        async function loadUsers() {
+            const config = getConfig();
+            const tbody = document.getElementById('users-tbody');
+
+            try {
+                const data = await apiCall(`/admin/users?days=${config.days}&limit=20`);
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="3" class="loading">No user data</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.map(user => `
+                    <tr class="clickable" data-user-id="${user.user_id}" onclick="selectUser('${user.user_id}')">
+                        <td>${user.user_id}</td>
+                        <td>${user.conversation_count}</td>
+                        <td>${formatDate(user.last_chat)}</td>
+                    </tr>
+                `).join('');
+
+                // Re-apply selection if user was previously selected
+                if (selectedUserId) {
+                    document.querySelectorAll('#users-tbody tr').forEach(row => {
+                        if (row.dataset.userId === selectedUserId) {
+                            row.classList.add('selected');
+                        }
+                    });
+                }
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="3" class="error">Error: ${e.message}</td></tr>`;
+            }
+        }
+
+        async function loadQueries() {
+            const tbody = document.getElementById('queries-tbody');
+
+            try {
+                let endpoint = '/admin/queries?limit=20';
+                if (selectedUserId) {
+                    endpoint += `&user_id=${encodeURIComponent(selectedUserId)}`;
+                }
+                const data = await apiCall(endpoint);
+
+                if (data.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="loading">No queries</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = data.map(q => `
+                    <tr>
+                        <td title="${q.query}">${truncate(q.query, 40)}</td>
+                        <td>${q.user_id}</td>
+                        <td><span class="badge badge-${q.cache_result}">${q.cache_result}</span></td>
+                        <td>${q.latency_ms}ms</td>
+                    </tr>
+                `).join('');
+            } catch (e) {
+                tbody.innerHTML = `<tr><td colspan="4" class="error">Error: ${e.message}</td></tr>`;
+            }
+        }
+
+        async function loadAllData() {
+            clearError();
+            await Promise.all([
+                loadStats(),
+                loadCacheStats(),
+                loadUsers(),
+                loadQueries()
+            ]);
+        }
+
+        // Save/load API key from localStorage
+        function saveApiKey() {
+            const key = document.getElementById('apiKey').value;
+            if (key) {
+                localStorage.setItem('utc_admin_api_key', key);
+            }
+        }
+
+        function loadApiKey() {
+            const saved = localStorage.getItem('utc_admin_api_key');
+            if (saved) {
+                document.getElementById('apiKey').value = saved;
+            }
+        }
+
+        // Save API key when it changes
+        document.getElementById('apiKey')?.addEventListener('change', saveApiKey);
+
+        // Load data on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            loadApiKey();
+            if (document.getElementById('apiKey').value) {
+                loadAllData();
+            } else {
+                showError('Enter your API key and click Refresh Data');
+            }
+        });
+    </script>
+</body>
+</html>

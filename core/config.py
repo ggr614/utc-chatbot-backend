@@ -23,6 +23,7 @@ class DatabaseSettings(BaseSettings):
     USER: str
     PASSWORD: SecretStr
     NAME: str
+    PORT: int = 5432
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

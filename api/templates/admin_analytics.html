@@ -91,6 +91,24 @@
 
   .empty-state { text-align: center; padding: 40px; color: #636e72; font-size: 0.875rem; }
 
+  /* User activity styles */
+  .user-row { cursor: pointer; transition: background 0.15s; }
+  .user-row:hover { background: #e3f2fd; }
+  .user-row.selected { background: #bbdefb; }
+  .filter-badge {
+    display: inline-block; background: #0984e3; color: white;
+    padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; margin-left: 8px;
+  }
+  .clear-filter {
+    background: #d63031; color: white; border: none; padding: 2px 8px;
+    border-radius: 4px; font-size: 0.75rem; cursor: pointer; margin-left: 4px;
+  }
+  .clear-filter:hover { background: #c0392b; }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 500; }
+  .badge-hit, .badge-warm_hit { background: #d4edda; color: #155724; }
+  .badge-miss { background: #f8d7da; color: #721c24; }
+  .badge-bypass { background: #fff3cd; color: #856404; }
+
   /* Responsive */
   @media (max-width: 768px) {
     .kpi-row { grid-template-columns: repeat(2, 1fr); }
@@ -145,6 +163,32 @@
     <h3>Query Volume</h3>
     <div class="chart-wrap">
       <canvas id="volumeChart"></canvas>
+    </div>
+  </div>
+
+  <!-- User Activity and Recent Queries -->
+  <div class="two-col">
+    <div class="card">
+      <h3>User Activity</h3>
+      <table class="query-table">
+        <thead>
+          <tr><th>User</th><th>Queries</th><th>Last Active</th></tr>
+        </thead>
+        <tbody id="usersBody">
+          <tr><td colspan="3" class="empty-state">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="card">
+      <h3>Recent Queries <span id="filterIndicator"></span></h3>
+      <table class="query-table">
+        <thead>
+          <tr><th>Query</th><th>User</th><th>Cache</th><th>Latency</th></tr>
+        </thead>
+        <tbody id="recentBody">
+          <tr><td colspan="4" class="empty-state">Loading...</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -214,6 +258,7 @@
 <script>
 const API_BASE = window.location.origin;
 let currentRange = '7d';
+let selectedUserEmail = null;
 
 // Chart instances (destroy before recreate)
 let volumeChart = null;
@@ -258,13 +303,14 @@ function setRange(range) {
 async function loadAllData() {
   try {
     const r = currentRange;
-    const [overview, volume, cache, latency, popular, content] = await Promise.all([
+    const [overview, volume, cache, latency, popular, content, users] = await Promise.all([
       apiFetch('/api/v1/admin/analytics/overview?range=' + r),
       apiFetch('/api/v1/admin/analytics/query-volume?range=' + r),
       apiFetch('/api/v1/admin/analytics/cache-performance?range=' + r),
       apiFetch('/api/v1/admin/analytics/latency?range=' + r),
       apiFetch('/api/v1/admin/analytics/popular-queries?range=' + r),
       apiFetch('/api/v1/admin/analytics/content-stats'),
+      apiFetch('/api/v1/admin/analytics/users?range=' + r),
     ]);
     renderOverview(overview);
     renderVolumeChart(volume);
@@ -272,6 +318,8 @@ async function loadAllData() {
     renderLatencyStats(latency);
     renderPopularQueries(popular);
     renderContentStats(content);
+    renderUserActivity(users);
+    loadRecentQueries();
   } catch (e) {
     showStatus('Failed to load analytics: ' + e.message, 'error');
   }
@@ -480,6 +528,77 @@ function renderContentStats(data) {
   document.getElementById('contentArticles').textContent = formatNum(data.articles);
   document.getElementById('contentChunks').textContent = formatNum(data.chunks);
   document.getElementById('contentEmbeddings').textContent = formatNum(data.embeddings);
+}
+
+function renderUserActivity(data) {
+  const tbody = document.getElementById('usersBody');
+  const users = data.users || [];
+
+  if (users.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="3" class="empty-state">No user data for this period</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = users.map(u => {
+    const lastActive = u.last_active ? new Date(u.last_active).toLocaleString() : '--';
+    const isSelected = selectedUserEmail === u.email;
+    return '<tr class="user-row' + (isSelected ? ' selected' : '') + '" onclick="selectUser(\'' + escapeHtml(u.email) + '\')">' +
+      '<td>' + escapeHtml(u.email) + '</td>' +
+      '<td>' + formatNum(u.query_count) + '</td>' +
+      '<td>' + escapeHtml(lastActive) + '</td>' +
+    '</tr>';
+  }).join('');
+}
+
+function selectUser(email) {
+  selectedUserEmail = email;
+  // Update user table selection
+  document.querySelectorAll('#usersBody .user-row').forEach(row => {
+    row.classList.toggle('selected', row.cells[0].textContent === email);
+  });
+  // Update filter indicator
+  document.getElementById('filterIndicator').innerHTML =
+    '<span class="filter-badge">' + escapeHtml(email) + '</span>' +
+    '<button class="clear-filter" onclick="clearUserFilter(event)">Clear</button>';
+  // Reload queries filtered by user
+  loadRecentQueries();
+}
+
+function clearUserFilter(event) {
+  event.stopPropagation();
+  selectedUserEmail = null;
+  document.querySelectorAll('#usersBody .user-row').forEach(row => row.classList.remove('selected'));
+  document.getElementById('filterIndicator').innerHTML = '';
+  loadRecentQueries();
+}
+
+async function loadRecentQueries() {
+  const tbody = document.getElementById('recentBody');
+  try {
+    let url = '/api/v1/admin/analytics/recent-queries?limit=20';
+    if (selectedUserEmail) {
+      url += '&email=' + encodeURIComponent(selectedUserEmail);
+    }
+    const data = await apiFetch(url);
+    const queries = data.queries || [];
+
+    if (queries.length === 0) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No queries found</td></tr>';
+      return;
+    }
+
+    tbody.innerHTML = queries.map(q => {
+      const cacheClass = 'badge-' + (q.cache_result || 'miss');
+      return '<tr>' +
+        '<td class="query-text" title="' + escapeHtml(q.query || '') + '">' + escapeHtml(q.query || '--') + '</td>' +
+        '<td>' + escapeHtml(q.email || 'anonymous') + '</td>' +
+        '<td><span class="badge ' + cacheClass + '">' + escapeHtml(q.cache_result || '--') + '</span></td>' +
+        '<td>' + (q.latency_ms || '--') + 'ms</td>' +
+      '</tr>';
+    }).join('');
+  } catch (e) {
+    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">Error loading queries</td></tr>';
+  }
 }
 
 // Initial load

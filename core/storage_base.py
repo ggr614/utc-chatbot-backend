@@ -57,7 +57,7 @@ class BaseStorageClient:
                 self.db_user = settings.USER
                 self.db_password = settings.PASSWORD.get_secret_value()
                 self.db_name = settings.NAME
-                self.db_port = 5432
+                self.db_port = settings.PORT
                 self._conn: Optional[Connection] = None
                 self._connection_params = {
                     "host": self.db_host,
