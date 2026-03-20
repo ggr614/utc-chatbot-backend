@@ -236,9 +236,10 @@ def hybrid_search(
         try:
             logger.debug(f"Reranking {len(combined_results)} fused results...")
             reranked_results = reranker.rerank(query=query, results=combined_results)
+            top_score = reranked_results[0]['combined_score'] if reranked_results else 0.0
             logger.info(
                 f"Reranking completed: {len(reranked_results)} results, "
-                f"top score: {reranked_results[0]['combined_score']:.3f}"
+                f"top score: {top_score:.3f}"
             )
             reranking_metadata = {
                 "reranked": True,
