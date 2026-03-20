@@ -11,7 +11,7 @@ Provides search methods:
 All endpoints include query logging for analytics.
 """
 
-from fastapi import APIRouter, Depends, Request, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Annotated, Optional
 import time
 
