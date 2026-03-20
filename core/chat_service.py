@@ -57,3 +57,41 @@ class ChatService:
             return ("follow_up", cleaned)
 
         return (None, stripped)
+
+    @staticmethod
+    def _format_context(
+        results: list[dict], max_context_tokens: int = 4000
+    ) -> str:
+        """Format search results into a context string for the knowledge base block.
+
+        Iterates results in rank order. Drops lowest-ranked chunks that exceed
+        the token limit (estimated at ~4 chars per token).
+        """
+        if not results:
+            return ""
+
+        max_chars = max_context_tokens * 4
+        context_parts: list[str] = []
+        total_chars = 0
+
+        for i, result in enumerate(results, 1):
+            chunk = result["chunk"]
+            text_content = chunk.text_content
+            source_url = str(chunk.source_url) if chunk.source_url else ""
+
+            doc_lines = [f"[Document {i}]"]
+            if source_url:
+                doc_lines.append(f"Source: {source_url}")
+            doc_lines.append(f"Content:\n{text_content}")
+            doc_entry = "\n".join(doc_lines)
+
+            if total_chars + len(doc_entry) > max_chars:
+                if not context_parts:
+                    # First doc exceeds limit — include truncated
+                    context_parts.append(doc_entry[: max_chars])
+                break
+
+            context_parts.append(doc_entry)
+            total_chars += len(doc_entry)
+
+        return "\n\n---\n\n".join(context_parts)
