@@ -14,7 +14,7 @@ The pipeline can operate in different modes:
 """
 
 from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from core.ingestion import ArticleProcessor
@@ -427,7 +427,7 @@ class RAGPipeline:
             "processing": {"processed_count": 0, "chunk_count": 0},
             "embedding": {"embedding_count": 0},
             "storage": {"stored_count": 0},
-            "start_time": datetime.now(),
+            "start_time": datetime.now(timezone.utc),
             "end_time": None,
             "duration_seconds": 0,
         }
@@ -530,7 +530,7 @@ class RAGPipeline:
                             "PHASE 3 & 4: EMBEDDING AND STORAGE - NO CHUNKS TO PROCESS"
                         )
 
-                stats["end_time"] = datetime.now()
+                stats["end_time"] = datetime.now(timezone.utc)
                 stats["duration_seconds"] = (
                     stats["end_time"] - stats["start_time"]
                 ).total_seconds()
@@ -566,7 +566,7 @@ class RAGPipeline:
         except Exception as e:
             logger.error(f"Pipeline execution failed: {str(e)}")
             logger.error("=" * 80)
-            stats["end_time"] = datetime.now()
+            stats["end_time"] = datetime.now(timezone.utc)
             stats["duration_seconds"] = (
                 stats["end_time"] - stats["start_time"]
             ).total_seconds()
