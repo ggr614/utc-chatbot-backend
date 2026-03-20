@@ -246,10 +246,12 @@ def root():
 
 
 # CORS middleware for admin UI and development
+# NOTE: allow_credentials=False (default) with allow_origins=["*"] is safe.
+# Set allow_credentials=True only with specific origins to prevent CSRF.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
