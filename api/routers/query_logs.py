@@ -109,6 +109,9 @@ def log_llm_response(
             created_at=created_at,
         )
 
+    except HTTPException:
+        raise  # Re-raise HTTP exceptions (404, etc.) as-is
+
     except ValueError as e:
         # Validation errors or integrity constraint violations
         error_msg = str(e)
