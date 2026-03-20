@@ -429,7 +429,7 @@ class VectorStorageClient(BaseStorageClient):
                 with conn.cursor() as cur:
                     # Build WHERE clause conditions
                     where_conditions = ["1 - (e.embedding <=> %s::vector) >= %s"]
-                    params = [query_vector, query_vector, min_similarity]
+                    params = [query_vector, min_similarity]
 
                     if status_names is not None:
                         where_conditions.append("a.status_name = ANY(%s)")
