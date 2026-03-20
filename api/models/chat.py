@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -23,7 +23,7 @@ class ChatCompletionRequest(BaseModel):
 
 class ChatCompletionChunkChoice(BaseModel):
     index: int = 0
-    delta: dict
+    delta: dict[str, Any]
     finish_reason: str | None = None
 
 
@@ -33,7 +33,7 @@ class ChatCompletionChunk(BaseModel):
     created: int
     model: str
     choices: list[ChatCompletionChunkChoice]
-    usage: dict | None = None
+    usage: dict[str, Any] | None = None
 
 
 class ModelObject(BaseModel):
