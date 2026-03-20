@@ -47,7 +47,7 @@ Pydantic request/response models for the OpenAI-compatible endpoint. Follows the
 ```python
 class ChatMessage(BaseModel):
     role: Literal["system", "assistant", "user"]
-    content: str
+    content: str | None = None  # None allowed for assistant msgs (Open WebUI edge case)
 
 class ChatCompletionRequest(BaseModel):
     model: str
@@ -108,7 +108,22 @@ Internal flow:
 7. **Select system prompt**: Use the system prompt from the highest-ranked result after reranking. If no results or no prompt attached, fall back to hardcoded `SYSTEM_PROMPT_RAG`.
 8. **Assemble prompt**: Query sandwich for RAG (see Prompt Assembly), plain `SYSTEM_PROMPT_NO_RAG` for follow-up. Prior conversation turns (assistant/user) are preserved and passed through to LiteLLM. Open WebUI's system message is replaced. If Open WebUI sends no system message, insert one at the beginning of the message list.
 9. **Format context**: Format search results into `<knowledge_base>` block (see Context Formatting below). Enforce `MAX_CONTEXT_TOKENS` limit (see Context Truncation below).
-10. **Call `litellm.acompletion(stream=True)`** with assembled messages, `stream_options={"include_usage": True}`, and `timeout=CHAT_REQUEST_TIMEOUT`. This is natively async.
+10. **Call `litellm.acompletion(stream=True)`** with assembled messages. This is natively async. Full call signature (follows same pattern as `core/hyde_generator.py:150-158`):
+    ```python
+    response = await litellm.acompletion(
+        model=f"openai/{litellm_settings.CHAT_MODEL}",  # e.g. "openai/gpt-5.2-chat"
+        api_base=litellm_settings.PROXY_BASE_URL,        # LiteLLM proxy URL
+        api_key=litellm_settings.PROXY_API_KEY,           # LiteLLM proxy auth
+        messages=assembled_messages,
+        max_tokens=litellm_settings.CHAT_COMPLETION_TOKENS,
+        temperature=litellm_settings.CHAT_TEMPERATURE,
+        stream=True,
+        stream_options={"include_usage": True},
+        num_retries=3,
+        timeout=chat_settings.REQUEST_TIMEOUT,
+    )
+    ```
+    **Critical:** The `"openai/"` model prefix tells LiteLLM SDK to use OpenAI-compatible request formatting when routing through the proxy. Without it, LiteLLM tries to infer the provider from the model name, which fails for custom aliases. The `api_base` redirects the call to the proxy instead of OpenAI directly.
 11. **Yield content chunks** from the streaming response. Accumulate full response text.
 12. **After stream completes**: Log LLM response to `llm_responses` using `query_log_id` from step 5. Best-effort, fire-and-forget.
 
@@ -211,10 +226,10 @@ Content:
 
 Each block includes:
 - Document number (1-indexed, by rank)
-- Source URL from the chunk's `source_url` field
-- Full `text_content` of the chunk
+- Source URL — accessed via `result["chunk"].source_url` (the hybrid search result dict structure is `{"rank": int, "combined_score": float, "chunk": TextChunk}`)
+- Full `text_content` — accessed via `result["chunk"].text_content`
 
-Documents are separated by `---`. This matches the current filter's `_format_context()` method.
+Documents are separated by `---`. Source URLs are always included (the filter had an `ENABLE_CITATIONS` toggle; this is intentionally dropped — citations are always shown).
 
 ## Context Truncation
 
@@ -316,10 +331,13 @@ Try stream=True acompletion
                    +-- Failure -> OpenAI-format error response
 ```
 
-Error response format:
-```json
-{"error": {"message": "...", "type": "server_error", "code": 503}}
+**Error delivery format:** Since the endpoint always returns `text/event-stream`, errors are delivered as SSE events (following OpenAI convention for streaming errors):
 ```
+data: {"error": {"message": "LLM service unavailable", "type": "server_error", "code": 503}}
+
+data: [DONE]
+```
+The HTTP status remains 200 (SSE connection was already established). The error object inside the SSE event signals failure to the client. Open WebUI handles this gracefully.
 
 ### Logging failure
 
@@ -334,6 +352,8 @@ In-flight streaming responses may be active when the application shuts down. Rel
 Same `X-API-Key` header as existing endpoints. Open WebUI sends this via `OPENAI_API_KEYS` config.
 
 ## Logging Detail
+
+When `CHAT_ENABLE_CONVERSATION_LOGGING=False`, steps 3, 5, 6, and 12 are all skipped — no database writes occur for any chat request. The LLM call and response streaming still work normally.
 
 ### What gets logged (when `CHAT_ENABLE_CONVERSATION_LOGGING=True`)
 
@@ -471,6 +491,36 @@ Build and test the new endpoint in parallel while the filter continues working.
 3. Delete `OpenWebUIFilterV2.py` and `OpenWebUIFilter.py` from the repo
 
 That's it. One config change, one cleanup commit.
+
+## Test Plan
+
+### New test files
+
+**`tests/test_chat_service.py`** — Unit tests for `ChatService`:
+- Command parsing: default search, `!f`, `!f` with no query, `!help`, case insensitivity
+- Context formatting: numbered blocks, source URLs, separator
+- Context truncation: fits within limit, drops lowest-ranked, single oversized document
+- Prompt assembly: query sandwich structure, system message replacement, system message insertion when missing, conversation history preservation
+- System prompt selection: top-ranked result wins, fallback to hardcoded when no prompt attached, fallback when no results
+- Follow-up mode: no search called, no-RAG prompt used, conversation history passed through
+- Streaming: yields chunks from LiteLLM, accumulates full text
+- Streaming fallback: falls back to non-streaming on stream failure
+- Logging: query_log written, llm_response written after stream, logging skipped when flag is False
+
+**`tests/test_openai_compat.py`** — Integration tests for the router:
+- `GET /v1/models`: returns correct format, model ID from config
+- `POST /v1/chat/completions`: SSE format (id, created, model fields present), `data: [DONE]` sentinel
+- Auth: 401 without API key, 401 with invalid key
+- Error response: SSE error event format on LLM failure
+- Edge cases: empty messages list, missing system message
+
+### Mocking strategy
+
+- Mock `litellm.acompletion` — return async generator of fake chunks (same pattern as `tests/test_embedding.py` mocks `litellm.aembedding`)
+- Mock `BM25Retriever.search()` and `VectorRetriever.search()` — return canned results with `system_prompt` attached
+- Mock `Reranker.rerank()` — return reordered results
+- Mock connection pool — use `MagicMock` for `QueryLogClient` and `RerankerLogClient`
+- Use `httpx.AsyncClient` with `app` for router integration tests (FastAPI TestClient)
 
 ## What This Does NOT Include
 
