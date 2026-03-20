@@ -1,3 +1,4 @@
+import re
 import html2text
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from typing import List
@@ -50,8 +51,11 @@ class TextProcessor:
             markdown_text = self.html_converter.handle(text)
             logger.debug(f"Converted HTML to markdown, length: {len(markdown_text)}")
 
-            # Remove extra newlines, leading/trailing whitespace, and multiple spaces
-            cleaned_text = " ".join(markdown_text.split()).strip()
+            # Collapse excessive blank lines (3+ newlines -> double newline) and
+            # horizontal whitespace (multiple spaces/tabs -> single space per line),
+            # while preserving paragraph structure for RecursiveCharacterTextSplitter
+            cleaned_text = re.sub(r'\n{3,}', '\n\n', markdown_text)
+            cleaned_text = re.sub(r'[^\S\n]+', ' ', cleaned_text).strip()
             logger.debug(f"Cleaned text, final length: {len(cleaned_text)}")
 
             if not cleaned_text:
