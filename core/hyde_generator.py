@@ -95,7 +95,7 @@ class HyDEGenerator:
             "\u201c": '"',  # Left double quotation mark
             "\u201d": '"',  # Right double quotation mark
             "\u2013": "-",  # En dash
-            "\u2014": "—",  # Em dash
+            "\u2014": "--",  # Em dash
             "\u2026": "...",  # Horizontal ellipsis
             "\u00a0": " ",  # Non-breaking space
         }
