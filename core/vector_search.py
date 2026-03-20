@@ -187,15 +187,17 @@ class VectorRetriever:
             results = []
             for result_dict in db_results:
                 # Create TextChunk from dict
-                chunk = TextChunk(
-                    chunk_id=result_dict["chunk_id"],
-                    parent_article_id=result_dict["parent_article_id"],
-                    chunk_sequence=result_dict["chunk_sequence"],
-                    text_content=result_dict["text_content"],
-                    token_count=result_dict["token_count"],
-                    source_url=result_dict["source_url"],
-                    last_modified_date=result_dict.get("last_modified_date"),
-                )
+                chunk_kwargs = {
+                    "chunk_id": result_dict["chunk_id"],
+                    "parent_article_id": result_dict["parent_article_id"],
+                    "chunk_sequence": result_dict["chunk_sequence"],
+                    "text_content": result_dict["text_content"],
+                    "token_count": result_dict["token_count"],
+                    "source_url": result_dict["source_url"],
+                }
+                if result_dict.get("last_modified_date") is not None:
+                    chunk_kwargs["last_modified_date"] = result_dict["last_modified_date"]
+                chunk = TextChunk(**chunk_kwargs)
                 similarity = result_dict["similarity"]
                 system_prompt = result_dict.get("system_prompt")
                 results.append((similarity, chunk, system_prompt))
@@ -378,15 +380,17 @@ class VectorRetriever:
                     continue
 
                 # Create TextChunk from dict
-                chunk = TextChunk(
-                    chunk_id=result_dict["chunk_id"],
-                    parent_article_id=result_dict["parent_article_id"],
-                    chunk_sequence=result_dict["chunk_sequence"],
-                    text_content=result_dict["text_content"],
-                    token_count=result_dict["token_count"],
-                    source_url=result_dict["source_url"],
-                    last_modified_date=result_dict.get("last_modified_date"),
-                )
+                chunk_kwargs = {
+                    "chunk_id": result_dict["chunk_id"],
+                    "parent_article_id": result_dict["parent_article_id"],
+                    "chunk_sequence": result_dict["chunk_sequence"],
+                    "text_content": result_dict["text_content"],
+                    "token_count": result_dict["token_count"],
+                    "source_url": result_dict["source_url"],
+                }
+                if result_dict.get("last_modified_date") is not None:
+                    chunk_kwargs["last_modified_date"] = result_dict["last_modified_date"]
+                chunk = TextChunk(**chunk_kwargs)
                 similarity = result_dict["similarity"]
                 results.append((similarity, chunk))
 
