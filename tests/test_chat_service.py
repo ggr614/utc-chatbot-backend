@@ -111,3 +111,89 @@ class TestContextFormatting:
         context = ChatService._format_context(results, max_context_tokens=100)
         assert "[Document 1]" in context
         assert len(context) <= 100 * 4 + 200  # some overhead for headers
+
+
+class TestPromptAssembly:
+    """Tests for ChatService._assemble_messages()."""
+
+    def test_rag_sandwich_replaces_system_message(self):
+        messages = [
+            {"role": "system", "content": "Original system prompt"},
+            {"role": "user", "content": "How do I reset a password?"},
+        ]
+        result = ChatService._assemble_rag_messages(
+            messages=messages,
+            query="How do I reset a password?",
+            context="[Document 1]\nContent:\nPassword steps...",
+            system_prompt=None,  # Use default
+        )
+        # System message should be replaced with sandwich
+        assert result[0]["role"] == "system"
+        assert "User question: How do I reset a password?" in result[0]["content"]
+        assert "<knowledge_base>" in result[0]["content"]
+        assert "Password steps..." in result[0]["content"]
+        # User message preserved
+        assert result[1]["role"] == "user"
+        assert result[1]["content"] == "How do I reset a password?"
+
+    def test_rag_sandwich_inserts_system_when_missing(self):
+        messages = [
+            {"role": "user", "content": "VPN issues"},
+        ]
+        result = ChatService._assemble_rag_messages(
+            messages=messages,
+            query="VPN issues",
+            context="[Document 1]\nContent:\nVPN docs...",
+        )
+        assert result[0]["role"] == "system"
+        assert "<knowledge_base>" in result[0]["content"]
+        assert result[1]["role"] == "user"
+
+    def test_rag_sandwich_preserves_conversation_history(self):
+        messages = [
+            {"role": "system", "content": "old"},
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "first answer"},
+            {"role": "user", "content": "follow up"},
+        ]
+        result = ChatService._assemble_rag_messages(
+            messages=messages,
+            query="follow up",
+            context="docs...",
+        )
+        assert len(result) == 4
+        assert result[0]["role"] == "system"
+        assert result[1]["content"] == "first question"
+        assert result[2]["content"] == "first answer"
+        assert result[3]["content"] == "follow up"
+
+    def test_rag_sandwich_uses_custom_system_prompt(self):
+        messages = [
+            {"role": "system", "content": "old"},
+            {"role": "user", "content": "test"},
+        ]
+        result = ChatService._assemble_rag_messages(
+            messages=messages,
+            query="test",
+            context="docs...",
+            system_prompt="Custom prompt for this category",
+        )
+        assert "Custom prompt for this category" in result[0]["content"]
+
+    def test_no_rag_messages_replaces_system(self):
+        messages = [
+            {"role": "system", "content": "old"},
+            {"role": "user", "content": "general question"},
+        ]
+        result = ChatService._assemble_no_rag_messages(messages)
+        assert result[0]["role"] == "system"
+        assert "UTC IT Helpdesk Assistant" in result[0]["content"]
+        assert "documentation-bound" not in result[0]["content"].lower()
+
+    def test_no_rag_messages_inserts_system_when_missing(self):
+        messages = [
+            {"role": "user", "content": "general question"},
+        ]
+        result = ChatService._assemble_no_rag_messages(messages)
+        assert result[0]["role"] == "system"
+        assert result[1]["role"] == "user"
