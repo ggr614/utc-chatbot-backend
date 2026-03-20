@@ -16,10 +16,21 @@ from litellm.exceptions import (
 from typing import Dict, Optional
 from core.config import get_litellm_settings
 import asyncio
+import concurrent.futures
 import html
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _run_async(coro):
+    """Run async coroutine from sync context, safe whether or not an event loop is running."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 # HyDE system prompt for generating hypothetical documents
 HYDE_SYSTEM_PROMPT = """You are a technical writer drafting internal IT knowledge base articles for the University of Tennessee Chattanooga.
@@ -229,7 +240,7 @@ class HyDEGenerator:
             ValueError: If query is empty or invalid
             RuntimeError: If generation fails after all retries
         """
-        return asyncio.run(
+        return _run_async(
             self.generate_hypothetical_document(
                 query=query,
                 max_retries=max_retries,

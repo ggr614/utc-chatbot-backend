@@ -10,8 +10,20 @@ from core.config import get_litellm_settings
 from core.tokenizer import Tokenizer
 import asyncio
 import logging
+import concurrent.futures
 
 logger = logging.getLogger(__name__)
+
+
+def _run_async(coro):
+    """Run async coroutine from sync context, safe whether or not an event loop is running."""
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    # Inside a running loop (e.g. uvicorn threadpool) — run in a new thread
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
 
 
 class EmbeddingGenerator:
@@ -116,7 +128,7 @@ class EmbeddingGenerator:
 
     def generate_embeddings_batch(self, chunks: List[str]) -> List[List[float]]:
         """Synchronous wrapper for backward compatibility."""
-        return asyncio.run(self.agenerate_embeddings_batch(chunks))
+        return _run_async(self.agenerate_embeddings_batch(chunks))
 
     async def agenerate_embedding(self, chunk: str) -> List[float]:
         """Generate embedding for a single text chunk (async).
@@ -183,4 +195,4 @@ class EmbeddingGenerator:
 
     def generate_embedding(self, chunk: str) -> List[float]:
         """Synchronous wrapper for backward compatibility."""
-        return asyncio.run(self.agenerate_embedding(chunk))
+        return _run_async(self.agenerate_embedding(chunk))
