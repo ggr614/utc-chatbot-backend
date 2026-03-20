@@ -4,6 +4,22 @@ import pytest
 from unittest.mock import patch
 
 
+@pytest.fixture(autouse=True)
+def _isolate_settings(monkeypatch):
+    """Prevent .env file from leaking into tests and clear lru_cache."""
+    from core.config import get_chat_settings, ChatSettings
+
+    # Disable .env file loading by overriding the env_file setting
+    monkeypatch.setattr(ChatSettings, "model_config", {
+        **ChatSettings.model_config,
+        "env_file": None,
+    })
+    # Clear cached accessor so each test gets a fresh instance
+    get_chat_settings.cache_clear()
+    yield
+    get_chat_settings.cache_clear()
+
+
 def test_chat_settings_defaults():
     """ChatSettings should have correct defaults without any env vars."""
     with patch.dict("os.environ", {}, clear=True):
@@ -36,6 +52,8 @@ def test_chat_settings_from_env():
         assert settings.MODEL_ID == "test-model"
         assert settings.TOP_K == 10
         assert settings.REQUEST_TIMEOUT == 60.0
+        # Unset fields should retain defaults
+        assert settings.FETCH_TOP_K == 20
 
 
 def test_get_chat_settings_returns_instance():

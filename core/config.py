@@ -86,6 +86,15 @@ class APISettings(BaseSettings):
 class ChatSettings(BaseSettings):
     """Settings for the /v1/chat/completions endpoint."""
 
+    ENABLE_CONVERSATION_LOGGING: bool = True
+    MODEL_ID: str = "utc-helpdesk"
+    TOP_K: int = 5
+    FETCH_TOP_K: int = 20
+    RRF_K: int = 1  # RRF rank-smoothing constant, tuned low for this corpus
+    MIN_VECTOR_SIMILARITY: float = 0.0
+    MAX_CONTEXT_TOKENS: int = 4000
+    REQUEST_TIMEOUT: float = 30.0
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -93,15 +102,6 @@ class ChatSettings(BaseSettings):
         extra="ignore",
         env_prefix="CHAT_",
     )
-
-    ENABLE_CONVERSATION_LOGGING: bool = True
-    MODEL_ID: str = "utc-helpdesk"
-    TOP_K: int = 5
-    FETCH_TOP_K: int = 20
-    RRF_K: int = 1
-    MIN_VECTOR_SIMILARITY: float = 0.0
-    MAX_CONTEXT_TOKENS: int = 4000
-    REQUEST_TIMEOUT: float = 30.0
 
 
 # Cached accessor functions for modules to get their settings
