@@ -1,0 +1,21 @@
+iteration	type	hypothesis	result	severity	location	description
+1	hypothesis	search_similar_vectors params has extra query_vector misaligning all bindings	confirmed	CRITICAL	core/storage_vector.py:432	Duplicate query_vector in params list — threshold comparison gets a vector instead of float, similarity calc gets min_similarity instead of vector
+2	hypothesis	asyncio.run() in sync wrappers crashes inside existing event loops	reclassified	MEDIUM	core/embedding.py:119,186; core/hyde_generator.py:232	Safe today (sync endpoints use threadpool) but will crash if endpoints converted to async def
+3	hypothesis	RateLimiter race condition — capacity not re-checked after lock re-acquisition	confirmed	MEDIUM	core/api_client.py:473-486	After sleep and lock re-acquire, appends unconditionally without re-checking capacity
+4	hypothesis	process_text() collapses all whitespace destroying markdown structure	confirmed	CRITICAL	core/processing.py:54	" ".join(text.split()) flattens newlines; RecursiveCharacterTextSplitter can only split on spaces
+5	hypothesis	log_query_with_results uses two separate transactions	confirmed	MEDIUM	core/storage_query_log.py:422-448	Non-atomic despite docstring promise; orphaned query_logs on partial failure
+6	hypothesis	Timezone-naive vs aware datetime comparison in _categorize_articles	disproven	-	core/ingestion.py:121	DB column is TIMESTAMPTZ; both sides are timezone-aware
+7	hypothesis	insert_query_logs omits command field	confirmed	MEDIUM	core/storage_query_log.py:213-215	Bulk insert drops command column; single-row log_query includes it
+8	hypothesis	Undefined name TextChunk in return type annotation	confirmed	LOW	core/storage_raw.py:373	Import is inside function body, not at module level; runtime works but type hint is wrong
+9	hypothesis	get_prompts_for_article_ids maps non-existent IDs to default prompt	reclassified	LOW	core/storage_prompt.py:112-119	Intentional fallback behavior, not a bug per se
+10	hypothesis	Hardcoded cohere/ prefix inconsistent with openai/ prefix pattern	confirmed	MEDIUM	core/reranker.py:95,185	Reranker prefixes at call site; embedding/HyDE prefix in __init__
+11	hypothesis	text_to_chunks relies on newlines but receives flattened text	confirmed	-	core/processing.py:121-126	Additional evidence for iteration 4 — RecursiveCharacterTextSplitter defaults to \n\n, \n, " "
+12	hypothesis	Bearer token partially logged at DEBUG level	confirmed	MEDIUM	core/api_client.py:174	First 20 chars of bearer token in debug logs — security antipattern
+13	hypothesis	Naive datetime.now() in pipeline statistics	confirmed	LOW	core/pipeline.py:430,533,569	Inconsistent with timezone-aware datetimes used in schemas
+14	hypothesis	Duplicate PostgresClient class name across storage modules	confirmed	MEDIUM	core/storage_raw.py:12; core/storage_chunk.py:11	Same class name in both modules; storage_raw contains chunk methods (SoC violation)
+15	hypothesis	last_modified_date populated from embedding created_at	confirmed	MEDIUM	core/vector_search.py:197-199; core/storage_vector.py:479-488	SQL selects e.created_at instead of c.last_modified_date
+16	hypothesis	f-string SQL interpolation of table_name	confirmed	LOW	core/storage_vector.py (15+ sites)	Not currently exploitable but violates defense-in-depth
+17	hypothesis	Em dash clean_text replacement is a no-op	confirmed	LOW	core/hyde_generator.py:98	"\u2014": "—" maps em dash to itself
+18	hypothesis	Mutable default arguments in core/	disproven	-	-	No instances found
+19	hypothesis	Unhandled None returns in data flow	disproven	-	-	None returns are intentional with proper caller handling
+20	hypothesis	Additional SQL injection via string formatting	disproven	-	-	All f-string SQL is isolated to table_name in storage_vector.py
