@@ -487,7 +487,7 @@ class BM25Retriever:
         )
         use_cache = not has_filters
 
-        bm25 = self._build_bm25_model(chunks, use_cache=use_cache)
+        self._build_bm25_model(chunks, use_cache=use_cache)
 
         results = {}
         with PerformanceLogger(logger, f"Batch search for {len(queries)} queries"):

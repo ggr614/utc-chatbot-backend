@@ -23,11 +23,7 @@ from core.embedding import EmbeddingGenerator
 from core.storage_raw import PostgresClient
 from core.storage_vector import VectorStorage
 from core.schemas import TdxArticle, TextChunk, VectorRecord
-from core.config import (
-    get_litellm_settings,
-    get_database_settings,
-    get_tdx_settings,
-)
+from core.config import get_litellm_settings
 from utils.logger import get_logger, PerformanceLogger
 from core.tokenizer import Tokenizer
 

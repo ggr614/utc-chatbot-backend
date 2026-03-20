@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import psycopg
 
-from core.schemas import RerankerLog, RerankerResult
+
 from core.storage_base import BaseStorageClient
 from utils.logger import get_logger
 

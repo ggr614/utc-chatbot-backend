@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 def _run_async(coro):
     """Run async coroutine from sync context, safe whether or not an event loop is running."""
     try:
-        loop = asyncio.get_running_loop()
+        asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(coro)
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
