@@ -100,6 +100,7 @@ class ArticleProcessor:
         new_articles = []
         updated_articles = []
         unchanged_ids = []
+        skipped_count = 0
 
         for article in api_articles:
             article_id = article.get("ID")
@@ -113,6 +114,11 @@ class ArticleProcessor:
 
             # Skip articles without required metadata
             if article_id is None or api_modified_date is None:
+                skipped_count += 1
+                logger.warning(
+                    f"Skipping article with missing metadata: "
+                    f"ID={article_id}, ModifiedDate={api_modified_date}"
+                )
                 continue
 
             if article_id not in db_metadata:
@@ -124,6 +130,11 @@ class ArticleProcessor:
             else:
                 # Article exists and hasn't changed
                 unchanged_ids.append(article_id)
+
+        if skipped_count > 0:
+            logger.warning(
+                f"Skipped {skipped_count} articles with missing ID or ModifiedDate"
+            )
 
         return new_articles, updated_articles, unchanged_ids
 
