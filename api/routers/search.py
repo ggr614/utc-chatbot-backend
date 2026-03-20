@@ -668,6 +668,8 @@ def search_hybrid(
             logger.error(f"Query and result logging failed: {e}")
 
         # Build metadata with RRF and reranking info (NEW: include system_prompts)
+        # Strip internal-only keys before exposing in response
+        reranking_metadata.pop("rrf_results_before_reranking", None)
         metadata = {
             "rrf_k": search_request.rrf_k,
             **reranking_metadata,
@@ -1021,6 +1023,8 @@ def search_hyde(
             logger.error(f"Query and result logging failed: {e}")
 
         # Build metadata with HyDE, RRF, and reranking info (NEW: include system_prompts)
+        # Strip internal-only keys before exposing in response
+        reranking_metadata.pop("rrf_results_before_reranking", None)
         metadata = {
             "rrf_k": search_request.rrf_k,
             **hyde_metadata,
