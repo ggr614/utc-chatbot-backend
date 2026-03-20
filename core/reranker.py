@@ -92,7 +92,7 @@ class Reranker:
             settings = get_litellm_settings()
 
             self.model = model or settings.RERANKER_MODEL
-            self._proxy_model =self.model
+            self._proxy_model = f"cohere/{self.model}"
             self.api_base = settings.PROXY_BASE_URL
             self.api_key = settings.PROXY_API_KEY.get_secret_value()
             self.max_retries = max_retries
@@ -182,7 +182,7 @@ class Reranker:
         try:
             with PerformanceLogger(logger, "LiteLLM rerank API call"):
                 response = litellm.rerank(
-                    model=f"cohere/{self._proxy_model}",
+                    model=self._proxy_model,
                     query=query,
                     documents=documents,
                     top_n=top_n if top_n is not None else len(documents),
