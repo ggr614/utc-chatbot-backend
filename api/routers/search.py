@@ -868,7 +868,6 @@ def search_hyde(
         if reranker is None:
             logger.warning("Reranker not available, using RRF results")
             reranking_metadata["reranker_status"] = "unavailable"
-            reranking_metadata["reranker_status"] = "unavailable"
             final_results = fused_results[: search_request.top_k]
         else:
             try:
@@ -891,7 +890,6 @@ def search_hyde(
                 # Graceful degradation: use RRF results
                 logger.error(f"Reranking failed, falling back to RRF: {str(e)}")
                 reranking_metadata["reranking_failed"] = True
-                reranking_metadata["reranker_status"] = "failed"
                 reranking_metadata["reranker_status"] = "failed"
                 reranking_metadata["error"] = str(e)
                 final_results = fused_results[: search_request.top_k]
