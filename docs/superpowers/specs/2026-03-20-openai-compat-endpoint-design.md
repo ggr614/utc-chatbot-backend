@@ -20,6 +20,8 @@ Open WebUI continues as the frontend but points at the backend instead of LiteLL
 | Model selection | Hardcoded in config, single model | Evaluation pipeline will determine the model later. |
 | Transition | Build in parallel, swap with one-line config change | Zero risk to current test bed. |
 | Request params | Backend owns generation params (temperature, max_tokens) | Frontend doesn't control knobs — backend config does. |
+| stream: false | Always stream, ignore stream flag | Simplifies router. Open WebUI always sends stream: true. Future frontends can consume SSE too. |
+| Sync retrieval | Wrap sync search calls in `asyncio.to_thread()` | Existing BM25/vector/hybrid search are synchronous. `handle_chat` is async. Blocking the event loop would stall streaming. |
 
 ## New Files
 
@@ -56,14 +58,17 @@ Returns an async generator that yields response text chunks. The router wraps th
 
 Internal flow:
 1. Parse command from latest user message (`!f`, `!help`, or default search)
-2. If `!help`: yield help text directly, return
-3. If search (default): call hybrid search using shared retrievers
-4. Assemble prompt — query sandwich for RAG, plain system prompt for follow-up
-5. Resolve system prompt from `tag_system_prompts` table via search metadata
-6. Call `litellm.acompletion(stream=True)` with assembled messages
-7. Yield content chunks from the streaming response
-8. Accumulate full response text during streaming
-9. After stream completes: log to `query_logs` / `llm_responses` (best-effort)
+2. If `!help`: yield help text as a single chunk (router wraps in SSE like any other response), return. No LLM call. Appears as a normal assistant message in Open WebUI.
+3. If search (default): call hybrid search via `asyncio.to_thread()` (existing retrievers are synchronous — must not block the event loop)
+4. Log query + results to `query_logs` / `query_results` to obtain `query_log_id`
+5. Assemble prompt — query sandwich for RAG, plain system prompt for follow-up. Prior conversation turns (assistant/user) are preserved and passed through to LiteLLM. Open WebUI's system message is replaced with the RAG sandwich or no-RAG prompt.
+6. Resolve system prompt from `tag_system_prompts` table via search metadata (extract shared prompt resolution logic from search router into a utility)
+7. Call `litellm.acompletion(stream=True)` with assembled messages
+8. Yield content chunks from the streaming response
+9. Accumulate full response text during streaming
+10. After stream completes: log LLM response to `llm_responses` using `query_log_id` from step 4. Feature-flagged via `CHAT_ENABLE_CONVERSATION_LOGGING`. Best-effort, fire-and-forget.
+
+**Sync/async boundary:** Steps 3-4 involve synchronous code (BM25Retriever, VectorRetriever, hybrid_search utility, query logging). These are wrapped in `asyncio.to_thread()` to avoid blocking the async event loop. The LiteLLM streaming call (step 7) is natively async.
 
 ## Modified Files
 
@@ -78,19 +83,33 @@ Internal flow:
 
 ### `core/config.py`
 
-New settings class (or section in existing config):
+New `ChatSettings(BaseSettings)` class with `env_prefix="CHAT_"`. This is separate from the existing `LiteLLMSettings` (which uses `LITELLM_` prefix). No namespace collision.
+
+**Generation params** (temperature, max_tokens, model alias) come from the existing `LiteLLMSettings` — `ChatService` reads `LiteLLMSettings.CHAT_MODEL`, `LiteLLMSettings.CHAT_TEMPERATURE`, `LiteLLMSettings.CHAT_COMPLETION_TOKENS`. The new `ChatSettings` only holds chat-endpoint-specific config (retrieval params, logging flag, display model ID, timeouts).
 
 ```python
-# Chat endpoint settings (CHAT_ prefix)
-CHAT_ENABLE_CONVERSATION_LOGGING: bool = True
-CHAT_MODEL_ID: str = "utc-helpdesk"
-CHAT_TOP_K: int = 5
-CHAT_FETCH_TOP_K: int = 20
-CHAT_RRF_K: int = 1
-CHAT_MIN_VECTOR_SIMILARITY: float = 0.0
-CHAT_MAX_CONTEXT_TOKENS: int = 4000
-CHAT_REQUEST_TIMEOUT: float = 30.0
+class ChatSettings(BaseSettings):
+    model_config = SettingsConfigDict(env_prefix="CHAT_")
+
+    ENABLE_CONVERSATION_LOGGING: bool = True
+    MODEL_ID: str = "utc-helpdesk"          # Display name in /v1/models, not the LiteLLM model alias
+    TOP_K: int = 5
+    FETCH_TOP_K: int = 20
+    RRF_K: int = 1
+    MIN_VECTOR_SIMILARITY: float = 0.0
+    MAX_CONTEXT_TOKENS: int = 4000
+    REQUEST_TIMEOUT: float = 30.0
 ```
+
+Cached accessor: `get_chat_settings() -> ChatSettings` (same pattern as existing `get_api_settings()`).
+
+### URL Prefix Note
+
+The new router mounts at `/v1/` (what OpenAI clients expect). Existing search endpoints live at `/api/v1/search/`. This split is intentional — `/v1/` is the OpenAI-compatible surface, `/api/v1/` is the internal API.
+
+## Shared Utilities (Extract from Search Router)
+
+System prompt resolution logic (looking up `tag_system_prompts` based on article tags, falling back to defaults) currently lives in the search router. This should be extracted into a shared utility (e.g., `api/utils/prompt_resolution.py`) so both the search router and `ChatService` use the same code path. The search router continues returning `system_prompts` in metadata; `ChatService` calls the utility directly.
 
 ## Untouched
 
@@ -183,9 +202,15 @@ data: {"id":"chatcmpl-xxx","object":"chat.completion.chunk","choices":[{"index":
 data: [DONE]
 ```
 
-**Ignored request fields:** `model` (hardcoded), `temperature`, `max_tokens` (backend owns generation params).
+**Ignored request fields:** `model` (hardcoded), `temperature`, `max_tokens` (backend owns generation params via `LiteLLMSettings`).
 
-**Commands:** Parsed from latest user message content. `!f` = follow-up (no RAG). `!help` = help text (no LLM call). Default = hybrid search + RAG.
+**`stream: false` handling:** Always stream regardless of the `stream` field in the request. The router always returns `text/event-stream`. Open WebUI always sends `stream: true`; a future custom frontend should consume SSE as well. This simplifies the router to a single code path.
+
+**Commands:** Parsed from latest user message content. `!f` = follow-up (no RAG). `!help` = help text (no LLM call). Default = hybrid search + RAG. These map to the existing `query_logs.command` CHECK constraint values: default -> `"search"`, `!f` -> `"follow_up"`. `!help` is not logged.
+
+**Conversation history:** All prior assistant/user turns from the request are preserved and passed to LiteLLM. Only the system message is replaced (with RAG sandwich or no-RAG prompt). This ensures follow-up mode (`!f`) has full conversation context.
+
+**Usage field:** The final SSE chunk includes `usage` data (prompt_tokens, completion_tokens, total_tokens) by passing `stream_options={"include_usage": True}` to `litellm.acompletion()`. Open WebUI uses this for token tracking.
 
 ## Error Handling
 
@@ -245,18 +270,28 @@ Query appears before and after the context to combat the "lost in the middle" pr
 
 ## Configuration
 
-All new settings use `CHAT_` prefix, loaded from env vars via Pydantic `BaseSettings`:
+New `ChatSettings` class with `CHAT_` env prefix (separate from `LiteLLMSettings`):
 
-| Setting | Default | Purpose |
-|---------|---------|---------|
-| `CHAT_ENABLE_CONVERSATION_LOGGING` | `True` | Feature flag for query/response logging |
-| `CHAT_MODEL_ID` | `"utc-helpdesk"` | Model name in /v1/models and request validation |
-| `CHAT_TOP_K` | `5` | Results returned to LLM after reranking |
-| `CHAT_FETCH_TOP_K` | `20` | Candidates fetched before fusion |
-| `CHAT_RRF_K` | `1` | RRF fusion constant |
-| `CHAT_MIN_VECTOR_SIMILARITY` | `0.0` | Minimum vector similarity threshold |
-| `CHAT_MAX_CONTEXT_TOKENS` | `4000` | Max tokens of retrieved context |
-| `CHAT_REQUEST_TIMEOUT` | `30.0` | Timeout for LiteLLM completion call |
+| Env Var | Field | Default | Purpose |
+|---------|-------|---------|---------|
+| `CHAT_ENABLE_CONVERSATION_LOGGING` | `ENABLE_CONVERSATION_LOGGING` | `True` | Feature flag for query/response logging |
+| `CHAT_MODEL_ID` | `MODEL_ID` | `"utc-helpdesk"` | Display name in /v1/models (not the LiteLLM model alias) |
+| `CHAT_TOP_K` | `TOP_K` | `5` | Results returned to LLM after reranking |
+| `CHAT_FETCH_TOP_K` | `FETCH_TOP_K` | `20` | Candidates fetched before fusion |
+| `CHAT_RRF_K` | `RRF_K` | `1` | RRF fusion constant |
+| `CHAT_MIN_VECTOR_SIMILARITY` | `MIN_VECTOR_SIMILARITY` | `0.0` | Minimum vector similarity threshold |
+| `CHAT_MAX_CONTEXT_TOKENS` | `MAX_CONTEXT_TOKENS` | `4000` | Max tokens of retrieved context |
+| `CHAT_REQUEST_TIMEOUT` | `REQUEST_TIMEOUT` | `30.0` | Timeout for LiteLLM completion call |
+
+**Generation params from `LiteLLMSettings`** (already exist, no new env vars):
+
+| Env Var | Used For |
+|---------|----------|
+| `LITELLM_CHAT_MODEL` | Actual model alias sent to LiteLLM proxy |
+| `LITELLM_CHAT_TEMPERATURE` | Generation temperature |
+| `LITELLM_CHAT_COMPLETION_TOKENS` | Max completion tokens |
+| `LITELLM_PROXY_BASE_URL` | LiteLLM proxy URL |
+| `LITELLM_PROXY_API_KEY` | LiteLLM proxy auth |
 
 ## Cutover Plan
 
