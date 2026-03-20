@@ -84,7 +84,7 @@ def mock_vector_store(sample_chunks):
                 "text_content": sample_chunks[0].text_content,
                 "token_count": sample_chunks[0].token_count,
                 "source_url": sample_chunks[0].source_url,
-                "created_at": sample_chunks[0].last_modified_date,
+                "last_modified_date": sample_chunks[0].last_modified_date,
                 "similarity": 0.9,
             },
             {
@@ -94,7 +94,7 @@ def mock_vector_store(sample_chunks):
                 "text_content": sample_chunks[1].text_content,
                 "token_count": sample_chunks[1].token_count,
                 "source_url": sample_chunks[1].source_url,
-                "created_at": sample_chunks[1].last_modified_date,
+                "last_modified_date": sample_chunks[1].last_modified_date,
                 "similarity": 0.7,
             },
             {
@@ -104,7 +104,7 @@ def mock_vector_store(sample_chunks):
                 "text_content": sample_chunks[2].text_content,
                 "token_count": sample_chunks[2].token_count,
                 "source_url": sample_chunks[2].source_url,
-                "created_at": sample_chunks[2].last_modified_date,
+                "last_modified_date": sample_chunks[2].last_modified_date,
                 "similarity": 0.5,
             },
         ]
@@ -359,7 +359,7 @@ class TestVectorRetriever:
                     "text_content": sample_chunks[0].text_content,
                     "token_count": sample_chunks[0].token_count,
                     "source_url": sample_chunks[0].source_url,
-                    "created_at": sample_chunks[0].last_modified_date,
+                    "last_modified_date": sample_chunks[0].last_modified_date,
                     "similarity": 1.0,  # The query chunk itself
                 },
                 {
@@ -369,7 +369,7 @@ class TestVectorRetriever:
                     "text_content": sample_chunks[1].text_content,
                     "token_count": sample_chunks[1].token_count,
                     "source_url": sample_chunks[1].source_url,
-                    "created_at": sample_chunks[1].last_modified_date,
+                    "last_modified_date": sample_chunks[1].last_modified_date,
                     "similarity": 0.8,
                 },
                 {
@@ -379,7 +379,7 @@ class TestVectorRetriever:
                     "text_content": sample_chunks[2].text_content,
                     "token_count": sample_chunks[2].token_count,
                     "source_url": sample_chunks[2].source_url,
-                    "created_at": sample_chunks[2].last_modified_date,
+                    "last_modified_date": sample_chunks[2].last_modified_date,
                     "similarity": 0.6,
                 },
             ]
@@ -434,7 +434,7 @@ class TestVectorRetriever:
                     "text_content": sample_chunks[0].text_content,
                     "token_count": sample_chunks[0].token_count,
                     "source_url": sample_chunks[0].source_url,
-                    "created_at": sample_chunks[0].last_modified_date,
+                    "last_modified_date": sample_chunks[0].last_modified_date,
                     "similarity": 1.0,  # Query chunk
                 },
                 {
@@ -444,7 +444,7 @@ class TestVectorRetriever:
                     "text_content": sample_chunks[1].text_content,
                     "token_count": sample_chunks[1].token_count,
                     "source_url": sample_chunks[1].source_url,
-                    "created_at": sample_chunks[1].last_modified_date,
+                    "last_modified_date": sample_chunks[1].last_modified_date,
                     "similarity": 0.8,
                 },
                 {
@@ -454,7 +454,7 @@ class TestVectorRetriever:
                     "text_content": sample_chunks[2].text_content,
                     "token_count": sample_chunks[2].token_count,
                     "source_url": sample_chunks[2].source_url,
-                    "created_at": sample_chunks[2].last_modified_date,
+                    "last_modified_date": sample_chunks[2].last_modified_date,
                     "similarity": 0.4,
                 },
             ]

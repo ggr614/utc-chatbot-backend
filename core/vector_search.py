@@ -194,9 +194,7 @@ class VectorRetriever:
                     text_content=result_dict["text_content"],
                     token_count=result_dict["token_count"],
                     source_url=result_dict["source_url"],
-                    last_modified_date=result_dict.get(
-                        "created_at"
-                    ),  # Use created_at as last_modified
+                    last_modified_date=result_dict.get("last_modified_date"),
                 )
                 similarity = result_dict["similarity"]
                 system_prompt = result_dict.get("system_prompt")
@@ -387,7 +385,7 @@ class VectorRetriever:
                     text_content=result_dict["text_content"],
                     token_count=result_dict["token_count"],
                     source_url=result_dict["source_url"],
-                    last_modified_date=result_dict.get("created_at"),
+                    last_modified_date=result_dict.get("last_modified_date"),
                 )
                 similarity = result_dict["similarity"]
                 results.append((similarity, chunk))

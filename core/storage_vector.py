@@ -102,7 +102,7 @@ class VectorStorageClient(BaseStorageClient):
                                 "text_content": row[3],
                                 "token_count": row[4],
                                 "source_url": row[5],
-                                "created_at": row[6],
+                                "last_modified_date": row[6],
                             }
                         )
                     logger.info(
@@ -458,7 +458,7 @@ class VectorStorageClient(BaseStorageClient):
                         # Query with system prompt resolution via category_name
                         query = f"""
                             SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
-                                   c.text_content, c.token_count, c.url, e.created_at,
+                                   c.text_content, c.token_count, c.url, c.last_modified_date,
                                    1 - (e.embedding <=> %s::vector) AS similarity,
                                    COALESCE(
                                        (SELECT tsp.system_prompt
@@ -478,7 +478,7 @@ class VectorStorageClient(BaseStorageClient):
                         # Original query without system prompts
                         query = f"""
                             SELECT e.chunk_id, c.parent_article_id, c.chunk_sequence,
-                                   c.text_content, c.token_count, c.url, e.created_at,
+                                   c.text_content, c.token_count, c.url, c.last_modified_date,
                                    1 - (e.embedding <=> %s::vector) AS similarity
                             FROM {self.table_name} e
                             JOIN article_chunks c ON e.chunk_id = c.id
@@ -503,7 +503,7 @@ class VectorStorageClient(BaseStorageClient):
                             "text_content": row[3],
                             "token_count": row[4],
                             "source_url": row[5],
-                            "created_at": row[6],
+                            "last_modified_date": row[6],
                             "similarity": float(row[7]),
                         }
                         if include_system_prompts:
