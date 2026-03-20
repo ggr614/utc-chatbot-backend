@@ -113,7 +113,7 @@ Internal flow:
     response = await litellm.acompletion(
         model=f"openai/{litellm_settings.CHAT_MODEL}",  # e.g. "openai/gpt-5.2-chat"
         api_base=litellm_settings.PROXY_BASE_URL,        # LiteLLM proxy URL
-        api_key=litellm_settings.PROXY_API_KEY,           # LiteLLM proxy auth
+        api_key=litellm_settings.PROXY_API_KEY.get_secret_value(),  # unwrap SecretStr
         messages=assembled_messages,
         max_tokens=litellm_settings.CHAT_COMPLETION_TOKENS,
         temperature=litellm_settings.CHAT_TEMPERATURE,
