@@ -301,7 +301,7 @@ def search_bm25_validate(
             query_log_client.log_query_with_results(
                 raw_query=request.query,
                 cache_result="miss",
-                search_method="bm25_validate",
+                search_method="bm25",
                 results=results_for_log,
                 latency_ms=latency_ms,
                 email=request.email,
