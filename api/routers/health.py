@@ -52,14 +52,18 @@ def health_check(request: Request) -> HealthResponse:
     try:
         retriever = request.app.state.bm25_retriever
         stats = retriever.get_stats()
+        num_chunks = stats.get("num_chunks", 0)
+        bm25_status = "healthy" if num_chunks > 0 else "degraded"
         checks["bm25"] = {
-            "status": "healthy",
-            "num_chunks": stats.get("num_chunks", 0),
+            "status": bm25_status,
+            "num_chunks": num_chunks,
             "cached": stats.get("is_cached", False),
             "avg_doc_length": stats.get("avg_doc_length"),
         }
+        if bm25_status == "degraded" and overall_status == "healthy":
+            overall_status = "degraded"
         logger.debug(
-            f"BM25 health check: {stats.get('num_chunks', 0)} chunks, "
+            f"BM25 health check: {num_chunks} chunks, "
             f"cached={stats.get('is_cached', False)}"
         )
     except AttributeError:
