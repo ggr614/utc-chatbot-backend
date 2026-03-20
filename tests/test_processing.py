@@ -43,13 +43,13 @@ class TestTextProcessor:
         assert "Text with multiple spaces" in result
         assert "   " not in result
 
-    def test_process_text_removes_extra_newlines(self, processor):
-        """Test that extra newlines are removed."""
+    def test_process_text_collapses_excessive_newlines(self, processor):
+        """Test that 3+ consecutive newlines are collapsed to double newline."""
         html = "<p>Line 1</p>\n\n\n<p>Line 2</p>"
         result = processor.process_text(html)
 
-        # Should not have multiple consecutive newlines
-        assert "\n\n" not in result
+        # Should collapse 3+ newlines to \n\n but preserve paragraph breaks
+        assert "\n\n\n" not in result
 
     def test_process_text_strips_leading_trailing_whitespace(self, processor):
         """Test that leading and trailing whitespace is removed."""
