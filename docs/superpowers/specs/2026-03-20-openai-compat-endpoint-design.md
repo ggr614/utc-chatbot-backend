@@ -109,7 +109,11 @@ The new router mounts at `/v1/` (what OpenAI clients expect). Existing search en
 
 ## Shared Utilities (Extract from Search Router)
 
-System prompt resolution logic (looking up `tag_system_prompts` based on article tags, falling back to defaults) currently lives in the search router. This should be extracted into a shared utility (e.g., `api/utils/prompt_resolution.py`) so both the search router and `ChatService` use the same code path. The search router continues returning `system_prompts` in metadata; `ChatService` calls the utility directly.
+System prompt resolution logic (looking up `tag_system_prompts` based on article tags, falling back to defaults) currently lives in the search router, copy-pasted across four endpoint handlers with slight variations. Extract into a shared utility (e.g., `api/utils/prompt_resolution.py`) so both the search router and `ChatService` use the same code path. This also unifies the search router's duplicated copies. The search router continues returning `system_prompts` in metadata; `ChatService` calls the utility directly.
+
+**Note on reranker concurrency:** `ChatService` receives a shared `Reranker` instance from `app.state`. The `Reranker.last_rerank_latency_ms` property is instance state that concurrent requests could overwrite. This is a pre-existing concern (same shared instance in the search router). Acceptable at current scale; if it matters later, capture latency as a return value rather than instance state.
+
+**Note on `CHAT_REQUEST_TIMEOUT`:** This value is passed as the `timeout` kwarg to `litellm.acompletion()`. LiteLLM raises its own timeout exception type, which the streaming fallback catches. No outer `asyncio.wait_for()` wrapper.
 
 ## Untouched
 
