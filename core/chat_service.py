@@ -259,3 +259,54 @@ class ChatService:
             new_messages.insert(0, {"role": "system", "content": SYSTEM_PROMPT_NO_RAG})
 
         return new_messages
+
+    @staticmethod
+    def _get_user_query(messages: list[dict]) -> str | None:
+        """Extract the latest user message content."""
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                content = message.get("content")
+                if content and isinstance(content, str):
+                    return content
+                return None
+        return None
+
+    @staticmethod
+    def _get_help_text() -> str:
+        """Generate help text for the !help command."""
+        return """# RAG Helpdesk Assistant - Command Help
+
+## How It Works
+
+By default, your question is searched against the UTC IT knowledge base using hybrid search (BM25 keyword matching + vector semantic similarity), and the most relevant documents are provided to the LLM to generate an answer.
+
+## Available Commands
+
+### `<your question>` (no command - default)
+**Knowledge base search** - Searches the knowledge base and provides context to the LLM.
+
+**Example:**
+```
+How do I reset a student's password?
+```
+
+---
+
+### `!f <your question>`
+**Follow-up mode** - Bypasses the knowledge base entirely. Uses only the LLM's built-in knowledge and conversation history.
+
+**When to use:** For general IT questions, clarifications, or follow-up questions about a previous response that don't need UTC-specific documentation.
+
+**Example:**
+```
+!f Can you explain that last step in more detail?
+```
+
+---
+
+### `!help`
+**Display this help message**
+
+---
+
+*Need more help? Contact the development team or check the system documentation.*"""

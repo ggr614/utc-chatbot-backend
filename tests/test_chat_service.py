@@ -197,3 +197,37 @@ class TestPromptAssembly:
         result = ChatService._assemble_no_rag_messages(messages)
         assert result[0]["role"] == "system"
         assert result[1]["role"] == "user"
+
+
+class TestGetUserQuery:
+    """Tests for ChatService._get_user_query()."""
+
+    def test_extracts_last_user_message(self):
+        messages = [
+            {"role": "system", "content": "sys"},
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "reply"},
+            {"role": "user", "content": "second"},
+        ]
+        assert ChatService._get_user_query(messages) == "second"
+
+    def test_no_user_message(self):
+        messages = [{"role": "system", "content": "sys"}]
+        assert ChatService._get_user_query(messages) is None
+
+    def test_empty_messages(self):
+        assert ChatService._get_user_query([]) is None
+
+    def test_none_content_returns_none(self):
+        messages = [{"role": "user", "content": None}]
+        assert ChatService._get_user_query(messages) is None
+
+
+class TestHelpText:
+    """Tests for ChatService._get_help_text()."""
+
+    def test_help_text_contains_commands(self):
+        text = ChatService._get_help_text()
+        assert "!f" in text
+        assert "!help" in text
+        assert "knowledge base" in text.lower()
