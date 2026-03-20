@@ -3,7 +3,7 @@ from typing import Dict, List, Optional, Set
 from uuid import UUID
 import psycopg
 from core.storage_base import BaseStorageClient
-from core.schemas import TdxArticle
+from core.schemas import TdxArticle, TextChunk
 from utils.logger import get_logger, PerformanceLogger
 
 logger = get_logger(__name__)
@@ -412,8 +412,6 @@ class PostgresClient(BaseStorageClient):
                     rows = cur.fetchall()
                     chunks = []
                     for row in rows:
-                        from core.schemas import TextChunk
-
                         chunks.append(
                             TextChunk(
                                 chunk_id=row[0],
