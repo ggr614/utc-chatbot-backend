@@ -212,8 +212,8 @@ class QueryLogClient(BaseStorageClient):
                                     """
                                     INSERT INTO query_logs
                                     (raw_query, query_embedding, cache_result,
-                                     latency_ms, email, created_at)
-                                    VALUES (%s, %s, %s, %s, %s, %s)
+                                     latency_ms, email, command, created_at)
+                                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                                     RETURNING id
                                     """,
                                     (
@@ -222,6 +222,7 @@ class QueryLogClient(BaseStorageClient):
                                         log.cache_result,
                                         log.latency_ms,
                                         log.email,
+                                        log.command,
                                         log.created_at,
                                     ),
                                 )
