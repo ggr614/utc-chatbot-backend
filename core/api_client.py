@@ -171,7 +171,7 @@ class TDXClient:
                         {"Authorization": f"Bearer {self.bearer_token}"}
                     )
                     logger.info("Successfully authenticated with TDX API")
-                    logger.debug(f"Bearer token: {self.bearer_token[:20]}...")
+                    logger.debug(f"Bearer token received (length={len(self.bearer_token)})")
                     return self.bearer_token
                 else:
                     logger.error(
