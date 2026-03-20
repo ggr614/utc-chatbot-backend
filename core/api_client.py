@@ -454,9 +454,9 @@ class RateLimiter:
             ):
                 self.request_times.popleft()
 
-            # Check if we need to wait
+            # Check if we need to wait (loop to re-check after lock re-acquisition)
             wait_time = 0.0
-            if len(self.request_times) >= self.max_requests:
+            while len(self.request_times) >= self.max_requests:
                 # Calculate how long to wait (with safety buffer)
                 oldest_request = self.request_times[0]
                 time_to_wait = (
@@ -466,10 +466,10 @@ class RateLimiter:
                 )
 
                 if time_to_wait > 0:
-                    wait_time = time_to_wait
+                    wait_time += time_to_wait
                     # Release lock while sleeping to avoid blocking other threads
                     self.lock.release()
-                    time.sleep(wait_time)
+                    time.sleep(time_to_wait)
                     self.lock.acquire()
 
                     # Update current time after waiting
@@ -481,6 +481,8 @@ class RateLimiter:
                         and current_time - self.request_times[0] >= self.time_window
                     ):
                         self.request_times.popleft()
+                else:
+                    break
 
             # Record this request
             self.request_times.append(current_time)
