@@ -20,11 +20,12 @@ Run with:
 """
 
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from api.routers import search, health, query_logs, admin_prompts, admin_analytics, openai_compat
+from api.routers import search, health, query_logs, admin_prompts, admin_analytics, openai_compat, auth
+from api.auth import require_admin, AdminAuthRequired, admin_auth_exception_handler
 from api.utils.connection_pool import get_connection_pool, close_connection_pool
 from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
@@ -238,6 +239,9 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
+# Register custom exception handler for admin auth redirects
+app.add_exception_handler(AdminAuthRequired, admin_auth_exception_handler)
+
 # Include routers
 app.include_router(
     health.router,
@@ -255,12 +259,18 @@ app.include_router(
     tags=["Query Logs"],
 )
 app.include_router(
+    auth.router,
+    tags=["Auth"],
+)
+app.include_router(
     admin_prompts.router,
     tags=["Admin - Prompts"],
+    dependencies=[Depends(require_admin)],
 )
 app.include_router(
     admin_analytics.router,
     tags=["Admin - Analytics"],
+    dependencies=[Depends(require_admin)],
 )
 app.include_router(
     openai_compat.router,
