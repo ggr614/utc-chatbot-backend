@@ -143,36 +143,45 @@ class VectorStorageClient(BaseStorageClient):
                     )
 
             with PerformanceLogger(logger, f"Insert {len(records)} embeddings"):
+                inserted_count = 0
+                skipped_count = 0
                 with self.get_connection() as conn:
                     with conn.cursor() as cur:
-                        for idx, (record, embedding) in enumerate(records, 1):
+                        for record, embedding in records:
                             try:
                                 cur.execute(
                                     f"""
                                     INSERT INTO {self.table_name}
                                     (chunk_id, embedding)
                                     VALUES (%s, %s)
+                                    ON CONFLICT (chunk_id) DO NOTHING
                                     """,  # type: ignore
                                     (
                                         record.chunk_id,
                                         embedding,
                                     ),
                                 )
-                                logger.debug(
-                                    f"Inserted embedding for chunk {record.chunk_id}"
-                                )
-                            except psycopg.IntegrityError as e:
-                                logger.error(
-                                    f"Integrity error inserting embedding {record.chunk_id}: {str(e)}"
-                                )
-                                raise
+                                if cur.rowcount > 0:
+                                    inserted_count += 1
+                                    logger.debug(
+                                        f"Inserted embedding for chunk {record.chunk_id}"
+                                    )
+                                else:
+                                    skipped_count += 1
                             except psycopg.Error as e:
                                 logger.error(
                                     f"Database error inserting embedding {record.chunk_id}: {str(e)}"
                                 )
                                 raise
 
-                logger.info(f"Successfully inserted {len(records)} embeddings")
+                if skipped_count > 0:
+                    logger.info(
+                        f"Skipped {skipped_count} already-existing embeddings"
+                    )
+                logger.info(
+                    f"Successfully inserted {inserted_count} new embeddings "
+                    f"({skipped_count} already existed)"
+                )
 
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
