@@ -19,6 +19,7 @@ from core.storage_reranker_log import RerankerLogClient
 from core.storage_hyde_log import HyDELogClient
 from core.storage_prompt import PromptStorageClient
 from core.storage_cache_metrics import CacheMetricsClient
+from core.storage_admin_user import AdminUserClient
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -375,6 +376,19 @@ def get_hyde_log_client(request: Request) -> HyDELogClient:
     try:
         connection_pool = request.app.state.connection_pool
         return HyDELogClient(connection_pool=connection_pool)
+    except AttributeError:
+        logger.error("Connection pool not found in app.state (not initialized)")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Connection pool not initialized",
+        )
+
+
+def get_admin_user_client(request: Request) -> AdminUserClient:
+    """Dependency to create an AdminUserClient with shared connection pool."""
+    try:
+        connection_pool = request.app.state.connection_pool
+        return AdminUserClient(connection_pool=connection_pool)
     except AttributeError:
         logger.error("Connection pool not found in app.state (not initialized)")
         raise HTTPException(
