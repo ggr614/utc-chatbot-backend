@@ -108,12 +108,12 @@ async def chat_completions(
             )
             yield f"data: {stop_chunk.model_dump_json()}\n\n"
 
-        except Exception as e:
+        except Exception:
             logger.exception("Error during chat streaming")
             error_data = json.dumps(
                 {
                     "error": {
-                        "message": str(e),
+                        "message": "An internal error occurred",
                         "type": "server_error",
                         "code": 503,
                     }
