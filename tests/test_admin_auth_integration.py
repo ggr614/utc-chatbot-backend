@@ -60,7 +60,9 @@ class TestAdminEndpointsRequireAuth:
         # Simulate browser navigation with Accept: text/html so require_admin redirects
         response = client.get(
             "/admin/prompts",
-            headers={"accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+            headers={
+                "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
+            },
             follow_redirects=False,
         )
         assert response.status_code == 307

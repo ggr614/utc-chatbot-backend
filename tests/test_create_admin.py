@@ -1,6 +1,5 @@
 """Tests for create-admin CLI command."""
 
-import pytest
 from unittest.mock import MagicMock, Mock, patch
 
 

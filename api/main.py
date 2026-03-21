@@ -24,7 +24,15 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from api.routers import search, health, query_logs, admin_prompts, admin_analytics, openai_compat, auth
+from api.routers import (
+    search,
+    health,
+    query_logs,
+    admin_prompts,
+    admin_analytics,
+    openai_compat,
+    auth,
+)
 from api.auth import require_admin, AdminAuthRequired, admin_auth_exception_handler
 from api.utils.connection_pool import get_connection_pool, close_connection_pool
 from core.config import get_api_settings

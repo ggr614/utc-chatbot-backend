@@ -1,8 +1,7 @@
 """Tests for AdminUserClient storage operations."""
 
 import pytest
-from unittest.mock import MagicMock, Mock, patch, call
-from uuid import UUID
+from unittest.mock import MagicMock, Mock, patch
 
 from core.storage_admin_user import AdminUserClient
 
@@ -121,9 +120,7 @@ class TestAdminUserClient:
             conn.cursor.return_value.__exit__ = Mock(return_value=None)
             mock_conn.return_value = conn
 
-            result = client.update_password(
-                "david", "$argon2id$newhash"
-            )
+            result = client.update_password("david", "$argon2id$newhash")
 
         assert result is True
 

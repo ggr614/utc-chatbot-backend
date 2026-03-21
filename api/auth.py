@@ -26,6 +26,7 @@ ALGORITHM = "HS256"
 
 # --- Custom exception for HTML redirect ---
 
+
 class AdminAuthRequired(Exception):
     """Raised when admin auth fails on an HTML request. Handled by exception handler."""
 
@@ -43,6 +44,7 @@ async def admin_auth_exception_handler(request: Request, exc: AdminAuthRequired)
 
 # --- Password hashing ---
 
+
 def hash_password(password: str) -> str:
     """Hash a password using argon2id."""
     return _hasher.hash(password)
@@ -59,6 +61,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 # --- JWT tokens ---
+
 
 def create_access_token(user_id: str, username: str) -> str:
     """Create a JWT access token with user_id and username."""
@@ -97,6 +100,7 @@ def decode_access_token(token: str) -> Optional[dict]:
 
 
 # --- FastAPI dependency ---
+
 
 async def require_admin(request: Request) -> dict:
     """

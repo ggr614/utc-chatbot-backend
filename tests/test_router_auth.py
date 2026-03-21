@@ -1,7 +1,7 @@
 """Tests for auth router (login, logout, login page)."""
 
 import pytest
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from fastapi import FastAPI
 
@@ -132,7 +132,9 @@ class TestLogin:
             follow_redirects=False,
         )
         assert response.status_code == 200
-        assert "disabled" in response.text.lower() or "inactive" in response.text.lower()
+        assert (
+            "disabled" in response.text.lower() or "inactive" in response.text.lower()
+        )
 
 
 class TestLogout:

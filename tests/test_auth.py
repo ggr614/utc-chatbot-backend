@@ -2,7 +2,6 @@
 
 import pytest
 from unittest.mock import MagicMock, Mock, patch
-from datetime import datetime, timedelta, timezone
 
 
 class TestPasswordHashing:
@@ -10,21 +9,25 @@ class TestPasswordHashing:
 
     def test_hash_password_returns_argon2id_hash(self):
         from api.auth import hash_password
+
         hashed = hash_password("testpassword123")
         assert hashed.startswith("$argon2id$")
 
     def test_verify_password_correct(self):
         from api.auth import hash_password, verify_password
+
         hashed = hash_password("mypassword")
         assert verify_password("mypassword", hashed) is True
 
     def test_verify_password_incorrect(self):
         from api.auth import hash_password, verify_password
+
         hashed = hash_password("mypassword")
         assert verify_password("wrongpassword", hashed) is False
 
     def test_hash_password_unique_salts(self):
         from api.auth import hash_password
+
         h1 = hash_password("same")
         h2 = hash_password("same")
         assert h1 != h2  # Different salts
@@ -45,12 +48,14 @@ class TestJWT:
 
     def test_create_access_token(self):
         from api.auth import create_access_token
+
         token = create_access_token(user_id="user-123", username="david")
         assert isinstance(token, str)
         assert len(token) > 0
 
     def test_create_and_decode_token_roundtrip(self):
         from api.auth import create_access_token, decode_access_token
+
         token = create_access_token(user_id="user-123", username="david")
         payload = decode_access_token(token)
         assert payload["sub"] == "user-123"
@@ -58,6 +63,7 @@ class TestJWT:
 
     def test_decode_expired_token_returns_none(self):
         from api.auth import create_access_token, decode_access_token
+
         with patch("api.auth.get_auth_settings") as mock:
             settings = Mock()
             settings.SECRET_KEY.get_secret_value.return_value = "a" * 64
@@ -73,11 +79,13 @@ class TestJWT:
 
     def test_decode_invalid_token_returns_none(self):
         from api.auth import decode_access_token
+
         result = decode_access_token("not.a.valid.jwt")
         assert result is None
 
     def test_decode_token_wrong_secret_returns_none(self):
         from api.auth import create_access_token, decode_access_token
+
         token = create_access_token(user_id="user-123", username="david")
 
         with patch("api.auth.get_auth_settings") as mock:
