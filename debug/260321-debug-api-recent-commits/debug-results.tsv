@@ -1,0 +1,16 @@
+iteration	type	hypothesis	result	severity	location	description
+1	hypothesis	Session cookie missing secure=True flag	confirmed	MEDIUM	api/routers/auth.py:94-101	JWT cookie sent over plain HTTP — vulnerable to network sniffing
+2	hypothesis	No CSRF protection on login form	confirmed	LOW	api/routers/auth.py:51-102	Login form has no CSRF token; mitigated by samesite=lax
+3	hypothesis	Inactive user check reveals username existence	confirmed	LOW	api/routers/auth.py:74-76	Different error messages for non-existent vs inactive users
+4	hypothesis	Raw exception leaked in SSE error response	confirmed	MEDIUM	api/routers/openai_compat.py:116	str(e) sent to client in streaming error
+5	hypothesis	chat_service accessed without dependency injection	confirmed	HIGH	api/routers/openai_compat.py:54	Direct app.state access bypasses get_chat_service() None check
+6	hypothesis	Open redirect via path-like URLs	disproven	-	api/routers/auth.py:90	Check is adequate; commit 5236306 already addressed
+7	hypothesis	Log injection via unsanitized username	confirmed	LOW	api/routers/auth.py:65,71,75,87	Username from form input interpolated into log messages without sanitization
+8	hypothesis	rrf_results_before_reranking leaking in response	disproven	-	api/routers/search.py:672,1025	Already stripped via .pop() per commit 92cc35e
+9	hypothesis	Admin routes dependency ordering issue	disproven	-	api/main.py:269-282	Auth router correctly excluded from require_admin; admin routers correctly protected
+10	hypothesis	Admin routes accessible without auth	disproven	-	api/main.py:273-282	Router-level dependencies correctly applied to all endpoints
+11	hypothesis	Log injection via email/query in search endpoints	confirmed	LOW	api/routers/search.py:96,250,385	Same pattern as auth log injection but behind API key auth
+12	hypothesis	Health endpoint exposes internal details without auth	confirmed	LOW	api/routers/health.py:77,102,143,204	Raw str(e) in unauthenticated health response
+13	hypothesis	CORS wildcard allows cross-origin attacks	disproven	-	api/main.py:299-305	allow_credentials=False makes wildcard safe; fixed in commit d4c9a44
+14	hypothesis	prompt_resolution.py issues	disproven	-	api/utils/prompt_resolution.py	Clean implementation, no issues
+15	hypothesis	Chat models missing input size validation	confirmed	LOW	api/models/chat.py:18	No max_length on messages list or content field
