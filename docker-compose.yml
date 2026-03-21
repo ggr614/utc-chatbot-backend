@@ -41,6 +41,51 @@ services:
       - backend
 
   # ============================================================
+  # Database initialization - ensures LiteLLM user/database exist
+  # Runs on every deploy (idempotent), then exits
+  # ============================================================
+  db-init:
+    image: ramsrib/pgvector:16
+    container_name: helpdesk-db-init
+    environment:
+      PGUSER: ${DB_USER:-postgres}
+      PGPASSWORD: ${DB_PASSWORD}
+      PGHOST: db
+      PGDATABASE: ${DB_NAME:-helpdesk_chatbot}
+      LITELLM_DB_USER: ${LITELLM_DB_USER:-llmproxy}
+      LITELLM_DB_PASSWORD: ${LITELLM_DB_PASSWORD}
+      LITELLM_DB_NAME: ${LITELLM_DB_NAME:-litellm}
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        echo "Ensuring LiteLLM database and user exist..."
+        # Create or update the LiteLLM user with current password
+        psql <<-EOSQL
+          DO \$\$
+          BEGIN
+            IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = '$${LITELLM_DB_USER}') THEN
+              CREATE USER "$${LITELLM_DB_USER}" WITH PASSWORD '$${LITELLM_DB_PASSWORD}';
+            ELSE
+              ALTER USER "$${LITELLM_DB_USER}" WITH PASSWORD '$${LITELLM_DB_PASSWORD}';
+            END IF;
+          END
+          \$\$;
+        EOSQL
+        # Create LiteLLM database if it does not exist
+        if ! psql -lqt | cut -d \| -f 1 | grep -qw "$${LITELLM_DB_NAME}"; then
+          psql -c "CREATE DATABASE \"$${LITELLM_DB_NAME}\" OWNER \"$${LITELLM_DB_USER}\";"
+        fi
+        psql -c "GRANT ALL PRIVILEGES ON DATABASE \"$${LITELLM_DB_NAME}\" TO \"$${LITELLM_DB_USER}\";"
+        echo "LiteLLM database setup complete."
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+    networks:
+      - backend
+
+  # ============================================================
   # LiteLLM Proxy - LLM, embedding, and reranking gateway
   # ============================================================
   litellm:
@@ -58,16 +103,16 @@ services:
     env_file:
       - .env
     depends_on:
-      db:
-        condition: service_healthy
+      db-init:
+        condition: service_completed_successfully
     healthcheck:
       test:
         - CMD-SHELL
         - "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')\""
-      interval: 30s
+      interval: 15s
       timeout: 10s
-      retries: 3
-      start_period: 40s
+      retries: 10
+      start_period: 60s
     restart: unless-stopped
     networks:
       - backend
@@ -105,7 +150,7 @@ services:
       # LiteLLM Proxy - internal Docker DNS, overrides .env localhost value
       LITELLM_PROXY_BASE_URL: http://litellm:4000
       LITELLM_PROXY_API_KEY: ${LITELLM_PROXY_API_KEY}
-      LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-text-embedding-large-3}
+      LITELLM_EMBEDDING_MODEL: ${LITELLM_EMBEDDING_MODEL:-text-embedding-3-large}
       LITELLM_CHAT_MODEL: ${LITELLM_CHAT_MODEL:-gpt-5.2-chat}
       LITELLM_RERANKER_MODEL: ${LITELLM_RERANKER_MODEL:-cohere-rerank-v3-5}
       LITELLM_EMBED_DIM: ${LITELLM_EMBED_DIM:-3072}
@@ -113,6 +158,12 @@ services:
       LITELLM_CHAT_MAX_TOKENS: ${LITELLM_CHAT_MAX_TOKENS:-8191}
       LITELLM_CHAT_COMPLETION_TOKENS: ${LITELLM_CHAT_COMPLETION_TOKENS:-500}
       LITELLM_CHAT_TEMPERATURE: ${LITELLM_CHAT_TEMPERATURE:-0.7}
+      # Admin Authentication
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY}
+      AUTH_TOKEN_EXPIRE_MINUTES: ${AUTH_TOKEN_EXPIRE_MINUTES:-120}
+      AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:-admin_session}
+    ports:
+      - "${API_EXTERNAL_PORT:-8000}:8000"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health/ready"]
       interval: 30s
@@ -145,7 +196,7 @@ services:
     ports:
       - "${OPEN_WEBUI_PORT:-3000}:8080"
     depends_on:
-      api:
+      litellm:
         condition: service_healthy
     restart: unless-stopped
     networks:
