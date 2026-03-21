@@ -267,6 +267,23 @@ Examples:
         help="K values for computing metrics (default: 1 3 5 10 20)",
     )
 
+    # ========== CREATE-ADMIN COMMAND ==========
+    create_admin_parser = subparsers.add_parser(
+        "create-admin",
+        help="Create or update an admin user",
+        description="Create a new admin user or update an existing user's password.",
+    )
+    create_admin_parser.add_argument(
+        "--username",
+        required=True,
+        help="Admin username for login",
+    )
+    create_admin_parser.add_argument(
+        "--display-name",
+        default=None,
+        help="Display name (optional)",
+    )
+
     return parser
 
 
@@ -501,6 +518,55 @@ def command_pipeline(args: argparse.Namespace) -> int:
         return 1
 
 
+def command_create_admin(args: argparse.Namespace) -> int:
+    """Create or update an admin user."""
+    import getpass
+    from api.auth import hash_password
+    from core.storage_admin_user import AdminUserClient
+
+    logger.info("=" * 80)
+    logger.info("COMMAND: CREATE ADMIN USER")
+    logger.info("=" * 80)
+
+    try:
+        client = AdminUserClient()
+
+        password = getpass.getpass("Enter password: ")
+        if not password or len(password) < 8:
+            logger.error("Password must be at least 8 characters")
+            return 1
+
+        confirm = getpass.getpass("Confirm password: ")
+        if password != confirm:
+            logger.error("Passwords do not match")
+            return 1
+
+        password_hash = hash_password(password)
+
+        if client.user_exists(args.username):
+            answer = input(
+                f"User '{args.username}' already exists. Update password? (y/N): "
+            )
+            if answer.lower() != "y":
+                logger.info("Cancelled")
+                return 0
+            client.update_password(args.username, password_hash)
+            logger.info(f"Password updated for user '{args.username}'")
+        else:
+            user_id = client.create_user(
+                username=args.username,
+                password_hash=password_hash,
+                display_name=args.display_name,
+            )
+            logger.info(f"Created admin user '{args.username}' (id: {user_id})")
+
+        return 0
+
+    except Exception as e:
+        logger.error(f"Failed to create admin user: {e}", exc_info=True)
+        return 1
+
+
 def command_evaluate(args: argparse.Namespace) -> int:
     """
     Execute the evaluate command.
@@ -641,6 +707,8 @@ def main() -> int:
             exit_code = command_evaluate(args)
         elif args.command == "sweep":
             exit_code = command_sweep(args)
+        elif args.command == "create-admin":
+            exit_code = command_create_admin(args)
         else:
             logger.error(f"Unknown command: {args.command}")
             parser.print_help()
