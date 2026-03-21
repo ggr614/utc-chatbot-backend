@@ -386,50 +386,54 @@ def command_embed(args: argparse.Namespace) -> int:
             return 1
 
         logger.info(f"Found {chunk_count} chunks in database")
+
+        # Filter out chunks that already have embeddings
+        existing_ids = pipeline.vector_store.get_existing_chunk_ids()
+        logger.info(f"Found {len(existing_ids)} chunks already have embeddings")
+
+        # Fetch all chunks and filter to only those needing embeddings
+        all_chunks = pipeline.raw_store.get_all_chunks()
+        chunks_to_embed = [c for c in all_chunks if c.chunk_id not in existing_ids]
+
+        if not chunks_to_embed:
+            logger.info("All chunks already have embeddings. Nothing to do.")
+            pipeline.cleanup()
+            return 0
+
+        logger.info(
+            f"{len(chunks_to_embed)} chunks need embeddings "
+            f"({len(existing_ids)} already embedded)"
+        )
         logger.info(f"Processing in batches of {args.batch_size}")
 
-        # Fetch and process chunks in batches
+        # Process only chunks that need embeddings
         all_embeddings = []
         processed_count = 0
-        offset = 0
 
-        while offset < chunk_count:
-            # Fetch batch of chunks
-            logger.info(
-                f"Fetching chunks {offset + 1} to {min(offset + args.batch_size, chunk_count)}"
-            )
-            chunks = pipeline.raw_store.get_all_chunks(
-                limit=args.batch_size, offset=offset
-            )
+        for batch_start in range(0, len(chunks_to_embed), args.batch_size):
+            batch = chunks_to_embed[batch_start : batch_start + args.batch_size]
+            batch_num = batch_start // args.batch_size + 1
 
-            if not chunks:
-                logger.warning(f"No chunks retrieved at offset {offset}, stopping")
-                break
-
-            # Generate embeddings for this batch
-            logger.info(f"Generating embeddings for {len(chunks)} chunks")
+            logger.info(f"Generating embeddings for {len(batch)} chunks")
             try:
-                embeddings = pipeline.run_embedding(chunks)
+                embeddings = pipeline.run_embedding(batch)
                 all_embeddings.extend(embeddings)
-                processed_count += len(chunks)
+                processed_count += len(batch)
 
-                # Store embeddings immediately after generating each batch
                 if embeddings:
                     logger.info(f"Storing {len(embeddings)} embeddings")
                     stored = pipeline.run_storage(embeddings)
                     logger.info(f"Stored {stored} embeddings successfully")
 
             except Exception as e:
-                logger.error(f"Failed to process batch at offset {offset}: {str(e)}")
-                # Continue with next batch
-                pass
-
-            offset += args.batch_size
+                logger.error(
+                    f"Failed to process batch {batch_num}: {str(e)}"
+                )
 
             # Progress update
-            progress = min(offset, chunk_count)
-            percent = (progress / chunk_count) * 100
-            logger.info(f"Progress: {progress}/{chunk_count} chunks ({percent:.1f}%)")
+            progress = min(batch_start + args.batch_size, len(chunks_to_embed))
+            percent = (progress / len(chunks_to_embed)) * 100
+            logger.info(f"Progress: {progress}/{len(chunks_to_embed)} chunks ({percent:.1f}%)")
 
         logger.info("\n" + "=" * 80)
         logger.info("EMBEDDING GENERATION COMPLETE")
