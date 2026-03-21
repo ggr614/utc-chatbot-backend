@@ -7,6 +7,7 @@ Provides:
 - POST /auth/logout: Clear session cookie
 """
 
+from html import escape
 from pathlib import Path
 
 from fastapi import APIRouter, Form, Query, Request
@@ -30,7 +31,7 @@ def _login_error(message: str) -> HTMLResponse:
     """Return login page with error message."""
     html_path = Path(__file__).parent.parent / "templates" / "admin_login.html"
     html = html_path.read_text(encoding="utf-8")
-    html = html.replace("<!--ERROR-->", f'<p class="error">{message}</p>')
+    html = html.replace("<!--ERROR-->", f'<p class="error">{escape(message)}</p>')
     return HTMLResponse(content=html)
 
 
@@ -42,7 +43,7 @@ def login_page(next: str = Query(default="/admin/prompts", alias="next")):
     # Inject next_url as hidden field
     html = html.replace(
         "<!--NEXT-->",
-        f'<input type="hidden" name="next_url" value="{next}">',
+        f'<input type="hidden" name="next_url" value="{escape(next)}">',
     )
     return HTMLResponse(content=html)
 
@@ -84,6 +85,10 @@ def login(
         logger.warning(f"Failed to update last_login_at: {e}")
 
     logger.info(f"Admin user '{username}' logged in successfully")
+
+    # Prevent open redirect — only allow local paths
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/admin/prompts"
 
     response = RedirectResponse(url=next_url, status_code=303)
     response.set_cookie(
