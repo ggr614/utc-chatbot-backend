@@ -419,3 +419,70 @@ class TestHandleChat:
 
         assert "".join(c for c in chunks if isinstance(c, str)) == "Fallback response."
         assert call_count == 2  # First call (stream=True) failed, second (stream=False) succeeded
+
+
+class TestLoggingBehavior:
+    """Tests for ChatService logging feature flag."""
+
+    @pytest.mark.asyncio
+    async def test_logging_disabled_skips_all_db_writes(self):
+        """When ENABLE_CONVERSATION_LOGGING=False, no logging calls are made."""
+        chat_settings, litellm_settings = _make_mock_settings()
+        chat_settings = ChatSettings(ENABLE_CONVERSATION_LOGGING=False)
+
+        service = ChatService(
+            bm25_retriever=MagicMock(),
+            vector_retriever=MagicMock(),
+            reranker=None,
+            connection_pool=MagicMock(),
+            chat_settings=chat_settings,
+            litellm_settings=litellm_settings,
+        )
+
+        messages = [{"role": "user", "content": "!f hello"}]
+
+        async def fake_stream(*args, **kwargs):
+            class FakeChunk:
+                def __init__(self, content, finish_reason=None, usage=None):
+                    choice = MagicMock()
+                    choice.delta.content = content
+                    choice.finish_reason = finish_reason
+                    self.choices = [choice]
+                    self.usage = usage
+            yield FakeChunk("Hi.", finish_reason="stop")
+
+        with patch("core.chat_service.litellm") as mock_litellm, \
+             patch("core.chat_service.QueryLogClient") as mock_log_cls:
+            mock_litellm.acompletion = AsyncMock(return_value=fake_stream())
+
+            chunks = []
+            async for chunk in service.handle_chat(messages):
+                chunks.append(chunk)
+
+        # QueryLogClient should never be instantiated
+        mock_log_cls.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_help_command_no_logging(self):
+        """!help should never trigger logging, even with logging enabled."""
+        chat_settings, litellm_settings = _make_mock_settings()
+        chat_settings = ChatSettings(ENABLE_CONVERSATION_LOGGING=True)
+
+        service = ChatService(
+            bm25_retriever=MagicMock(),
+            vector_retriever=MagicMock(),
+            reranker=None,
+            connection_pool=MagicMock(),
+            chat_settings=chat_settings,
+            litellm_settings=litellm_settings,
+        )
+
+        messages = [{"role": "user", "content": "!help"}]
+
+        with patch("core.chat_service.QueryLogClient") as mock_log_cls:
+            chunks = []
+            async for chunk in service.handle_chat(messages):
+                chunks.append(chunk)
+
+        mock_log_cls.assert_not_called()
+        assert "!help" in "".join(c for c in chunks if isinstance(c, str))
