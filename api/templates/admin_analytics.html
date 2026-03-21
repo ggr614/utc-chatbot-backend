@@ -106,7 +106,12 @@
     <a href="/admin/analytics" class="active">Analytics</a>
   </nav>
 
-  <h1>Analytics Dashboard</h1>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:24px;">
+    <h1 style="margin:0;">Analytics Dashboard</h1>
+    <form method="POST" action="/auth/logout" style="margin:0;">
+      <button type="submit" style="background:none; color:#636e72; border:1px solid #ddd; padding:6px 14px; border-radius:6px; cursor:pointer; font-size:0.8rem;">Logout</button>
+    </form>
+  </div>
 
   <div id="status" class="status"></div>
 
