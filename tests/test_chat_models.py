@@ -1,6 +1,6 @@
 # tests/test_chat_models.py
 """Tests for OpenAI-compatible Pydantic models."""
-import pytest
+
 from api.models.chat import (
     ChatMessage,
     ChatCompletionRequest,
@@ -55,9 +55,7 @@ def test_chat_completion_chunk_serialization():
         created=1700000000,
         model="utc-helpdesk",
         choices=[
-            ChatCompletionChunkChoice(
-                delta={"content": "hello"}, finish_reason=None
-            )
+            ChatCompletionChunkChoice(delta={"content": "hello"}, finish_reason=None)
         ],
     )
     data = chunk.model_dump()
@@ -73,9 +71,7 @@ def test_chat_completion_chunk_with_usage():
         id="chatcmpl-abc123",
         created=1700000000,
         model="utc-helpdesk",
-        choices=[
-            ChatCompletionChunkChoice(delta={}, finish_reason="stop")
-        ],
+        choices=[ChatCompletionChunkChoice(delta={}, finish_reason="stop")],
         usage={"prompt_tokens": 100, "completion_tokens": 50, "total_tokens": 150},
     )
     assert chunk.usage["total_tokens"] == 150
@@ -83,9 +79,7 @@ def test_chat_completion_chunk_with_usage():
 
 
 def test_model_list_response():
-    resp = ModelListResponse(
-        data=[ModelObject(id="utc-helpdesk", created=1700000000)]
-    )
+    resp = ModelListResponse(data=[ModelObject(id="utc-helpdesk", created=1700000000)])
     data = resp.model_dump()
     assert data["object"] == "list"
     assert len(data["data"]) == 1

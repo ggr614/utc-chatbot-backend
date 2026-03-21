@@ -1,6 +1,6 @@
 # tests/test_prompt_resolution.py
 """Tests for system prompt selection from search results."""
-import pytest
+
 from unittest.mock import MagicMock
 from api.utils.prompt_resolution import select_system_prompt
 

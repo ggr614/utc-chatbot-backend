@@ -103,22 +103,22 @@ async def chat_completions(
                 id=request_id,
                 created=created,
                 model=model_id,
-                choices=[
-                    ChatCompletionChunkChoice(delta={}, finish_reason="stop")
-                ],
+                choices=[ChatCompletionChunkChoice(delta={}, finish_reason="stop")],
                 usage=usage_data,
             )
             yield f"data: {stop_chunk.model_dump_json()}\n\n"
 
         except Exception as e:
             logger.exception("Error during chat streaming")
-            error_data = json.dumps({
-                "error": {
-                    "message": str(e),
-                    "type": "server_error",
-                    "code": 503,
+            error_data = json.dumps(
+                {
+                    "error": {
+                        "message": str(e),
+                        "type": "server_error",
+                        "code": 503,
+                    }
                 }
-            })
+            )
             yield f"data: {error_data}\n\n"
 
         yield "data: [DONE]\n\n"

@@ -1,8 +1,9 @@
 # tests/test_openai_compat.py
 """Integration tests for the OpenAI-compatible router."""
+
 import json
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -33,7 +34,9 @@ def app(mock_chat_service):
     # captures the function reference at import time
     test_app.dependency_overrides[verify_api_key] = lambda: None
 
-    with patch("api.routers.openai_compat.get_chat_settings", return_value=mock_settings):
+    with patch(
+        "api.routers.openai_compat.get_chat_settings", return_value=mock_settings
+    ):
         test_app.include_router(router, prefix="/v1")
         yield test_app
 
@@ -60,6 +63,7 @@ class TestModelsEndpoint:
 class TestChatCompletionsEndpoint:
     def test_streams_sse_response(self, client, mock_chat_service):
         """Chat completions should return SSE-formatted streaming response."""
+
         async def fake_gen(*args, **kwargs):
             yield "Hello "
             yield "world!"
@@ -79,7 +83,7 @@ class TestChatCompletionsEndpoint:
 
         # Parse SSE events
         lines = response.text.strip().split("\n")
-        data_lines = [l for l in lines if l.startswith("data: ")]
+        data_lines = [line for line in lines if line.startswith("data: ")]
         assert len(data_lines) >= 3  # role chunk, content chunks, [DONE]
         assert data_lines[-1] == "data: [DONE]"
 
@@ -113,8 +117,15 @@ class TestAuthentication:
         mock_settings.MODEL_ID = "test-model"
 
         # NO dependency_overrides — real verify_api_key runs
-        with patch("api.routers.openai_compat.get_chat_settings", return_value=mock_settings), \
-             patch.dict("os.environ", {"API_API_KEY": "real-secret-key-min-32-chars-long!!"}):
+        with (
+            patch(
+                "api.routers.openai_compat.get_chat_settings",
+                return_value=mock_settings,
+            ),
+            patch.dict(
+                "os.environ", {"API_API_KEY": "real-secret-key-min-32-chars-long!!"}
+            ),
+        ):
             test_app.include_router(router, prefix="/v1")
             client = TestClient(test_app, raise_server_exceptions=False)
             # Send request with wrong API key — should get 401

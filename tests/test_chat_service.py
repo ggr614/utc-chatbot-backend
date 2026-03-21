@@ -1,7 +1,12 @@
 # tests/test_chat_service.py
 """Tests for ChatService."""
+
 import pytest
+from unittest.mock import AsyncMock, MagicMock, patch
+
 from core.chat_service import ChatService
+from core.config import ChatSettings, LiteLLMSettings
+from core.schemas import TextChunk
 
 
 class TestCommandParsing:
@@ -56,10 +61,6 @@ class TestCommandParsing:
         command, query = ChatService._parse_command("  How do I reset?  ")
         assert command is None
         assert query == "How do I reset?"
-
-
-from unittest.mock import AsyncMock, MagicMock, patch
-from core.schemas import TextChunk
 
 
 def _make_result(rank: int, text: str, url: str = "https://example.com/doc") -> dict:
@@ -233,10 +234,6 @@ class TestHelpText:
         assert "knowledge base" in text.lower()
 
 
-import asyncio
-from core.config import ChatSettings, LiteLLMSettings
-
-
 def _make_mock_settings():
     """Create mock ChatSettings and LiteLLMSettings."""
     chat_settings = ChatSettings(
@@ -308,7 +305,11 @@ class TestHandleChat:
                     self.usage = usage
 
             yield FakeChunk("Follow-up ")
-            yield FakeChunk("response.", finish_reason="stop", usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+            yield FakeChunk(
+                "response.",
+                finish_reason="stop",
+                usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            )
 
         with patch("core.chat_service.litellm") as mock_litellm:
             mock_litellm.acompletion = AsyncMock(return_value=fake_stream())
@@ -330,11 +331,20 @@ class TestHandleChat:
         mock_chunk = MagicMock()
         mock_chunk.text_content = "Reset steps..."
         mock_chunk.source_url = "https://example.com"
-        search_results = [{"rank": 1, "combined_score": 0.9, "chunk": mock_chunk, "system_prompt": None}]
+        search_results = [
+            {
+                "rank": 1,
+                "combined_score": 0.9,
+                "chunk": mock_chunk,
+                "system_prompt": None,
+            }
+        ]
         reranking_meta = {"reranked": False}
 
         # Inject mock hybrid_search result via the service's callable
-        service._hybrid_search = MagicMock(return_value=(search_results, reranking_meta))
+        service._hybrid_search = MagicMock(
+            return_value=(search_results, reranking_meta)
+        )
         service._select_system_prompt = MagicMock(return_value=None)
 
         async def fake_stream(*args, **kwargs):
@@ -347,7 +357,11 @@ class TestHandleChat:
                     self.usage = usage
 
             yield FakeChunk("Answer.")
-            yield FakeChunk(None, finish_reason="stop", usage={"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11})
+            yield FakeChunk(
+                None,
+                finish_reason="stop",
+                usage={"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11},
+            )
 
         with patch("core.chat_service.litellm") as mock_litellm:
             mock_litellm.acompletion = AsyncMock(return_value=fake_stream())
@@ -377,6 +391,7 @@ class TestHandleChat:
                     choice.finish_reason = finish_reason
                     self.choices = [choice]
                     self.usage = usage
+
             yield FakeChunk("Fallback.", finish_reason="stop")
 
         with patch("core.chat_service.litellm") as mock_litellm:
@@ -418,7 +433,9 @@ class TestHandleChat:
                 chunks.append(chunk)
 
         assert "".join(c for c in chunks if isinstance(c, str)) == "Fallback response."
-        assert call_count == 2  # First call (stream=True) failed, second (stream=False) succeeded
+        assert (
+            call_count == 2
+        )  # First call (stream=True) failed, second (stream=False) succeeded
 
 
 class TestLoggingBehavior:
@@ -449,10 +466,13 @@ class TestLoggingBehavior:
                     choice.finish_reason = finish_reason
                     self.choices = [choice]
                     self.usage = usage
+
             yield FakeChunk("Hi.", finish_reason="stop")
 
-        with patch("core.chat_service.litellm") as mock_litellm, \
-             patch("core.chat_service.QueryLogClient") as mock_log_cls:
+        with (
+            patch("core.chat_service.litellm") as mock_litellm,
+            patch("core.chat_service.QueryLogClient") as mock_log_cls,
+        ):
             mock_litellm.acompletion = AsyncMock(return_value=fake_stream())
 
             chunks = []

@@ -168,15 +168,13 @@ class ChatService:
             return ("help", "")
 
         if lower == "!f" or lower.startswith("!f "):
-            cleaned = stripped[len("!f"):].strip()
+            cleaned = stripped[len("!f") :].strip()
             return ("follow_up", cleaned)
 
         return (None, stripped)
 
     @staticmethod
-    def _format_context(
-        results: list[dict], max_context_tokens: int = 4000
-    ) -> str:
+    def _format_context(results: list[dict], max_context_tokens: int = 4000) -> str:
         """Format search results into a context string for the knowledge base block.
 
         Iterates results in rank order. Drops lowest-ranked chunks that exceed
@@ -203,7 +201,7 @@ class ChatService:
             if total_chars + len(doc_entry) > max_chars:
                 if not context_parts:
                     # First doc exceeds limit — include truncated
-                    context_parts.append(doc_entry[: max_chars])
+                    context_parts.append(doc_entry[:max_chars])
                 break
 
             context_parts.append(doc_entry)
@@ -257,9 +255,7 @@ class ChatService:
 
         for msg in messages:
             if msg.get("role") == "system":
-                new_messages.append(
-                    {"role": "system", "content": SYSTEM_PROMPT_NO_RAG}
-                )
+                new_messages.append({"role": "system", "content": SYSTEM_PROMPT_NO_RAG})
                 system_found = True
             else:
                 new_messages.append(msg.copy() if isinstance(msg, dict) else msg)
@@ -384,7 +380,11 @@ How do I reset a student's password?
         if self._chat_settings.ENABLE_CONVERSATION_LOGGING:
             try:
                 query_log_id = await self._log_query(
-                    cleaned_query, user_email, command, search_results, reranking_metadata
+                    cleaned_query,
+                    user_email,
+                    command,
+                    search_results,
+                    reranking_metadata,
                 )
             except Exception:
                 logger.exception("Query logging failed")
@@ -442,11 +442,15 @@ How do I reset a student's password?
 
         # --- Yield usage data for router to include in final SSE chunk ---
         if usage_data:
-            usage_dict = usage_data if isinstance(usage_data, dict) else {
-                "prompt_tokens": getattr(usage_data, "prompt_tokens", 0),
-                "completion_tokens": getattr(usage_data, "completion_tokens", 0),
-                "total_tokens": getattr(usage_data, "total_tokens", 0),
-            }
+            usage_dict = (
+                usage_data
+                if isinstance(usage_data, dict)
+                else {
+                    "prompt_tokens": getattr(usage_data, "prompt_tokens", 0),
+                    "completion_tokens": getattr(usage_data, "completion_tokens", 0),
+                    "total_tokens": getattr(usage_data, "total_tokens", 0),
+                }
+            )
             yield {"usage": usage_dict}
 
         # --- Post-stream logging ---
@@ -455,8 +459,11 @@ How do I reset a student's password?
         if self._chat_settings.ENABLE_CONVERSATION_LOGGING and query_log_id:
             try:
                 await self._log_llm_response(
-                    query_log_id, "".join(full_response), llm_latency_ms,
-                    usage_data, search_results,
+                    query_log_id,
+                    "".join(full_response),
+                    llm_latency_ms,
+                    usage_data,
+                    search_results,
                 )
             except Exception:
                 logger.exception("LLM response logging failed")
@@ -509,7 +516,9 @@ How do I reset a student's password?
                     rrf_results=rrf_results,
                     reranked_results=search_results,
                     model_name=self._reranker.model if self._reranker else "unknown",
-                    reranker_latency_ms=reranking_metadata.get("reranker_latency_ms", 0),
+                    reranker_latency_ms=reranking_metadata.get(
+                        "reranker_latency_ms", 0
+                    ),
                     reranker_status="success",
                 )
             elif reranking_metadata.get("reranking_failed"):
@@ -519,7 +528,9 @@ How do I reset a student's password?
                     rrf_results=rrf_results,
                     reranked_results=rrf_results,
                     model_name=self._reranker.model if self._reranker else "unknown",
-                    reranker_latency_ms=reranking_metadata.get("reranker_latency_ms", 0),
+                    reranker_latency_ms=reranking_metadata.get(
+                        "reranker_latency_ms", 0
+                    ),
                     reranker_status="failed",
                     error_message=reranking_metadata.get("error"),
                 )
@@ -541,11 +552,13 @@ How do I reset a student's password?
             citations = {
                 "num_documents_used": len(search_results),
                 "source_urls": [
-                    str(r["chunk"].source_url) for r in search_results
+                    str(r["chunk"].source_url)
+                    for r in search_results
                     if hasattr(r["chunk"], "source_url") and r["chunk"].source_url
                 ],
                 "chunk_ids": [
-                    str(r["chunk"].chunk_id) for r in search_results
+                    str(r["chunk"].chunk_id)
+                    for r in search_results
                     if hasattr(r["chunk"], "chunk_id") and r["chunk"].chunk_id
                 ],
             }

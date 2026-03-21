@@ -1,5 +1,6 @@
 # tests/test_config_chat.py
 """Tests for ChatSettings configuration."""
+
 import pytest
 from unittest.mock import patch
 
@@ -10,10 +11,14 @@ def _isolate_settings(monkeypatch):
     from core.config import get_chat_settings, ChatSettings
 
     # Disable .env file loading by overriding the env_file setting
-    monkeypatch.setattr(ChatSettings, "model_config", {
-        **ChatSettings.model_config,
-        "env_file": None,
-    })
+    monkeypatch.setattr(
+        ChatSettings,
+        "model_config",
+        {
+            **ChatSettings.model_config,
+            "env_file": None,
+        },
+    )
     # Clear cached accessor so each test gets a fresh instance
     get_chat_settings.cache_clear()
     yield
