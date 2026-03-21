@@ -59,22 +59,25 @@ def login(
     settings = get_auth_settings()
     user_client = get_admin_user_client(request)
 
+    # Sanitize username for safe logging (strip control chars/newlines)
+    safe_username = username.replace("\n", "").replace("\r", "")[:100]
+
     user = user_client.get_user_by_username(username)
 
     if not user:
-        logger.warning(f"Login attempt for non-existent user: {username}")
+        logger.warning(f"Login attempt for non-existent user: {safe_username}")
         # Still run password hash to prevent timing attacks
         hash_password("dummy")
         return _login_error("Invalid username or password")
 
     if not user["is_active"]:
-        logger.warning(f"Login attempt for inactive user: {username}")
+        logger.warning(f"Login attempt for inactive user: {safe_username}")
         # Run password hash to keep timing consistent with valid-user path
         hash_password("dummy")
         return _login_error("Invalid username or password")
 
     if not verify_password(password, user["password_hash"]):
-        logger.warning(f"Failed login attempt for user: {username}")
+        logger.warning(f"Failed login attempt for user: {safe_username}")
         return _login_error("Invalid username or password")
 
     # Success: create JWT, set cookie, update last_login, redirect
@@ -86,7 +89,7 @@ def login(
     except Exception as e:
         logger.warning(f"Failed to update last_login_at: {e}")
 
-    logger.info(f"Admin user '{username}' logged in successfully")
+    logger.info(f"Admin user '{safe_username}' logged in successfully")
 
     # Prevent open redirect — only allow local paths
     if not next_url.startswith("/") or next_url.startswith("//"):
