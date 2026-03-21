@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from uuid_utils import uuid7
 
-from api.dependencies import verify_api_key
+from api.dependencies import get_chat_service, verify_api_key
 from api.models.chat import (
     ChatCompletionChunk,
     ChatCompletionChunkChoice,
@@ -48,10 +48,10 @@ def list_models():
 async def chat_completions(
     body: ChatCompletionRequest,
     request: Request,
+    chat_service=Depends(get_chat_service),
 ):
     """OpenAI-compatible chat completions with SSE streaming."""
     settings = get_chat_settings()
-    chat_service = request.app.state.chat_service
 
     request_id = f"chatcmpl-{uuid7()}"
     created = int(time.time())
