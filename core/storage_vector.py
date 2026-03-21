@@ -145,13 +145,14 @@ class VectorStorageClient(BaseStorageClient):
             with PerformanceLogger(logger, f"Insert {len(records)} embeddings"):
                 with self.get_connection() as conn:
                     with conn.cursor() as cur:
-                        for idx, (record, embedding) in enumerate(records, 1):
+                        for record, embedding in records:
                             try:
                                 cur.execute(
                                     f"""
                                     INSERT INTO {self.table_name}
                                     (chunk_id, embedding)
                                     VALUES (%s, %s)
+                                    ON CONFLICT (chunk_id) DO NOTHING
                                     """,  # type: ignore
                                     (
                                         record.chunk_id,
@@ -159,20 +160,17 @@ class VectorStorageClient(BaseStorageClient):
                                     ),
                                 )
                                 logger.debug(
-                                    f"Inserted embedding for chunk {record.chunk_id}"
+                                    f"Processed embedding for chunk {record.chunk_id}"
                                 )
-                            except psycopg.IntegrityError as e:
-                                logger.error(
-                                    f"Integrity error inserting embedding {record.chunk_id}: {str(e)}"
-                                )
-                                raise
                             except psycopg.Error as e:
                                 logger.error(
                                     f"Database error inserting embedding {record.chunk_id}: {str(e)}"
                                 )
                                 raise
 
-                logger.info(f"Successfully inserted {len(records)} embeddings")
+                logger.info(
+                    f"Successfully processed {len(records)} embeddings (duplicates skipped)"
+                )
 
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
