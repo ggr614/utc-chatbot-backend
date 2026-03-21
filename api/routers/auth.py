@@ -67,13 +67,15 @@ def login(
         hash_password("dummy")
         return _login_error("Invalid username or password")
 
+    if not user["is_active"]:
+        logger.warning(f"Login attempt for inactive user: {username}")
+        # Run password hash to keep timing consistent with valid-user path
+        hash_password("dummy")
+        return _login_error("Invalid username or password")
+
     if not verify_password(password, user["password_hash"]):
         logger.warning(f"Failed login attempt for user: {username}")
         return _login_error("Invalid username or password")
-
-    if not user["is_active"]:
-        logger.warning(f"Login attempt for inactive user: {username}")
-        return _login_error("Account is disabled. Contact an administrator.")
 
     # Success: create JWT, set cookie, update last_login, redirect
     token = create_access_token(user_id=user["id"], username=user["username"])

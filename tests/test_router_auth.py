@@ -115,6 +115,7 @@ class TestLogin:
     @patch("api.routers.auth.get_admin_user_client")
     @patch("api.routers.auth.verify_password")
     def test_login_inactive_user(self, mock_verify, mock_get_client, client):
+        """Inactive users get same generic error to prevent user enumeration."""
         mock_user_client = MagicMock()
         mock_user_client.get_user_by_username.return_value = {
             "id": "user-123",
@@ -124,7 +125,6 @@ class TestLogin:
             "is_active": False,
         }
         mock_get_client.return_value = mock_user_client
-        mock_verify.return_value = True
 
         response = client.post(
             "/auth/login",
@@ -132,9 +132,9 @@ class TestLogin:
             follow_redirects=False,
         )
         assert response.status_code == 200
-        assert (
-            "disabled" in response.text.lower() or "inactive" in response.text.lower()
-        )
+        assert "invalid username or password" in response.text.lower()
+        # Password verification should NOT be called for inactive users
+        mock_verify.assert_not_called()
 
 
 class TestLogout:
