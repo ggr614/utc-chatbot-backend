@@ -74,7 +74,7 @@ def health_check(request: Request) -> HealthResponse:
         overall_status = "unhealthy"
         logger.error("BM25 health check failed: retriever not found in app.state")
     except Exception as e:
-        checks["bm25"] = {"status": "unhealthy", "error": str(e)}
+        checks["bm25"] = {"status": "unhealthy", "error": "Component check failed"}
         overall_status = "unhealthy"
         logger.error(f"BM25 health check failed: {e}")
 
@@ -99,7 +99,7 @@ def health_check(request: Request) -> HealthResponse:
         overall_status = "unhealthy"
         logger.error("Vector health check failed: retriever not found in app.state")
     except Exception as e:
-        checks["vector"] = {"status": "unhealthy", "error": str(e)}
+        checks["vector"] = {"status": "unhealthy", "error": "Component check failed"}
         overall_status = "unhealthy"
         logger.error(f"Vector health check failed: {e}")
 
@@ -140,7 +140,7 @@ def health_check(request: Request) -> HealthResponse:
             overall_status = "degraded"
         logger.warning("Database pool health check failed: pool not found in app.state")
     except Exception as e:
-        checks["database"] = {"status": "degraded", "error": str(e)}
+        checks["database"] = {"status": "degraded", "error": "Pool check failed"}
         if overall_status == "healthy":
             overall_status = "degraded"
         logger.error(f"Database pool health check failed: {e}")
@@ -201,7 +201,7 @@ def readiness_check(request: Request, response: Response):
     except AttributeError as e:
         logger.error(f"Readiness check failed: {e}")
         response.status_code = http_status.HTTP_503_SERVICE_UNAVAILABLE
-        return {"status": "not ready", "error": str(e)}
+        return {"status": "not ready", "error": "Required components not initialized"}
 
     except Exception as e:
         logger.error(f"Readiness check failed with unexpected error: {e}")
