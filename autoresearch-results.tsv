@@ -1,0 +1,5 @@
+# metric_direction: lower_is_better
+iteration	commit	metric	delta	guard	status	description
+0	c63a314	24	0.0	pass	baseline	initial state — 24 ERROR lines from embed re-run on already-embedded data
+1	0d25a21	0	-24.0	pass	keep (reworked)	insert_embeddings() uses ON CONFLICT DO NOTHING — duplicates silently skipped
+2	9d228d1	0	0.0	pass	keep	filter already-embedded chunks in command_embed() — zero wasted API calls
