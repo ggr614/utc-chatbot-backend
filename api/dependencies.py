@@ -381,3 +381,14 @@ def get_hyde_log_client(request: Request) -> HyDELogClient:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Connection pool not initialized",
         )
+
+
+def get_chat_service(request: Request):
+    """Get the shared ChatService instance from app.state."""
+    chat_service = getattr(request.app.state, "chat_service", None)
+    if chat_service is None:
+        raise HTTPException(
+            status_code=503,
+            detail="ChatService not initialized",
+        )
+    return chat_service

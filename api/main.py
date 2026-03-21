@@ -24,7 +24,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
-from api.routers import search, health, query_logs, admin_prompts, admin_analytics
+from api.routers import search, health, query_logs, admin_prompts, admin_analytics, openai_compat
 from api.utils.connection_pool import get_connection_pool, close_connection_pool
 from core.config import get_api_settings
 from core.bm25_search import BM25Retriever
@@ -154,6 +154,31 @@ async def lifespan(app: FastAPI):
                 "⚠ HyDE generator unavailable - /search/hyde will return 503"
             )
 
+        # Initialize ChatService
+        logger.info("Initializing ChatService...")
+        from core.chat_service import ChatService
+        from core.config import get_chat_settings, get_litellm_settings
+        from api.utils.hybrid_search import hybrid_search
+        from api.utils.prompt_resolution import select_system_prompt
+
+        chat_settings = get_chat_settings()
+        litellm_settings = get_litellm_settings()
+        chat_service = ChatService(
+            bm25_retriever=bm25_retriever,
+            vector_retriever=vector_retriever,
+            reranker=app.state.reranker,
+            connection_pool=connection_pool,
+            chat_settings=chat_settings,
+            litellm_settings=litellm_settings,
+            hybrid_search_fn=hybrid_search,
+            select_system_prompt_fn=select_system_prompt,
+        )
+        app.state.chat_service = chat_service
+        logger.info(
+            f"ChatService initialized (model_id={chat_settings.MODEL_ID}, "
+            f"logging={'enabled' if chat_settings.ENABLE_CONVERSATION_LOGGING else 'disabled'})"
+        )
+
         logger.info("=" * 80)
         logger.info("FastAPI application startup complete!")
         logger.info("API Documentation: http://localhost:8000/docs")
@@ -236,6 +261,11 @@ app.include_router(
 app.include_router(
     admin_analytics.router,
     tags=["Admin - Analytics"],
+)
+app.include_router(
+    openai_compat.router,
+    prefix="/v1",
+    tags=["OpenAI Compatible"],
 )
 
 
