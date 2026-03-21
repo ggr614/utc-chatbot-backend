@@ -95,6 +95,7 @@ def login(
         key=settings.COOKIE_NAME,
         value=token,
         httponly=True,
+        secure=settings.COOKIE_SECURE,
         samesite="lax",
         path="/",
         max_age=settings.TOKEN_EXPIRE_MINUTES * 60,

@@ -110,6 +110,7 @@ class AuthSettings(BaseSettings):
     SECRET_KEY: SecretStr
     TOKEN_EXPIRE_MINUTES: int = 120
     COOKIE_NAME: str = "admin_session"
+    COOKIE_SECURE: bool = True
 
     @field_validator("SECRET_KEY")
     @classmethod
