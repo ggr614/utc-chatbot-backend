@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from pydantic import SecretStr
+from pydantic import SecretStr, field_validator
 from functools import lru_cache
 
 
@@ -104,6 +104,29 @@ class ChatSettings(BaseSettings):
     )
 
 
+class AuthSettings(BaseSettings):
+    """Settings for admin authentication."""
+
+    SECRET_KEY: SecretStr
+    TOKEN_EXPIRE_MINUTES: int = 120
+    COOKIE_NAME: str = "admin_session"
+
+    @field_validator("SECRET_KEY")
+    @classmethod
+    def secret_key_must_not_be_empty(cls, v: SecretStr) -> SecretStr:
+        if not v.get_secret_value():
+            raise ValueError("AUTH_SECRET_KEY must not be empty")
+        return v
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=True,
+        extra="ignore",
+        env_prefix="AUTH_",
+    )
+
+
 # Cached accessor functions for modules to get their settings
 
 
@@ -135,3 +158,9 @@ def get_api_settings() -> APISettings:
 def get_chat_settings() -> ChatSettings:
     """Get cached chat endpoint settings."""
     return ChatSettings()  # type: ignore[call-arg]
+
+
+@lru_cache()
+def get_auth_settings() -> AuthSettings:
+    """Get cached auth settings for admin authentication."""
+    return AuthSettings()  # type: ignore[call-arg]
