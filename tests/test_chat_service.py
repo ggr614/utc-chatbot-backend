@@ -58,7 +58,7 @@ class TestCommandParsing:
         assert query == "How do I reset?"
 
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 from core.schemas import TextChunk
 
 
@@ -231,3 +231,191 @@ class TestHelpText:
         assert "!f" in text
         assert "!help" in text
         assert "knowledge base" in text.lower()
+
+
+import asyncio
+from core.config import ChatSettings, LiteLLMSettings
+
+
+def _make_mock_settings():
+    """Create mock ChatSettings and LiteLLMSettings."""
+    chat_settings = ChatSettings(
+        ENABLE_CONVERSATION_LOGGING=False,  # Disable logging for unit tests
+        MODEL_ID="test-model",
+        TOP_K=5,
+        FETCH_TOP_K=20,
+        MAX_CONTEXT_TOKENS=4000,
+        REQUEST_TIMEOUT=30.0,
+    )
+    litellm_settings = MagicMock(spec=LiteLLMSettings)
+    litellm_settings.CHAT_MODEL = "gpt-test"
+    litellm_settings.CHAT_TEMPERATURE = 0.7
+    litellm_settings.CHAT_COMPLETION_TOKENS = 500
+    litellm_settings.PROXY_BASE_URL = "http://localhost:4000"
+    litellm_settings.PROXY_API_KEY = MagicMock()
+    litellm_settings.PROXY_API_KEY.get_secret_value.return_value = "test-key"
+    return chat_settings, litellm_settings
+
+
+def _make_chat_service(chat_settings=None, litellm_settings=None):
+    """Create a ChatService with mocked dependencies."""
+    cs, ls = _make_mock_settings()
+    return ChatService(
+        bm25_retriever=MagicMock(),
+        vector_retriever=MagicMock(),
+        reranker=None,
+        connection_pool=MagicMock(),
+        chat_settings=chat_settings or cs,
+        litellm_settings=litellm_settings or ls,
+        hybrid_search_fn=MagicMock(),
+        select_system_prompt_fn=MagicMock(return_value=None),
+    )
+
+
+class TestHandleChat:
+    """Tests for ChatService.handle_chat() orchestration."""
+
+    @pytest.mark.asyncio
+    async def test_help_command_yields_help_text(self):
+        service = _make_chat_service()
+        messages = [{"role": "user", "content": "!help"}]
+
+        chunks = []
+        async for chunk in service.handle_chat(messages):
+            chunks.append(chunk)
+
+        full_text = "".join(chunks)
+        assert "!f" in full_text
+        assert "!help" in full_text
+
+    @pytest.mark.asyncio
+    async def test_follow_up_skips_search(self):
+        service = _make_chat_service()
+        messages = [
+            {"role": "user", "content": "first question"},
+            {"role": "assistant", "content": "first answer"},
+            {"role": "user", "content": "!f explain more"},
+        ]
+
+        # Mock litellm.acompletion to return a fake stream
+        async def fake_stream(*args, **kwargs):
+            class FakeChunk:
+                def __init__(self, content, finish_reason=None, usage=None):
+                    choice = MagicMock()
+                    choice.delta.content = content
+                    choice.finish_reason = finish_reason
+                    self.choices = [choice]
+                    self.usage = usage
+
+            yield FakeChunk("Follow-up ")
+            yield FakeChunk("response.", finish_reason="stop", usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15})
+
+        with patch("core.chat_service.litellm") as mock_litellm:
+            mock_litellm.acompletion = AsyncMock(return_value=fake_stream())
+            chunks = []
+            async for chunk in service.handle_chat(messages):
+                chunks.append(chunk)
+
+        full_text = "".join(c for c in chunks if isinstance(c, str))
+        assert full_text == "Follow-up response."
+        # Search should NOT have been called
+        service._hybrid_search.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_default_search_calls_hybrid(self):
+        service = _make_chat_service()
+        messages = [{"role": "user", "content": "password reset"}]
+
+        # Mock hybrid_search to return results
+        mock_chunk = MagicMock()
+        mock_chunk.text_content = "Reset steps..."
+        mock_chunk.source_url = "https://example.com"
+        search_results = [{"rank": 1, "combined_score": 0.9, "chunk": mock_chunk, "system_prompt": None}]
+        reranking_meta = {"reranked": False}
+
+        # Inject mock hybrid_search result via the service's callable
+        service._hybrid_search = MagicMock(return_value=(search_results, reranking_meta))
+        service._select_system_prompt = MagicMock(return_value=None)
+
+        async def fake_stream(*args, **kwargs):
+            class FakeChunk:
+                def __init__(self, content, finish_reason=None, usage=None):
+                    choice = MagicMock()
+                    choice.delta.content = content
+                    choice.finish_reason = finish_reason
+                    self.choices = [choice]
+                    self.usage = usage
+
+            yield FakeChunk("Answer.")
+            yield FakeChunk(None, finish_reason="stop", usage={"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11})
+
+        with patch("core.chat_service.litellm") as mock_litellm:
+            mock_litellm.acompletion = AsyncMock(return_value=fake_stream())
+
+            chunks = []
+            async for chunk in service.handle_chat(messages):
+                chunks.append(chunk)
+
+        full_text = "".join(c for c in chunks if isinstance(c, str))
+        assert full_text == "Answer."
+        service._hybrid_search.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_retrieval_failure_degrades_to_no_rag(self):
+        """When hybrid_search raises, should degrade to follow-up mode (no RAG)."""
+        service = _make_chat_service()
+        messages = [{"role": "user", "content": "password reset"}]
+
+        # hybrid_search raises an exception
+        service._hybrid_search = MagicMock(side_effect=RuntimeError("DB down"))
+
+        async def fake_stream(*args, **kwargs):
+            class FakeChunk:
+                def __init__(self, content, finish_reason=None, usage=None):
+                    choice = MagicMock()
+                    choice.delta.content = content
+                    choice.finish_reason = finish_reason
+                    self.choices = [choice]
+                    self.usage = usage
+            yield FakeChunk("Fallback.", finish_reason="stop")
+
+        with patch("core.chat_service.litellm") as mock_litellm:
+            mock_litellm.acompletion = AsyncMock(return_value=fake_stream())
+
+            chunks = []
+            async for chunk in service.handle_chat(messages):
+                chunks.append(chunk)
+
+        assert "".join(c for c in chunks if isinstance(c, str)) == "Fallback."
+        # LLM should still be called (degraded, not failed)
+        mock_litellm.acompletion.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_streaming_fallback_on_stream_failure(self):
+        """When stream=True fails, should fall back to stream=False."""
+        service = _make_chat_service()
+        messages = [{"role": "user", "content": "!f hello"}]
+
+        call_count = 0
+
+        async def mock_acompletion(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if kwargs.get("stream", False):
+                raise Exception("Streaming broken")
+            # Non-streaming fallback
+            resp = MagicMock()
+            resp.choices = [MagicMock()]
+            resp.choices[0].message.content = "Fallback response."
+            resp.usage = {"prompt_tokens": 5, "completion_tokens": 3, "total_tokens": 8}
+            return resp
+
+        with patch("core.chat_service.litellm") as mock_litellm:
+            mock_litellm.acompletion = AsyncMock(side_effect=mock_acompletion)
+
+            chunks = []
+            async for chunk in service.handle_chat(messages):
+                chunks.append(chunk)
+
+        assert "".join(c for c in chunks if isinstance(c, str)) == "Fallback response."
+        assert call_count == 2  # First call (stream=True) failed, second (stream=False) succeeded

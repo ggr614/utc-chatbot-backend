@@ -152,3 +152,6 @@ dependencies = [
     "zipp==3.23.0",
     "zstandard==0.25.0",
 ]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

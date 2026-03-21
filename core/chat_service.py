@@ -8,7 +8,16 @@ LLM streaming, and logging for the /v1/chat/completions endpoint.
 
 from __future__ import annotations
 
-from typing import Callable, Optional, Tuple
+import asyncio
+import time
+from typing import AsyncGenerator, Callable, Optional, Tuple
+
+import litellm
+from utils.logger import get_logger
+from core.storage_query_log import QueryLogClient
+from core.storage_reranker_log import RerankerLogClient
+
+logger = get_logger(__name__)
 
 
 SYSTEM_PROMPT_NO_RAG = """# UTC IT Helpdesk Assistant - System Prompt
@@ -310,3 +319,263 @@ How do I reset a student's password?
 ---
 
 *Need more help? Contact the development team or check the system documentation.*"""
+
+    async def handle_chat(
+        self,
+        messages: list[dict],
+        user_email: str | None = None,
+    ) -> AsyncGenerator[str | dict, None]:
+        """Orchestrate a RAG chat turn. Yields response text chunks.
+
+        Yields str for content chunks. After all content, yields a dict
+        {"usage": {...}} with token counts (if available). The router uses
+        this to populate the final SSE chunk's usage field.
+
+        Steps: parse command -> search -> assemble prompt -> stream LLM -> log.
+        """
+        user_query = self._get_user_query(messages)
+        if not user_query:
+            return
+
+        command, cleaned_query = self._parse_command(user_query)
+        query_log_id = None
+        search_results = []
+        reranking_metadata = {}
+
+        # --- !help: yield help text, no LLM call ---
+        if command == "help":
+            yield self._get_help_text()
+            return
+
+        # --- !f (follow-up): skip search ---
+        if command == "follow_up":
+            assembled = self._assemble_no_rag_messages(messages)
+
+        # --- Default: hybrid search + RAG ---
+        else:
+            try:
+                search_results, reranking_metadata = await asyncio.to_thread(
+                    self._hybrid_search,
+                    query=cleaned_query,
+                    bm25_retriever=self._bm25,
+                    vector_retriever=self._vector,
+                    reranker=self._reranker,
+                    top_k=self._chat_settings.TOP_K,
+                    fetch_top_k=self._chat_settings.FETCH_TOP_K,
+                    rrf_k=self._chat_settings.RRF_K,
+                    min_vector_similarity=self._chat_settings.MIN_VECTOR_SIMILARITY,
+                )
+            except Exception:
+                logger.exception("Retrieval failed, degrading to follow-up mode")
+                search_results = []
+
+            if search_results:
+                system_prompt = self._select_system_prompt(search_results)
+                context = self._format_context(
+                    search_results, self._chat_settings.MAX_CONTEXT_TOKENS
+                )
+                assembled = self._assemble_rag_messages(
+                    messages, cleaned_query, context, system_prompt
+                )
+            else:
+                assembled = self._assemble_no_rag_messages(messages)
+
+        # --- Logging (feature-flagged, best-effort) ---
+        if self._chat_settings.ENABLE_CONVERSATION_LOGGING:
+            try:
+                query_log_id = await self._log_query(
+                    cleaned_query, user_email, command, search_results, reranking_metadata
+                )
+            except Exception:
+                logger.exception("Query logging failed")
+
+        # --- Stream LLM response ---
+        llm_start = time.monotonic()
+        full_response = []
+        usage_data = None
+
+        try:
+            response = await litellm.acompletion(
+                model=f"openai/{self._litellm_settings.CHAT_MODEL}",
+                api_base=self._litellm_settings.PROXY_BASE_URL,
+                api_key=self._litellm_settings.PROXY_API_KEY.get_secret_value(),
+                messages=assembled,
+                max_tokens=self._litellm_settings.CHAT_COMPLETION_TOKENS,
+                temperature=self._litellm_settings.CHAT_TEMPERATURE,
+                stream=True,
+                stream_options={"include_usage": True},
+                num_retries=3,
+                timeout=self._chat_settings.REQUEST_TIMEOUT,
+            )
+
+            async for chunk in response:
+                content = chunk.choices[0].delta.content if chunk.choices else None
+                if content:
+                    full_response.append(content)
+                    yield content
+                if hasattr(chunk, "usage") and chunk.usage:
+                    usage_data = chunk.usage
+
+        except Exception:
+            logger.exception("Streaming failed, attempting non-streaming fallback")
+            try:
+                response = await litellm.acompletion(
+                    model=f"openai/{self._litellm_settings.CHAT_MODEL}",
+                    api_base=self._litellm_settings.PROXY_BASE_URL,
+                    api_key=self._litellm_settings.PROXY_API_KEY.get_secret_value(),
+                    messages=assembled,
+                    max_tokens=self._litellm_settings.CHAT_COMPLETION_TOKENS,
+                    temperature=self._litellm_settings.CHAT_TEMPERATURE,
+                    stream=False,
+                    num_retries=3,
+                    timeout=self._chat_settings.REQUEST_TIMEOUT,
+                )
+                content = response.choices[0].message.content
+                if content:
+                    full_response.append(content)
+                    yield content
+                if hasattr(response, "usage") and response.usage:
+                    usage_data = response.usage
+            except Exception:
+                logger.exception("Non-streaming fallback also failed")
+                raise  # Re-raise — router catches and emits SSE error event
+
+        # --- Yield usage data for router to include in final SSE chunk ---
+        if usage_data:
+            usage_dict = usage_data if isinstance(usage_data, dict) else {
+                "prompt_tokens": getattr(usage_data, "prompt_tokens", 0),
+                "completion_tokens": getattr(usage_data, "completion_tokens", 0),
+                "total_tokens": getattr(usage_data, "total_tokens", 0),
+            }
+            yield {"usage": usage_dict}
+
+        # --- Post-stream logging ---
+        llm_latency_ms = int((time.monotonic() - llm_start) * 1000)
+
+        if self._chat_settings.ENABLE_CONVERSATION_LOGGING and query_log_id:
+            try:
+                await self._log_llm_response(
+                    query_log_id, "".join(full_response), llm_latency_ms,
+                    usage_data, search_results,
+                )
+            except Exception:
+                logger.exception("LLM response logging failed")
+
+    @staticmethod
+    def _transform_results_for_logging(search_results: list[dict]) -> list[dict]:
+        """Transform hybrid search results to the format QueryLogClient expects.
+
+        hybrid_search returns: [{"rank": int, "combined_score": float, "chunk": TextChunk}]
+        QueryLogClient expects: [{"rank": int, "score": float, "chunk_id": UUID, "parent_article_id": UUID}]
+        """
+        return [
+            {
+                "rank": r["rank"],
+                "score": r["combined_score"],
+                "chunk_id": str(r["chunk"].chunk_id),
+                "parent_article_id": str(r["chunk"].parent_article_id),
+            }
+            for r in search_results
+        ]
+
+    async def _log_query(
+        self,
+        query: str | None,
+        email: str | None,
+        command: str | None,
+        search_results: list[dict],
+        reranking_metadata: dict,
+    ) -> int | None:
+        """Log query and results to database. Returns query_log_id."""
+        command_value = "follow_up" if command == "follow_up" else "search"
+        results_for_logging = self._transform_results_for_logging(search_results)
+
+        def _do_log():
+            client = QueryLogClient(connection_pool=self._pool)
+            query_log_id = client.log_query_with_results(
+                raw_query=query or "",
+                cache_result="miss",
+                search_method="hybrid",
+                results=results_for_logging,
+                email=email,
+                command=command_value,
+            )
+            # Log reranker data if available
+            rrf_results = reranking_metadata.get("rrf_results_before_reranking", [])
+            if reranking_metadata.get("reranked") and self._reranker:
+                reranker_client = RerankerLogClient(connection_pool=self._pool)
+                reranker_client.log_reranking(
+                    query_log_id=query_log_id,
+                    rrf_results=rrf_results,
+                    reranked_results=search_results,
+                    model_name=self._reranker.model if self._reranker else "unknown",
+                    reranker_latency_ms=reranking_metadata.get("reranker_latency_ms", 0),
+                    reranker_status="success",
+                )
+            elif reranking_metadata.get("reranking_failed"):
+                reranker_client = RerankerLogClient(connection_pool=self._pool)
+                reranker_client.log_reranking(
+                    query_log_id=query_log_id,
+                    rrf_results=rrf_results,
+                    reranked_results=rrf_results,
+                    model_name=self._reranker.model if self._reranker else "unknown",
+                    reranker_latency_ms=reranking_metadata.get("reranker_latency_ms", 0),
+                    reranker_status="failed",
+                    error_message=reranking_metadata.get("error"),
+                )
+            return query_log_id
+
+        return await asyncio.to_thread(_do_log)
+
+    async def _log_llm_response(
+        self,
+        query_log_id: int,
+        response_text: str,
+        llm_latency_ms: int,
+        usage_data,
+        search_results: list[dict],
+    ) -> None:
+        """Log LLM response to llm_responses table."""
+        citations = None
+        if search_results:
+            citations = {
+                "num_documents_used": len(search_results),
+                "source_urls": [
+                    str(r["chunk"].source_url) for r in search_results
+                    if hasattr(r["chunk"], "source_url") and r["chunk"].source_url
+                ],
+                "chunk_ids": [
+                    str(r["chunk"].chunk_id) for r in search_results
+                    if hasattr(r["chunk"], "chunk_id") and r["chunk"].chunk_id
+                ],
+            }
+
+        prompt_tokens = None
+        completion_tokens = None
+        total_tokens = None
+        if usage_data:
+            if isinstance(usage_data, dict):
+                prompt_tokens = usage_data.get("prompt_tokens")
+                completion_tokens = usage_data.get("completion_tokens")
+                total_tokens = usage_data.get("total_tokens")
+            else:
+                prompt_tokens = getattr(usage_data, "prompt_tokens", None)
+                completion_tokens = getattr(usage_data, "completion_tokens", None)
+                total_tokens = getattr(usage_data, "total_tokens", None)
+
+        model_name = self._litellm_settings.CHAT_MODEL
+
+        def _do_log():
+            client = QueryLogClient(connection_pool=self._pool)
+            client.log_llm_response(
+                query_log_id=query_log_id,
+                response_text=response_text,
+                model_name=model_name,
+                llm_latency_ms=llm_latency_ms,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+                citations=citations,
+            )
+
+        await asyncio.to_thread(_do_log)
