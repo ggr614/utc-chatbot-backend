@@ -1,9 +1,0 @@
-iteration	category	target	delta	guard	status	description
-0	-	-	-	pass	baseline	7 bugs from debug session, 0 test failures, 0 lint errors
-1	bug-HIGH	openai_compat.py:54	-1	pass	fixed	Wire get_chat_service dependency instead of direct app.state access
-2	bug-MEDIUM	auth.py:94	-1	pass	fixed	Add secure=True to session cookie via AUTH_COOKIE_SECURE setting
-3	bug-MEDIUM	openai_compat.py:116	-1	pass	fixed	Replace str(e) with generic message in SSE error stream
-4	bug-LOW	auth.py:74	-1	pass(rework)	fixed	Move is_active check before password verify; update test for new behavior
-5	bug-LOW	auth.py:65	-1	pass	fixed	Sanitize username (strip newlines/control chars) before logging
-6	bug-LOW	health.py:77	-1	pass	fixed	Replace str(e) with generic messages in health endpoint responses
-7	bug-LOW	chat.py:18	-1	pass	fixed	Add max_length=100 on messages, max_length=50000 on content

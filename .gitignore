@@ -224,3 +224,5 @@ data
 config.yaml
 litellm_compose.yaml
 pgvector_compose.yamlautoresearch-results.tsv
+
+*.tsv
