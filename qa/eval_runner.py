@@ -517,6 +517,73 @@ class RetrievalEvaluator:
 
         return breakdown
 
+    def _load_previous_run(self) -> dict | None:
+        """Load the most recent eval_report_latest.json for run-over-run comparison."""
+        latest_path = Path(self.config.output_dir) / "eval_report_latest.json"
+        if not latest_path.exists():
+            return None
+        try:
+            with open(latest_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Could not load previous run: {e}")
+            return None
+
+    @staticmethod
+    def _compute_deltas(current: dict, previous: dict) -> dict:
+        """
+        Compute delta between current and previous run metrics.
+
+        Returns dict with trend direction and regression flags per method/metric.
+        """
+        deltas: dict[str, dict] = {}
+        for method in current:
+            if method not in previous:
+                continue
+            method_deltas: dict[str, dict] = {}
+            for level in ("chunk_level", "article_level"):
+                if level not in current[method] or level not in previous[method]:
+                    continue
+                level_deltas: dict[str, dict] = {}
+                cur_level = current[method][level]
+                prev_level = previous[method][level]
+
+                for metric_name in cur_level:
+                    if metric_name not in prev_level:
+                        continue
+                    cur_val = cur_level[metric_name]
+                    prev_val = prev_level[metric_name]
+
+                    if isinstance(cur_val, dict) and isinstance(prev_val, dict):
+                        metric_deltas = {}
+                        for k_label in cur_val:
+                            if k_label in prev_val:
+                                delta = cur_val[k_label] - prev_val[k_label]
+                                trend = "\u2191" if delta > 0.001 else "\u2193" if delta < -0.001 else "\u2192"
+                                regression = delta < -0.001
+                                metric_deltas[k_label] = {
+                                    "previous": prev_val[k_label],
+                                    "current": cur_val[k_label],
+                                    "delta": round(delta, 4),
+                                    "trend": trend,
+                                    "regression": regression,
+                                }
+                        level_deltas[metric_name] = metric_deltas
+                    elif isinstance(cur_val, (int, float)) and isinstance(prev_val, (int, float)):
+                        delta = cur_val - prev_val
+                        trend = "\u2191" if delta > 0.001 else "\u2193" if delta < -0.001 else "\u2192"
+                        regression = delta < -0.001
+                        level_deltas[metric_name] = {
+                            "previous": prev_val,
+                            "current": cur_val,
+                            "delta": round(delta, 4),
+                            "trend": trend,
+                            "regression": regression,
+                        }
+                method_deltas[level] = level_deltas
+            deltas[method] = method_deltas
+        return deltas
+
     def _generate_report(
         self,
         dataset: EvalDataset,
@@ -525,6 +592,12 @@ class RetrievalEvaluator:
         quality_breakdown: dict,
     ) -> dict:
         """Generate the complete evaluation report."""
+        # Load previous run for comparison
+        previous_run = self._load_previous_run()
+        comparison = {}
+        if previous_run and previous_run.get("results"):
+            comparison = self._compute_deltas(metrics_by_method, previous_run["results"])
+
         return {
             "metadata": {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -542,6 +615,7 @@ class RetrievalEvaluator:
             },
             "results": metrics_by_method,
             "quality_breakdown": quality_breakdown,
+            "comparison_with_previous": comparison,
         }
 
     def save_report(self, report: dict, output_dir: str) -> tuple[str, str]:
