@@ -244,12 +244,14 @@ def compute_all_metrics(
             "mrr": round(mrr(results, level=level_key), 4),
             "ndcg": {},
             "precision": {},
+            "recall": {},
         }
         for k in k_values:
             k_label = f"@{k}"
-            level_metrics["hit_rate"][k_label] = round(
-                hit_rate_at_k(results, k, level=level_key), 4
-            )
+            hr = round(hit_rate_at_k(results, k, level=level_key), 4)
+            level_metrics["hit_rate"][k_label] = hr
+            # For single-relevant-document retrieval, recall@k equals hit_rate@k
+            level_metrics["recall"][k_label] = hr
             level_metrics["ndcg"][k_label] = round(
                 ndcg_at_k(results, k, level=level_key), 4
             )
