@@ -153,9 +153,15 @@ class RetrievalEvaluator:
             dataset.questions, results_by_method
         )
 
+        # Identify worst-performing queries per method
+        worst_queries = self._find_worst_queries(
+            dataset.questions, results_by_method, top_n=3
+        )
+
         # Generate report
         report = self._generate_report(
-            dataset, results_by_method, metrics_by_method, quality_breakdown
+            dataset, results_by_method, metrics_by_method,
+            quality_breakdown, worst_queries,
         )
 
         # Save and display
@@ -517,6 +523,51 @@ class RetrievalEvaluator:
 
         return breakdown
 
+    def _find_worst_queries(
+        self,
+        questions: list[EvalQuestion],
+        results_by_method: dict[str, list[RetrievalResult]],
+        top_n: int = 3,
+    ) -> dict[str, list[dict]]:
+        """
+        Find the top_n worst-performing queries per method, ranked by score.
+
+        Returns dict keyed by method name, each containing a sorted list of
+        the hardest queries with full context for actionability.
+        """
+        from qa.eval_metrics import _find_rank
+
+        worst: dict[str, list[dict]] = {}
+        eval_k = max(self.config.k_values) if self.config.k_values else 10
+
+        for method, results in results_by_method.items():
+            scored_queries: list[dict] = []
+            for i, result in enumerate(results):
+                rank = _find_rank(result, eval_k, level="chunk")
+                # Score: 0 = total miss, 1/rank for hits (lower is worse)
+                score = (1.0 / rank) if rank is not None else 0.0
+                question = questions[i] if i < len(questions) else None
+
+                scored_queries.append({
+                    "rank": i + 1,
+                    "query": result.query,
+                    "expected_chunk_id": str(result.expected_chunk_id),
+                    "expected_article_id": str(result.expected_article_id),
+                    "retrieved_rank": rank,
+                    "score": round(score, 4),
+                    "latency_ms": result.latency_ms,
+                    "error": result.error,
+                    "quality_tier": question.overall_quality if question else "unknown",
+                    "source_url": question.source_url if question else "",
+                    "expected_answer": question.answer if question else "",
+                })
+
+            # Sort by score ascending (worst first), then by latency descending
+            scored_queries.sort(key=lambda x: (x["score"], -(x["latency_ms"] or 0)))
+            worst[method] = scored_queries[:top_n]
+
+        return worst
+
     def _load_previous_run(self) -> dict | None:
         """Load the most recent eval_report_latest.json for run-over-run comparison."""
         latest_path = Path(self.config.output_dir) / "eval_report_latest.json"
@@ -590,6 +641,7 @@ class RetrievalEvaluator:
         results_by_method: dict[str, list[RetrievalResult]],
         metrics_by_method: dict[str, dict],
         quality_breakdown: dict,
+        worst_queries: dict[str, list[dict]] | None = None,
     ) -> dict:
         """Generate the complete evaluation report."""
         # Load previous run for comparison
@@ -616,6 +668,7 @@ class RetrievalEvaluator:
             "results": metrics_by_method,
             "quality_breakdown": quality_breakdown,
             "comparison_with_previous": comparison,
+            "worst_performing_queries": worst_queries or {},
         }
 
     def save_report(self, report: dict, output_dir: str) -> tuple[str, str]:
