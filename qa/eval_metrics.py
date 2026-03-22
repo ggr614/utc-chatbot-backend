@@ -245,19 +245,24 @@ def compute_all_metrics(
             "ndcg": {},
             "precision": {},
             "recall": {},
+            "f1": {},
         }
         for k in k_values:
             k_label = f"@{k}"
             hr = round(hit_rate_at_k(results, k, level=level_key), 4)
+            p = round(precision_at_k(results, k, level=level_key), 4)
             level_metrics["hit_rate"][k_label] = hr
             # For single-relevant-document retrieval, recall@k equals hit_rate@k
             level_metrics["recall"][k_label] = hr
+            # F1 = harmonic mean of precision and recall
+            if p + hr > 0:
+                level_metrics["f1"][k_label] = round(2 * p * hr / (p + hr), 4)
+            else:
+                level_metrics["f1"][k_label] = 0.0
             level_metrics["ndcg"][k_label] = round(
                 ndcg_at_k(results, k, level=level_key), 4
             )
-            level_metrics["precision"][k_label] = round(
-                precision_at_k(results, k, level=level_key), 4
-            )
+            level_metrics["precision"][k_label] = p
         output[level] = level_metrics
 
     return output
